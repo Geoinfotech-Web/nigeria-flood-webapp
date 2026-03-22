@@ -1,0 +1,292 @@
+# Nigeria Flood Prediction Dashboard — Local Development Stack
+# Replaces GCP-managed services with local equivalents:
+#   BigQuery    → TimescaleDB (analytics queries)
+#   GCS         → MinIO (artifact storage for MLflow)
+#   Cloud Scheduler → scheduler container (APScheduler)
+#   Firebase CDN → Vite dev server / nginx
+
+services:
+
+  # ─────────────────────────────────────────────
+  # STORAGE
+  # ─────────────────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16
+    container_name: flood_timescaledb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flood}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
+      POSTGRES_DB: ${POSTGRES_DB:-flooddb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/home/postgres/pgdata/data
+      - ./infra/timescaledb/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flood -d flooddb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: flood_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # MinIO — local GCS replacement for MLflow artifacts
+  minio:
+    image: minio/minio:latest
+    container_name: flood_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Create MLflow bucket on startup
+  minio_init:
+    image: minio/mc:latest
+    container_name: flood_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/mlflow-artifacts &&
+        mc mb --ignore-existing local/flood-models &&
+        echo 'MinIO buckets ready'
+      "
+
+  # ─────────────────────────────────────────────
+  # APACHE FLINK
+  # ─────────────────────────────────────────────
+  flink_jobmanager:
+    image: flink:1.18-scala_2.12
+    container_name: flood_flink_jobmanager
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink_jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        rest.port: 8081
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./flink/jobs:/opt/flink/jobs
+      - flink_checkpoints:/opt/flink/checkpoints
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  flink_taskmanager:
+    image: flink:1.18-scala_2.12
+    container_name: flood_flink_taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink_jobmanager
+        taskmanager.numberOfTaskSlots: 4
+    volumes:
+      - ./flink/jobs:/opt/flink/jobs
+      - flink_checkpoints:/opt/flink/checkpoints
+    depends_on:
+      - flink_jobmanager
+
+  # ─────────────────────────────────────────────
+  # ML PLATFORM
+  # ─────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: flood_mlflow
+    command: >
+      bash -c "pip install mlflow boto3 psycopg2-binary --quiet &&
+               mlflow server
+               --host 0.0.0.0
+               --port 5000
+               --backend-store-uri postgresql://flood:floodpass@timescaledb:5432/flooddb
+               --artifacts-destination s3://mlflow-artifacts
+               --default-artifact-root s3://mlflow-artifacts"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "5000:5000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
+
+  bentoml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: flood_bentoml
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-flood}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
+      DB_NAME: ${POSTGRES_DB:-flooddb}
+      MLFLOW_TRACKING_URI: file:///app/mlruns
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./ml:/app
+      - bentoml_models:/root/bentoml
+
+  # ─────────────────────────────────────────────
+  # INGEST + SCHEDULER
+  # ─────────────────────────────────────────────
+  ingest:
+    build:
+      context: ./ingest
+      dockerfile: Dockerfile
+    container_name: flood_ingest
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-flood}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
+      DB_NAME: ${POSTGRES_DB:-flooddb}
+      GAUGE_INTERVAL_SECONDS: 300      # every 5 min
+      MET_INTERVAL_SECONDS: 900        # every 15 min
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./ingest:/app
+
+  # ─────────────────────────────────────────────
+  # API
+  # ─────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: flood_api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-flood}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
+      DB_NAME: ${POSTGRES_DB:-flooddb}
+      REDIS_URL: redis://redis:6379/0
+      BENTOML_URL: http://bentoml:3000
+      TITILER_URL: http://titiler:8000
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+
+  # ─────────────────────────────────────────────
+  # FRONTEND
+  # ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: flood_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+  # ─────────────────────────────────────────────
+  # TILE SERVER (COG rasters → XYZ map tiles)
+  # ─────────────────────────────────────────────
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    container_name: flood_titiler
+    ports:
+      - "8888:8000"
+    environment:
+      - GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR
+      - GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES
+      - VSI_CACHE=TRUE
+      - VSI_CACHE_SIZE=536870912
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_S3_ENDPOINT=http://minio:9000
+      - GDAL_HTTP_UNSAFESSL=YES
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # OBSERVABILITY
+  # ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: flood_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: flood_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  minio_data:
+  flink_checkpoints:
+  bentoml_models:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    name: flood_network

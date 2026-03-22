@@ -1,0 +1,59 @@
+# ── Credentials & secrets ─────────────────────
+.env
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+
+# ── Python ────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# ── Node / frontend ───────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.pnp
+.pnp.js
+
+# ── ML / data artifacts ───────────────────────
+*.h5
+*.pkl
+*.joblib
+*.pt
+*.pth
+bentoml/
+mlruns/
+mlartifacts/
+
+# ── Generated / large files ───────────────────
+*.pdf
+*.tif
+*.tiff
+*.geotiff
+
+# ── MinIO / object store local data ──────────
+minio/data/
+
+# ── Docker volumes & temp ─────────────────────
+.docker/
+*.log
+*.pid
+
+# ── OS / editor ───────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
