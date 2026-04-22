@@ -47,6 +47,7 @@ minio/data/
 
 # ── Docker volumes & temp ─────────────────────
 .docker/
+.run-logs/
 *.log
 *.pid
 

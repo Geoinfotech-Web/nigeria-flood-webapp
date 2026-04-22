@@ -17,8 +17,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-flood}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
       POSTGRES_DB: ${POSTGRES_DB:-flooddb}
-    ports:
-      - "5432:5432"
     volumes:
       - timescaledb_data:/home/postgres/pgdata/data
       - ./infra/timescaledb/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -31,8 +29,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: flood_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -171,6 +167,11 @@ services:
       DB_USER: ${POSTGRES_USER:-flood}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-floodpass}
       DB_NAME: ${POSTGRES_DB:-flooddb}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      GEE_SERVICE_ACCOUNT_EMAIL: ${GEE_SERVICE_ACCOUNT_EMAIL:-}
+      GEE_SERVICE_ACCOUNT_KEY: /run/secrets/gee-service-account.json
       GAUGE_INTERVAL_SECONDS: 300      # every 5 min
       MET_INTERVAL_SECONDS: 900        # every 15 min
     depends_on:
@@ -178,6 +179,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ingest:/app
+      - ${GEE_SERVICE_ACCOUNT_KEY:-./ggis-africa-0926ddaa6e72.json}:/run/secrets/gee-service-account.json:ro
 
   # ─────────────────────────────────────────────
   # API
@@ -197,7 +199,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-flooddb}
       REDIS_URL: redis://redis:6379/0
       BENTOML_URL: http://bentoml:3000
-      TITILER_URL: http://titiler:8000
+      TITILER_URL: http://titiler
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
     depends_on:
       timescaledb:
@@ -233,7 +235,7 @@ services:
     image: ghcr.io/developmentseed/titiler:latest
     container_name: flood_titiler
     ports:
-      - "8888:8000"
+      - "8888:80"
     environment:
       - GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR
       - GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES
@@ -243,6 +245,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_S3_ENDPOINT=http://minio:9000
+      - AWS_VIRTUAL_HOSTING=FALSE
       - GDAL_HTTP_UNSAFESSL=YES
     depends_on:
       minio:
@@ -267,7 +270,7 @@ services:
     image: grafana/grafana:latest
     container_name: flood_grafana
     ports:
-      - "3001:3000"
+      - "3002:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin

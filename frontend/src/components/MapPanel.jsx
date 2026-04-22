@@ -88,6 +88,7 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
   const [mapReady,    setMapReady]    = useState(false)
   const [tileLayers,  setTileLayers]  = useState([])
   const [activeTile,  setActiveTile]  = useState(null)  // layer id string or null
+  const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
 
   // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -121,8 +122,8 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
       .then(r => r.json())
       .then(layers => {
         setTileLayers(layers)
-        // Auto-select the GEE susceptibility layer if present, else JRC
-        const gee = layers.find(l => l.source === 'gee_jrc')
+        // Auto-select the classified susceptibility layer if present, else first available layer.
+        const gee = layers.find(l => l.source === 'gee_susceptibility_classes')
         setActiveTile(gee ? String(gee.id) : (layers[0] ? String(layers[0].id) : null))
       })
       .catch(console.error)
@@ -241,6 +242,7 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
       tiles: [tileUrl],
       tileSize: 256,
       attribution: layer.label,
+      bounds: layer.bounds ?? undefined,
     })
 
     // Insert below flood-risk-fill so polygons are still clickable on top
@@ -362,7 +364,7 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
 
       {/* Legend — bottom left (above scale) */}
       <div className="absolute bottom-10 left-3 z-10">
-        <FloodRiskLegend />
+        <FloodRiskLegend overlayLegend={activeLayer?.legend ?? null} />
       </div>
     </div>
   )
