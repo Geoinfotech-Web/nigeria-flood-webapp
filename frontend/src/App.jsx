@@ -75,7 +75,7 @@ export default function App() {
 
         {/* Right: detail panel */}
         {selectedStation && (
-          <aside className="w-76 shrink-0 border-l border-gray-800 overflow-y-auto
+          <aside className="w-[24rem] shrink-0 border-l border-gray-800 overflow-y-auto
                             bg-gray-900/60">
             {/* Station header */}
             <div className="px-4 pt-4 pb-3 border-b border-gray-800">
