@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
+import ImpactSummaryPanel from './ImpactSummaryPanel'
 import RiskLayerControl from './RiskLayerControl'
 import { IconHome } from './Icons'
 
@@ -258,6 +259,8 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
   const [mapReady,    setMapReady]    = useState(false)
   const [tileLayers,  setTileLayers]  = useState([])
   const [activeTile,  setActiveTile]  = useState(null)  // layer id string or null
+  const [impactSummary, setImpactSummary] = useState(null)
+  const [selectedRiskArea, setSelectedRiskArea] = useState(null)
   const [exposureMeta, setExposureMeta] = useState([])
   const [exposureData, setExposureData] = useState({
     roads: null,
@@ -328,6 +331,30 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
   }, [])
 
   useEffect(() => {
+    const loadImpactSummary = () => {
+      const params = new URLSearchParams()
+      if (selectedRiskArea?.name && selectedRiskArea?.admin_level) {
+        params.set('area_name', selectedRiskArea.name)
+        params.set('admin_level', selectedRiskArea.admin_level)
+      } else if (selected) {
+        params.set('station_id', String(selected))
+      } else {
+        setImpactSummary(null)
+        return Promise.resolve()
+      }
+
+      return fetch(`${API}/flood-risk/impact-summary?${params.toString()}`)
+        .then(r => r.json())
+        .then(setImpactSummary)
+        .catch(console.error)
+    }
+
+    loadImpactSummary()
+    const id = setInterval(loadImpactSummary, 300_000)
+    return () => clearInterval(id)
+  }, [selected, selectedRiskArea])
+
+  useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
       if (!visible || exposureData[layerId]) return
       fetch(`${API}/exposure/${layerId}`)
@@ -391,6 +418,13 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
       // Click on risk area → popup
       map.on('click', 'flood-risk-fill', e => {
         const p = e.features[0].properties
+        setSelectedRiskArea({
+          name: p.name,
+          admin_level: p.admin_level,
+          risk_tier: p.risk_tier,
+          state: p.state,
+        })
+        onSelect(null)
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
@@ -551,7 +585,10 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
           ${selected === s.id ? 'transform:scale(1.6);outline:3px solid white;outline-offset:2px;' : ''}
         "></div>
       `
-      el.addEventListener('click', () => onSelect(s.id))
+      el.addEventListener('click', () => {
+        setSelectedRiskArea(null)
+        onSelect(s.id)
+      })
       el.addEventListener('mouseenter', () => { el.firstElementChild.style.transform = 'scale(1.4)' })
       el.addEventListener('mouseleave', () => {
         if (selected !== s.id) el.firstElementChild.style.transform = 'scale(1)'
@@ -650,6 +687,13 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
           onToggleExposure={toggleExposureLayer}
         />
       </div>
+
+      {/* Impact summary — bottom dock */}
+      {impactSummary && (
+        <div className="absolute bottom-3 left-64 right-3 z-10">
+          <ImpactSummaryPanel summary={impactSummary} />
+        </div>
+      )}
     </div>
   )
 }

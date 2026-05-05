@@ -10,10 +10,17 @@ import json
 import logging
 import urllib.parse as up
 import base64
+from collections import Counter
+from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Query, Request, HTTPException
 from fastapi.responses import Response
+from shapely.geometry import shape
+from shapely.ops import unary_union
+from shapely.prepared import prep
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -23,6 +30,13 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 TRANSPARENT_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlH0i8AAAAASUVORK5CYII="
 )
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+EXPOSURE_FILES = {
+    "roads": DATA_DIR / "exposure_roads.geojson",
+    "bridges": DATA_DIR / "exposure_bridges.geojson",
+    "places": DATA_DIR / "exposure_places.geojson",
+}
+DEFAULT_IMPACT_TIERS = ("Warning", "Emergency")
 
 OVERLAY_METADATA = {
     "jrc_occurrence": {
@@ -62,6 +76,32 @@ OVERLAY_METADATA = {
         },
     },
 }
+
+
+@lru_cache(maxsize=4)
+def _load_exposure_geometries(layer_name: str) -> tuple[tuple[object, dict], ...]:
+    path = EXPOSURE_FILES[layer_name]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    records = []
+    for feature in payload.get("features", []):
+        geometry = feature.get("geometry")
+        properties = feature.get("properties") or {}
+        if not geometry:
+            continue
+        records.append((shape(geometry), properties))
+    return tuple(records)
+
+
+def _tier_cache_key(tiers: tuple[str, ...]) -> str:
+    return "impact-summary:" + ",".join(sorted(tiers))
+
+
+def _serialise_counter(counter: Counter) -> dict[str, int]:
+    return {key: counter[key] for key in sorted(counter)}
+
+
+def _severity_rank(tier: str) -> int:
+    return {"Emergency": 3, "Warning": 2, "Watch": 1, "Normal": 0}.get(tier, 0)
 
 
 # ── GeoJSON risk areas ────────────────────────────────────────────────────────
@@ -261,6 +301,254 @@ async def risk_summary(request: Request):
             GROUP BY risk_tier
         """)
     return {r["risk_tier"]: r["count"] for r in rows}
+
+
+@router.get("/impact-summary")
+async def impact_summary(
+    request: Request,
+    tiers: list[str] | None = Query(default=None, description="Risk tiers to include, defaults to Warning + Emergency"),
+    station_id: int | None = Query(default=None, description="Optional gauge station id for station-specific analysis"),
+    area_name: str | None = Query(default=None, description="Optional flood risk area name for area-specific analysis"),
+    admin_level: str | None = Query(default=None, description="Optional flood risk admin level for area-specific analysis"),
+):
+    requested_tiers = tuple(dict.fromkeys(tiers or list(DEFAULT_IMPACT_TIERS)))
+    cache_scope = f"station:{station_id}" if station_id else f"area:{area_name}:{admin_level}" if area_name else "global"
+    cache_key = f"{_tier_cache_key(requested_tiers)}:{cache_scope}"
+    cached = await request.app.state.redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    async def _fetch_rows(conn, selected_tiers: tuple[str, ...], geometry_scope: str = "all"):
+        if geometry_scope == "station_buffer":
+            return await conn.fetch(
+                """
+                WITH station AS (
+                    SELECT id, name, state, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+                    FROM gauge_stations
+                    WHERE id = $2
+                )
+                SELECT DISTINCT ON (fra.name, fra.admin_level)
+                    fra.name, fra.admin_level, fra.state, fra.risk_tier, fra.risk_score,
+                    ST_AsGeoJSON(fra.geom)::text AS geometry
+                FROM flood_risk_areas fra
+                JOIN station s ON TRUE
+                WHERE fra.risk_tier = ANY($1::text[])
+                  AND ST_DWithin(fra.geom::geography, s.geom::geography, 60000)
+                ORDER BY fra.name, fra.admin_level, fra.valid_from DESC, fra.risk_score DESC
+                """,
+                list(selected_tiers), station_id,
+            )
+        if geometry_scope == "station_state":
+            return await conn.fetch(
+                """
+                WITH station AS (
+                    SELECT id, name, state
+                    FROM gauge_stations
+                    WHERE id = $2
+                )
+                SELECT DISTINCT ON (fra.name, fra.admin_level)
+                    fra.name, fra.admin_level, fra.state, fra.risk_tier, fra.risk_score,
+                    ST_AsGeoJSON(fra.geom)::text AS geometry
+                FROM flood_risk_areas fra
+                JOIN station s ON TRUE
+                WHERE fra.risk_tier = ANY($1::text[])
+                  AND fra.state = s.state
+                ORDER BY fra.name, fra.admin_level, fra.valid_from DESC, fra.risk_score DESC
+                """,
+                list(selected_tiers), station_id,
+            )
+        if geometry_scope == "area":
+            return await conn.fetch(
+                """
+                SELECT DISTINCT ON (name, admin_level)
+                    name, admin_level, state, risk_tier, risk_score,
+                    ST_AsGeoJSON(geom)::text AS geometry
+                FROM flood_risk_areas
+                WHERE risk_tier = ANY($1::text[])
+                  AND name = $2
+                  AND admin_level = $3
+                ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+                """,
+                list(selected_tiers), area_name, admin_level,
+            )
+        return await conn.fetch(
+            """
+            SELECT DISTINCT ON (name, admin_level)
+                name, admin_level, state, risk_tier, risk_score,
+                ST_AsGeoJSON(geom)::text AS geometry
+            FROM flood_risk_areas
+            WHERE risk_tier = ANY($1::text[])
+            ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+            """,
+            list(selected_tiers),
+        )
+
+    async with request.app.state.db.acquire() as conn:
+        context = {"mode": "global", "label": "Nigeria-wide impact summary"}
+        if station_id:
+            station = await conn.fetchrow(
+                "SELECT id, name, state FROM gauge_stations WHERE id = $1",
+                station_id,
+            )
+            if not station:
+                raise HTTPException(status_code=404, detail="Station not found")
+            context = {
+                "mode": "station",
+                "station_id": station["id"],
+                "label": f"{station['name']} station area",
+                "state": station["state"],
+            }
+            rows = await _fetch_rows(conn, requested_tiers, "station_buffer")
+            geometry_scope = "station_buffer"
+        elif area_name and admin_level:
+            context = {
+                "mode": "risk_area",
+                "label": f"{area_name} ({admin_level})",
+                "area_name": area_name,
+                "admin_level": admin_level,
+            }
+            rows = await _fetch_rows(conn, requested_tiers, "area")
+            geometry_scope = "area"
+        else:
+            rows = await _fetch_rows(conn, requested_tiers)
+            geometry_scope = "all"
+        effective_tiers = requested_tiers
+        note = None
+        available_zone_counts = {}
+
+        if not rows:
+            available_rows = await conn.fetch(
+                """
+                SELECT risk_tier, COUNT(*) AS count
+                FROM (
+                    SELECT DISTINCT ON (name, admin_level) risk_tier
+                    FROM flood_risk_areas
+                    ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+                ) t
+                GROUP BY risk_tier
+                """
+            )
+            available_zone_counts = {row["risk_tier"]: row["count"] for row in available_rows}
+            if station_id:
+                state_rows = await _fetch_rows(conn, requested_tiers, "station_state")
+                if state_rows:
+                    rows = state_rows
+                    geometry_scope = "station_state"
+                    note = "No warning or emergency zones were found near this station, so this summary is using the active risk areas in the station's state."
+            if available_zone_counts.get("Watch"):
+                effective_tiers = ("Watch",)
+                if station_id and geometry_scope == "station_state":
+                    rows = await _fetch_rows(conn, effective_tiers, "station_state")
+                    note = "No warning or emergency zones are active for this station, so this summary is using Watch zones in the station's state."
+                elif station_id:
+                    rows = await _fetch_rows(conn, effective_tiers, "station_buffer")
+                    geometry_scope = "station_buffer"
+                    note = "No warning or emergency zones are active near this station, so this summary is using Watch zones around the station."
+                elif area_name and admin_level:
+                    rows = await _fetch_rows(conn, effective_tiers, "area")
+                    note = "No warning or emergency tiers are active for this selected area, so this summary is using its Watch zone."
+                else:
+                    rows = await _fetch_rows(conn, effective_tiers)
+                    note = "No warning or emergency zones are active right now, so this summary is using Watch zones."
+
+    if not rows:
+        payload = {
+            "requested_tiers": list(requested_tiers),
+            "tiers": list(effective_tiers),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "context": context,
+            "note": note,
+            "available_zones": available_zone_counts,
+            "zones": {},
+            "roads": {"total": 0, "by_class": {}, "by_tier": {}},
+            "bridges": {"total": 0, "by_class": {}, "by_tier": {}},
+            "settlements": {"total": 0, "by_class": {}, "by_tier": {}, "top_places": []},
+        }
+        await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
+        return payload
+
+    tier_geometries: dict[str, list] = {tier: [] for tier in effective_tiers}
+    zone_counts: Counter = Counter()
+    for row in rows:
+        tier = row["risk_tier"]
+        geometry = row["geometry"]
+        if isinstance(geometry, str):
+            geometry = json.loads(geometry)
+        tier_geometries.setdefault(tier, []).append(shape(geometry))
+        zone_counts[tier] += 1
+
+    prepared_by_tier = {
+        tier: prep(unary_union(geometries))
+        for tier, geometries in tier_geometries.items()
+        if geometries
+    }
+
+    def summarise_layer(layer_name: str, class_key: str = "class") -> dict:
+        total = 0
+        by_class = Counter()
+        by_tier = {tier: Counter() for tier in prepared_by_tier}
+        matched_places = []
+
+        for geometry, properties in _load_exposure_geometries(layer_name):
+            matched_tiers = [
+                tier
+                for tier, prepared_geom in prepared_by_tier.items()
+                if prepared_geom.intersects(geometry)
+            ]
+            if not matched_tiers:
+                continue
+
+            total += 1
+            label = properties.get(class_key, "Unclassified")
+            by_class[label] += 1
+
+            for tier in matched_tiers:
+                by_tier[tier][label] += 1
+
+            if layer_name == "places":
+                highest_tier = max(matched_tiers, key=_severity_rank)
+                population_raw = properties.get("population")
+                try:
+                    population = int(population_raw) if population_raw is not None else None
+                except (TypeError, ValueError):
+                    population = None
+                matched_places.append({
+                    "name": properties.get("name", "Unnamed place"),
+                    "class": properties.get("class", "Settlement"),
+                    "population": population,
+                    "risk_tier": highest_tier,
+                })
+
+        result = {
+            "total": total,
+            "by_class": _serialise_counter(by_class),
+            "by_tier": {tier: _serialise_counter(counter) for tier, counter in by_tier.items()},
+        }
+        if layer_name == "places":
+            matched_places.sort(
+                key=lambda place: (
+                    -_severity_rank(place["risk_tier"]),
+                    -(place["population"] or 0),
+                    place["name"],
+                )
+            )
+            result["top_places"] = matched_places[:5]
+        return result
+
+    payload = {
+        "requested_tiers": list(requested_tiers),
+        "tiers": list(effective_tiers),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "context": context,
+        "note": note,
+        "available_zones": available_zone_counts,
+        "zones": _serialise_counter(zone_counts),
+        "roads": summarise_layer("roads"),
+        "bridges": summarise_layer("bridges"),
+        "settlements": summarise_layer("places"),
+    }
+    await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
+    return payload
 
 
 def _empty_feature_collection() -> dict:
