@@ -9,6 +9,23 @@ const TIERS = [
   { tier: 'Normal', color: '#22c55e', range: '< 25%' },
 ]
 
+const EXPOSURE_SYMBOLS = {
+  roads: [
+    { label: 'Highway', color: '#f59e0b', type: 'line', dash: false },
+    { label: 'Major Road', color: '#fb923c', type: 'line', dash: false },
+    { label: 'Secondary Road', color: '#38bdf8', type: 'line', dash: false },
+    { label: 'Tertiary Road', color: '#cbd5e1', type: 'line', dash: true },
+  ],
+  bridges: [
+    { label: 'Bridge', color: '#fde68a', stroke: '#7c2d12', type: 'circle' },
+  ],
+  places: [
+    { label: 'City', color: '#f8fafc', stroke: '#0f172a', type: 'circle' },
+    { label: 'Town', color: '#cbd5e1', stroke: '#0f172a', type: 'circle' },
+    { label: 'Village', color: '#94a3b8', stroke: '#0f172a', type: 'circle' },
+  ],
+}
+
 export default function FloodRiskLegend({
   overlayLegend = null,
   exposureLayers = [],
@@ -17,6 +34,7 @@ export default function FloodRiskLegend({
 }) {
   const isOverlayLegend = Boolean(overlayLegend)
   const [collapsed, setCollapsed] = useState(false)
+  const visibleExposureLayers = exposureLayers.filter(layer => exposureVisibility[layer.id])
 
   return (
     <div className="bg-gray-900/90 backdrop-blur border border-gray-700/80 rounded-lg shadow-xl w-56 overflow-hidden">
@@ -151,6 +169,50 @@ export default function FloodRiskLegend({
               <p className="text-[10px] text-gray-500 leading-tight">
                 Adds roads, bridges, and settlements for impact context.
               </p>
+
+              {visibleExposureLayers.length > 0 && (
+                <div className="pt-2 border-t border-gray-800 space-y-2">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+                    Exposure Symbology
+                  </p>
+
+                  {visibleExposureLayers.map(layer => (
+                    <div key={`${layer.id}-symbols`} className="space-y-1">
+                      <p className="text-[10px] font-medium text-gray-400">
+                        {layer.label}
+                      </p>
+
+                      <div className="space-y-1">
+                        {(EXPOSURE_SYMBOLS[layer.id] || []).map(symbol => (
+                          <div key={`${layer.id}-${symbol.label}`} className="flex items-center gap-2">
+                            {symbol.type === 'line' ? (
+                              <span
+                                className="block w-5 shrink-0"
+                                style={{
+                                  background: symbol.dash ? 'transparent' : symbol.color,
+                                  borderTop: symbol.dash ? `2px dashed ${symbol.color}` : 'none',
+                                  borderRadius: symbol.dash ? 0 : 999,
+                                  height: symbol.dash ? 2 : 2,
+                                }}
+                              />
+                            ) : (
+                              <span
+                                className="h-2.5 w-2.5 rounded-full shrink-0"
+                                style={{
+                                  background: symbol.color,
+                                  border: `1.2px solid ${symbol.stroke || symbol.color}`,
+                                  boxShadow: `0 0 5px ${symbol.color}55`,
+                                }}
+                              />
+                            )}
+                            <span className="text-[10px] text-gray-400">{symbol.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
