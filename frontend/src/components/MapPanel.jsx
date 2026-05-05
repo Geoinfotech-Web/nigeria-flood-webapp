@@ -81,6 +81,171 @@ const DEFAULT_NIGERIA_BOUNDS = [
   [2.65, 4.2],
   [14.75, 13.95],
 ]
+const ROAD_LAYER_STYLES = [
+  { key: 'highway', className: 'Highway', color: '#f59e0b', minzoom: 5, dash: undefined, width: [5, 1.2, 8, 2.2, 11, 4, 13, 6] },
+  { key: 'major', className: 'Major Road', color: '#fb923c', minzoom: 6, dash: undefined, width: [6, 0.8, 9, 1.8, 12, 3, 14, 4.5] },
+  { key: 'secondary', className: 'Secondary Road', color: '#38bdf8', minzoom: 7, dash: undefined, width: [7, 0.6, 10, 1.3, 13, 2.4] },
+  { key: 'tertiary', className: 'Tertiary Road', color: '#cbd5e1', minzoom: 9, dash: [1.4, 1.2], width: [9, 0.5, 12, 1.1, 14, 1.8] },
+]
+const PLACE_LAYER_STYLES = [
+  { key: 'city', className: 'City', color: '#f8fafc', radius: [5, 3.2, 9, 4.5, 12, 6], minzoom: 5, textSize: [5, 11, 9, 13, 12, 15] },
+  { key: 'town', className: 'Town', color: '#cbd5e1', radius: [7, 2.6, 10, 3.8, 13, 4.8], minzoom: 7, textSize: [7, 10, 10, 12, 13, 13] },
+  { key: 'village', className: 'Village', color: '#94a3b8', radius: [9, 2.2, 12, 3.2, 14, 4], minzoom: 9, textSize: [9, 9, 12, 10, 14, 11] },
+]
+
+function interpolateWidth(stops) {
+  return ['interpolate', ['linear'], ['zoom'], ...stops]
+}
+
+function registerPointerCursor(map, layerId) {
+  map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer' })
+  map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = '' })
+}
+
+function addRoadLayers(map, sourceId) {
+  ROAD_LAYER_STYLES.forEach(style => {
+    const layerId = `exposure-roads-${style.key}`
+    if (map.getLayer(layerId)) return
+    map.addLayer({
+      id: layerId,
+      type: 'line',
+      source: sourceId,
+      minzoom: style.minzoom,
+      filter: ['==', ['get', 'class'], style.className],
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-color': style.color,
+        'line-opacity': 0.8,
+        'line-width': interpolateWidth(style.width),
+        ...(style.dash ? { 'line-dasharray': style.dash } : {}),
+      },
+    })
+
+    map.on('click', layerId, e => {
+      const props = e.features?.[0]?.properties || {}
+      new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || props.ref || 'Unnamed road'}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="color:#6b7280">Class</span>
+              <span style="font-weight:600;color:${style.color}">${props.class || style.className}</span>
+            </div>
+            ${props.ref ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Ref</span><span>${props.ref}</span></div>` : ''}
+            ${props.surface ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Surface</span><span>${props.surface}</span></div>` : ''}
+          </div>
+        `)
+        .addTo(map)
+    })
+    registerPointerCursor(map, layerId)
+  })
+}
+
+function addBridgeLayer(map, sourceId) {
+  if (!map.getLayer('exposure-bridges')) {
+    map.addLayer({
+      id: 'exposure-bridges',
+      type: 'circle',
+      source: sourceId,
+      minzoom: 8,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.5, 11, 4.5, 14, 6],
+        'circle-color': '#fde68a',
+        'circle-stroke-width': 1.6,
+        'circle-stroke-color': '#7c2d12',
+        'circle-opacity': 0.92,
+      },
+    })
+
+    map.on('click', 'exposure-bridges', e => {
+      const props = e.features?.[0]?.properties || {}
+      new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || props.ref || 'Bridge crossing'}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="color:#6b7280">Type</span>
+              <span style="font-weight:600;color:#fde68a">${props.class || 'Bridge'}</span>
+            </div>
+            ${props.highway ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Highway tag</span><span>${props.highway}</span></div>` : ''}
+          </div>
+        `)
+        .addTo(map)
+    })
+    registerPointerCursor(map, 'exposure-bridges')
+  }
+}
+
+function addPlaceLayers(map, sourceId) {
+  PLACE_LAYER_STYLES.forEach(style => {
+    const circleId = `exposure-places-${style.key}-circle`
+    const labelId = `exposure-places-${style.key}-label`
+
+    if (!map.getLayer(circleId)) {
+      map.addLayer({
+        id: circleId,
+        type: 'circle',
+        source: sourceId,
+        minzoom: style.minzoom,
+        filter: ['==', ['get', 'class'], style.className],
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], ...style.radius],
+          'circle-color': style.color,
+          'circle-stroke-width': 1.2,
+          'circle-stroke-color': '#0f172a',
+          'circle-opacity': 0.9,
+        },
+      })
+
+      map.on('click', circleId, e => {
+        const props = e.features?.[0]?.properties || {}
+        new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+              <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Unnamed place'}</div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+                <span style="color:#6b7280">Class</span>
+                <span style="font-weight:600;color:${style.color}">${props.class || style.className}</span>
+              </div>
+              ${props.population ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Population</span><span>${Number(props.population).toLocaleString()}</span></div>` : ''}
+            </div>
+          `)
+          .addTo(map)
+      })
+      registerPointerCursor(map, circleId)
+    }
+
+    if (!map.getLayer(labelId)) {
+      map.addLayer({
+        id: labelId,
+        type: 'symbol',
+        source: sourceId,
+        minzoom: style.minzoom,
+        filter: ['==', ['get', 'class'], style.className],
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], ...style.textSize],
+          'text-font': ['Open Sans Regular'],
+          'text-offset': [0, 1.15],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': style.color,
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.1,
+          'text-opacity': 0.9,
+        },
+      })
+    }
+  })
+}
 
 export default function MapPanel({ stations, liveReadings, selected, onSelect }) {
   const mapRef     = useRef(null)
@@ -93,6 +258,17 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
   const [mapReady,    setMapReady]    = useState(false)
   const [tileLayers,  setTileLayers]  = useState([])
   const [activeTile,  setActiveTile]  = useState(null)  // layer id string or null
+  const [exposureMeta, setExposureMeta] = useState([])
+  const [exposureData, setExposureData] = useState({
+    roads: null,
+    bridges: null,
+    places: null,
+  })
+  const [exposureVisible, setExposureVisible] = useState({
+    roads: false,
+    bridges: false,
+    places: true,
+  })
   const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
@@ -100,6 +276,9 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
       padding: { top: 48, right: 48, bottom: 48, left: 48 },
       duration: 1200,
     })
+  }, [])
+  const toggleExposureLayer = useCallback((layerId) => {
+    setExposureVisible(current => ({ ...current, [layerId]: !current[layerId] }))
   }, [])
 
   // ── Init map ───────────────────────────────────────────────────────────────
@@ -140,6 +319,28 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
       })
       .catch(console.error)
   }, [])
+
+  useEffect(() => {
+    fetch(`${API}/exposure/manifest`)
+      .then(r => r.json())
+      .then(setExposureMeta)
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    Object.entries(exposureVisible).forEach(([layerId, visible]) => {
+      if (!visible || exposureData[layerId]) return
+      fetch(`${API}/exposure/${layerId}`)
+        .then(r => r.json())
+        .then(data => {
+          setExposureData(current => {
+            if (current[layerId]) return current
+            return { ...current, [layerId]: data }
+          })
+        })
+        .catch(console.error)
+    })
+  }, [exposureVisible, exposureData])
 
   // ── Add risk GeoJSON layer once map + data are ready ──────────────────────
   useEffect(() => {
@@ -275,6 +476,57 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
     }
   }, [mapReady, riskOpacity])
 
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+
+    if (exposureData.roads) {
+      if (map.getSource('exposure-roads')) {
+        map.getSource('exposure-roads').setData(exposureData.roads)
+      } else {
+        map.addSource('exposure-roads', { type: 'geojson', data: exposureData.roads })
+        addRoadLayers(map, 'exposure-roads')
+      }
+      ROAD_LAYER_STYLES.forEach(style => {
+        const layerId = `exposure-roads-${style.key}`
+        if (map.getLayer(layerId)) {
+          map.setLayoutProperty(layerId, 'visibility', exposureVisible.roads ? 'visible' : 'none')
+        }
+      })
+    }
+
+    if (exposureData.bridges) {
+      if (map.getSource('exposure-bridges')) {
+        map.getSource('exposure-bridges').setData(exposureData.bridges)
+      } else {
+        map.addSource('exposure-bridges', { type: 'geojson', data: exposureData.bridges })
+        addBridgeLayer(map, 'exposure-bridges')
+      }
+      if (map.getLayer('exposure-bridges')) {
+        map.setLayoutProperty('exposure-bridges', 'visibility', exposureVisible.bridges ? 'visible' : 'none')
+      }
+    }
+
+    if (exposureData.places) {
+      if (map.getSource('exposure-places')) {
+        map.getSource('exposure-places').setData(exposureData.places)
+      } else {
+        map.addSource('exposure-places', { type: 'geojson', data: exposureData.places })
+        addPlaceLayers(map, 'exposure-places')
+      }
+      PLACE_LAYER_STYLES.forEach(style => {
+        const circleId = `exposure-places-${style.key}-circle`
+        const labelId = `exposure-places-${style.key}-label`
+        if (map.getLayer(circleId)) {
+          map.setLayoutProperty(circleId, 'visibility', exposureVisible.places ? 'visible' : 'none')
+        }
+        if (map.getLayer(labelId)) {
+          map.setLayoutProperty(labelId, 'visibility', exposureVisible.places ? 'visible' : 'none')
+        }
+      })
+    }
+  }, [mapReady, exposureData, exposureVisible])
+
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !stations.length) return
@@ -391,7 +643,12 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
 
       {/* Legend — bottom left (above scale) */}
       <div className="absolute bottom-10 left-3 z-10">
-        <FloodRiskLegend overlayLegend={activeLayer?.legend ?? null} />
+        <FloodRiskLegend
+          overlayLegend={activeLayer?.legend ?? null}
+          exposureLayers={exposureMeta.filter(layer => layer.available)}
+          exposureVisibility={exposureVisible}
+          onToggleExposure={toggleExposureLayer}
+        />
       </div>
     </div>
   )
