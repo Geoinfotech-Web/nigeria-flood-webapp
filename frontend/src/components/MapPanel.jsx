@@ -4,6 +4,7 @@ import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
 import RiskLayerControl from './RiskLayerControl'
+import { IconHome } from './Icons'
 
 const RISK_COLOR = {
   Normal:    '#22c55e',
@@ -76,6 +77,10 @@ export const BASEMAPS = [
 ]
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const DEFAULT_NIGERIA_BOUNDS = [
+  [2.65, 4.2],
+  [14.75, 13.95],
+]
 
 export default function MapPanel({ stations, liveReadings, selected, onSelect }) {
   const mapRef     = useRef(null)
@@ -89,6 +94,13 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
   const [tileLayers,  setTileLayers]  = useState([])
   const [activeTile,  setActiveTile]  = useState(null)  // layer id string or null
   const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
+  const resetToHomeView = useCallback(() => {
+    if (!mapObj.current) return
+    mapObj.current.fitBounds(DEFAULT_NIGERIA_BOUNDS, {
+      padding: { top: 48, right: 48, bottom: 48, left: 48 },
+      duration: 1200,
+    })
+  }, [])
 
   // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -360,6 +372,21 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
           activeTile={activeTile}
           onTileLayer={setActiveTile}
         />
+      </div>
+
+      {/* Home control — top right */}
+      <div className="absolute top-[10.25rem] right-3 z-10">
+        <button
+          type="button"
+          onClick={resetToHomeView}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl
+                     border border-gray-700/80 bg-gray-900/88 text-gray-200 shadow-lg
+                     backdrop-blur transition hover:border-gray-500 hover:bg-gray-800 hover:text-white"
+          aria-label="Reset map to Nigeria view"
+          title="Home"
+        >
+          <IconHome size={16} />
+        </button>
       </div>
 
       {/* Legend — bottom left (above scale) */}

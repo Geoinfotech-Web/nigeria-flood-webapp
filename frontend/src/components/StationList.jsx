@@ -1,6 +1,6 @@
 import React from 'react'
 import clsx from 'clsx'
-import { IconGauge } from './Icons'
+import { IconGauge, IconX } from './Icons'
 
 const RISK_COLOR = {
   Normal:    { dot: 'bg-green-400',  bar: 'bg-green-500',  text: 'text-green-400' },
@@ -9,14 +9,31 @@ const RISK_COLOR = {
   Emergency: { dot: 'bg-red-400 animate-pulse', bar: 'bg-red-500', text: 'text-red-400' },
 }
 
-export default function StationList({ stations, liveReadings, selected, onSelect }) {
+export default function StationList({ stations, liveReadings, selected, onSelect, onReset }) {
   return (
     <div className="p-3">
-      <div className="flex items-center gap-2 px-1 mb-3">
-        <IconGauge size={13} className="text-gray-500" />
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
-          Gauge Stations
-        </p>
+      <div className="flex items-center justify-between gap-3 px-1 mb-3">
+        <div className="flex items-center gap-2">
+          <IconGauge size={13} className="text-gray-500" />
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+            Gauge Stations
+          </p>
+        </div>
+
+        {selected && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-700/70
+                       bg-gray-800/60 px-2 py-1 text-[10px] font-medium text-gray-300
+                       transition hover:border-gray-600 hover:bg-gray-800 hover:text-white"
+            aria-label="Reset selected station"
+            title="Reset selected station"
+          >
+            <IconX size={11} />
+            Reset
+          </button>
+        )}
       </div>
 
       <div className="space-y-1">

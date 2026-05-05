@@ -5,7 +5,7 @@ import GaugeChart from './components/GaugeChart'
 import RainfallChart from './components/RainfallChart'
 import AlertBanner from './components/AlertBanner'
 import PredictionPanel from './components/PredictionPanel'
-import { IconWaves } from './components/Icons'
+import { IconWaves, IconX } from './components/Icons'
 import { useGaugeFeed } from './hooks/useGaugeFeed'
 import { useStations } from './hooks/useStations'
 
@@ -13,6 +13,10 @@ export default function App() {
   const { stations } = useStations()
   const liveReadings = useGaugeFeed()
   const [selected, setSelected] = useState(null)
+  const clearSelectedStation = () => setSelected(null)
+  const handleSelectStation = (stationId) => {
+    setSelected(current => (current === stationId ? null : stationId))
+  }
 
   const selectedStation = stations.find(s => s.id === selected)
 
@@ -59,7 +63,8 @@ export default function App() {
             stations={stations}
             liveReadings={liveReadings}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={handleSelectStation}
+            onReset={clearSelectedStation}
           />
         </aside>
 
@@ -69,7 +74,7 @@ export default function App() {
             stations={stations}
             liveReadings={liveReadings}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={handleSelectStation}
           />
         </main>
 
@@ -79,15 +84,31 @@ export default function App() {
                             bg-gray-900/60">
             {/* Station header */}
             <div className="px-4 pt-4 pb-3 border-b border-gray-800">
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-1">
-                Selected Station
-              </p>
-              <h2 className="text-sm font-semibold text-white leading-tight">
-                {selectedStation.name}
-              </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {selectedStation.river} &middot; {selectedStation.state}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-1">
+                    Selected Station
+                  </p>
+                  <h2 className="text-sm font-semibold text-white leading-tight">
+                    {selectedStation.name}
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {selectedStation.river} &middot; {selectedStation.state}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={clearSelectedStation}
+                  className="inline-flex items-center justify-center h-8 w-8 rounded-lg
+                             border border-gray-700/70 bg-gray-800/70 text-gray-400
+                             transition hover:border-gray-600 hover:bg-gray-800 hover:text-white"
+                  aria-label="Close selected station panel"
+                  title="Close panel"
+                >
+                  <IconX size={14} />
+                </button>
+              </div>
             </div>
 
             <div className="p-4 space-y-5">
