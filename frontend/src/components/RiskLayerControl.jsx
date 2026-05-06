@@ -4,62 +4,68 @@ import clsx from 'clsx'
 export default function RiskLayerControl({
   visible, opacity, onToggle, onOpacity,
   tileLayers = [], activeTile, onTileLayer,
+  theme = 'dark',
 }) {
   return (
-    <div className="bg-gray-900/90 backdrop-blur border border-gray-700 rounded-xl
-                    shadow-xl p-3 space-y-2 w-52">
-      {/* Header + toggle */}
+    <div
+      className={clsx(
+        'w-52 space-y-2 rounded-xl border p-3 shadow-xl',
+        theme === 'dark' ? 'bg-gray-900/90 border-gray-700 backdrop-blur' : 'bg-white border-slate-200'
+      )}
+    >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+        <span className={clsx('text-xs font-semibold uppercase tracking-wide', theme === 'dark' ? 'text-gray-300' : 'text-slate-700')}>
           Flood Risk Layer
         </span>
         <button
           onClick={onToggle}
           className={clsx(
-            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full',
-            'transition-colors duration-200',
-            visible ? 'bg-blue-600' : 'bg-gray-600'
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200',
+            visible ? 'bg-blue-600' : theme === 'dark' ? 'bg-gray-600' : 'bg-slate-300'
           )}
         >
-          <span className={clsx(
-            'inline-block h-4 w-4 rounded-full bg-white shadow transform transition',
-            'translate-y-0.5',
-            visible ? 'translate-x-4' : 'translate-x-0.5'
-          )} />
+          <span
+            className={clsx(
+              'inline-block h-4 w-4 translate-y-0.5 rounded-full bg-white shadow transition',
+              visible ? 'translate-x-4' : 'translate-x-0.5'
+            )}
+          />
         </button>
       </div>
 
       {visible && (
         <>
-          {/* Opacity slider */}
           <div className="space-y-1">
-            <div className="flex justify-between text-xs text-gray-400">
+            <div className={clsx('flex justify-between text-xs', theme === 'dark' ? 'text-gray-400' : 'text-slate-500')}>
               <span>Opacity</span>
               <span>{Math.round(opacity * 100)}%</span>
             </div>
             <input
-              type="range" min="0.1" max="1" step="0.05"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
               value={opacity}
               onChange={e => onOpacity(parseFloat(e.target.value))}
-              className="w-full h-1.5 accent-blue-500 cursor-pointer"
+              className="h-1.5 w-full cursor-pointer accent-blue-500"
             />
           </div>
 
-          {/* Satellite overlay selector */}
           {tileLayers.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+              <p className={clsx('text-[10px] font-semibold uppercase tracking-wide', theme === 'dark' ? 'text-gray-400' : 'text-slate-500')}>
                 Satellite Overlay
               </p>
-              <div className="space-y-0.5 max-h-28 overflow-y-auto pr-0.5">
-                {/* None option */}
+              <div className="max-h-28 space-y-0.5 overflow-y-auto pr-0.5">
                 <button
                   onClick={() => onTileLayer(null)}
                   className={clsx(
-                    'w-full text-left text-[11px] px-2 py-1 rounded-md transition',
+                    'w-full rounded-md px-2 py-1 text-left text-[11px] transition',
                     activeTile === null
                       ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                      : theme === 'dark'
+                        ? 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                   )}
                 >
                   None
@@ -69,10 +75,12 @@ export default function RiskLayerControl({
                     key={l.id}
                     onClick={() => onTileLayer(String(l.id))}
                     className={clsx(
-                      'w-full text-left text-[11px] px-2 py-1 rounded-md transition leading-tight',
+                      'w-full rounded-md px-2 py-1 text-left text-[11px] leading-tight transition',
                       String(activeTile) === String(l.id)
                         ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                        : theme === 'dark'
+                          ? 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
                     )}
                   >
                     {l.label}
@@ -84,7 +92,7 @@ export default function RiskLayerControl({
         </>
       )}
 
-      <p className="text-[10px] text-gray-500 leading-tight">
+      <p className={clsx('text-[10px] leading-tight', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
         Click any area for risk details.
       </p>
     </div>

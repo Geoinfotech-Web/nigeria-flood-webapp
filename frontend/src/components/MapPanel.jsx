@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
+import clsx from 'clsx'
 import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
@@ -248,11 +249,18 @@ function addPlaceLayers(map, sourceId) {
   })
 }
 
-export default function MapPanel({ stations, liveReadings, selected, onSelect }) {
+export default function MapPanel({
+  stations,
+  liveReadings,
+  selected,
+  onSelect,
+  basemap,
+  onBasemapChange,
+  theme = 'dark',
+}) {
   const mapRef     = useRef(null)
   const mapObj     = useRef(null)
   const markersRef = useRef({})
-  const [basemap,     setBasemap]     = useState('dark')
   const [riskVisible, setRiskVisible] = useState(true)
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
@@ -642,12 +650,17 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
 
       {/* Search bar — top centre */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-80">
-        <SearchBar onResult={handleSearchResult} />
+        <SearchBar onResult={handleSearchResult} theme={theme} />
       </div>
 
-      {/* Basemap switcher — bottom right */}
-      <div className="absolute bottom-10 right-3 z-10">
-        <BasemapSwitcher current={basemap} onChange={setBasemap} />
+      {/* Basemap switcher — top right */}
+      <div className="absolute top-[14.25rem] right-3 z-10">
+        <BasemapSwitcher
+          current={basemap}
+          onChange={onBasemapChange}
+          options={BASEMAPS}
+          theme={theme}
+        />
       </div>
 
       {/* Risk layer control — top left */}
@@ -660,6 +673,7 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
           tileLayers={tileLayers}
           activeTile={activeTile}
           onTileLayer={setActiveTile}
+          theme={theme}
         />
       </div>
 
@@ -668,9 +682,15 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
         <button
           type="button"
           onClick={resetToHomeView}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl
-                     border border-gray-700/80 bg-gray-900/88 text-gray-200 shadow-lg
-                     backdrop-blur transition hover:border-gray-500 hover:bg-gray-800 hover:text-white"
+          className={clsx(
+            'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
+            theme === 'dark'
+              ? 'border-gray-700/80 bg-gray-900/88 text-gray-200 backdrop-blur hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+              : 'border-slate-200/90 bg-white/92 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+          )}
+          style={theme === 'light'
+            ? { backgroundColor: '#ffffff', borderColor: '#cbd5e1', backdropFilter: 'none' }
+            : undefined}
           aria-label="Reset map to Nigeria view"
           title="Home"
         >
@@ -685,13 +705,14 @@ export default function MapPanel({ stations, liveReadings, selected, onSelect })
           exposureLayers={exposureMeta.filter(layer => layer.available)}
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
+          theme={theme}
         />
       </div>
 
       {/* Impact summary — bottom dock */}
       {impactSummary && (
         <div className="absolute bottom-3 left-64 right-3 z-10">
-          <ImpactSummaryPanel summary={impactSummary} />
+          <ImpactSummaryPanel summary={impactSummary} theme={theme} />
         </div>
       )}
     </div>

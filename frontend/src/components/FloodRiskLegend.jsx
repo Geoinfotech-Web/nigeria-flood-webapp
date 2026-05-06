@@ -31,42 +31,50 @@ export default function FloodRiskLegend({
   exposureLayers = [],
   exposureVisibility = {},
   onToggleExposure,
+  theme = 'dark',
 }) {
   const isOverlayLegend = Boolean(overlayLegend)
   const [collapsed, setCollapsed] = useState(false)
   const visibleExposureLayers = exposureLayers.filter(layer => exposureVisibility[layer.id])
 
   return (
-    <div className="bg-gray-900/90 backdrop-blur border border-gray-700/80 rounded-lg shadow-xl w-56 overflow-hidden">
+    <div
+      className={clsx(
+        'w-56 overflow-hidden rounded-lg border shadow-xl',
+        theme === 'dark' ? 'bg-gray-900/90 border-gray-700/80 backdrop-blur' : 'bg-white border-slate-200'
+      )}
+    >
       <button
         type="button"
         onClick={() => setCollapsed(current => !current)}
-        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 border-b border-gray-800/90
-                   text-left transition hover:bg-gray-800/40"
+        className={clsx(
+          'flex w-full items-center justify-between gap-3 border-b px-3 py-2.5 text-left transition',
+          theme === 'dark' ? 'border-gray-800/90 hover:bg-gray-800/40' : 'border-slate-200 hover:bg-slate-50'
+        )}
         aria-label={collapsed ? 'Expand legend panel' : 'Collapse legend panel'}
         title={collapsed ? 'Expand' : 'Collapse'}
       >
         <div>
-          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+          <p className={clsx('text-[10px] font-semibold uppercase tracking-widest', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
             Map Context
           </p>
-          <p className="text-[10px] text-gray-600 mt-0.5">
+          <p className={clsx('mt-0.5 text-[10px]', theme === 'dark' ? 'text-gray-600' : 'text-slate-500')}>
             Flood legend and exposure layers
           </p>
         </div>
-        <span className="text-gray-500">
+        <span className={theme === 'dark' ? 'text-gray-500' : 'text-slate-500'}>
           {collapsed ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
         </span>
       </button>
 
       {!collapsed && (
         <div className="p-3">
-          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2.5">
+          <p className={clsx('mb-2.5 text-[10px] font-semibold uppercase tracking-widest', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
             {overlayLegend?.title || 'Flood Risk'}
           </p>
 
           {overlayLegend?.subtitle && (
-            <p className="text-[10px] text-gray-500 leading-tight mb-2.5">
+            <p className={clsx('mb-2.5 text-[10px] leading-tight', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
               {overlayLegend.subtitle}
             </p>
           )}
@@ -74,10 +82,10 @@ export default function FloodRiskLegend({
           {overlayLegend?.type === 'gradient' ? (
             <div className="space-y-2">
               <div
-                className="h-3 rounded-md border border-gray-700"
+                className={clsx('h-3 rounded-md border', theme === 'dark' ? 'border-gray-700' : 'border-slate-200')}
                 style={{ background: overlayLegend.gradient }}
               />
-              <div className="flex justify-between text-[10px] text-gray-500 tabular-nums">
+              <div className={clsx('flex justify-between text-[10px] tabular-nums', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                 <span>{overlayLegend.min_label}</span>
                 <span>{overlayLegend.max_label}</span>
               </div>
@@ -87,11 +95,11 @@ export default function FloodRiskLegend({
               {overlayLegend.items.map(item => (
                 <div key={item.label} className="flex items-center gap-2">
                   <span
-                    className="h-2.5 w-2.5 rounded-sm shrink-0"
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
                     style={{ background: item.color, boxShadow: `0 0 5px ${item.color}70` }}
                   />
-                  <span className="text-[11px] font-medium text-gray-200">{item.label}</span>
-                  <span className="text-[10px] text-gray-500 ml-auto tabular-nums">{item.range}</span>
+                  <span className={clsx('text-[11px] font-medium', theme === 'dark' ? 'text-gray-200' : 'text-slate-800')}>{item.label}</span>
+                  <span className={clsx('ml-auto text-[10px] tabular-nums', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>{item.range}</span>
                 </div>
               ))}
             </div>
@@ -100,35 +108,35 @@ export default function FloodRiskLegend({
               {TIERS.map(t => (
                 <div key={t.tier} className="flex items-center gap-2">
                   <span
-                    className="h-2.5 w-2.5 rounded-sm shrink-0"
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
                     style={{ background: t.color, boxShadow: `0 0 5px ${t.color}70` }}
                   />
-                  <span className="text-[11px] font-medium text-gray-200">{t.tier}</span>
-                  <span className="text-[10px] text-gray-500 ml-auto tabular-nums">{t.range}</span>
+                  <span className={clsx('text-[11px] font-medium', theme === 'dark' ? 'text-gray-200' : 'text-slate-800')}>{t.tier}</span>
+                  <span className={clsx('ml-auto text-[10px] tabular-nums', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>{t.range}</span>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="mt-2.5 pt-2 border-t border-gray-800">
+          <div className={clsx('mt-2.5 border-t pt-2', theme === 'dark' ? 'border-gray-800' : 'border-slate-200')}>
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-blue-400 shrink-0 shadow-[0_0_5px_#60a5fa70]" />
-              <span className="text-[10px] text-gray-500">Gauge station</span>
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-400 shadow-[0_0_5px_#60a5fa70]" />
+              <span className={clsx('text-[10px]', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>Gauge station</span>
             </div>
             {isOverlayLegend && (
-              <p className="text-[10px] text-gray-500 leading-tight mt-2">
+              <p className={clsx('mt-2 text-[10px] leading-tight', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                 Overlay legend follows the selected satellite layer.
               </p>
             )}
           </div>
 
           {exposureLayers.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-800 space-y-2">
+            <div className={clsx('mt-3 space-y-2 border-t pt-3', theme === 'dark' ? 'border-gray-800' : 'border-slate-200')}>
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+                <p className={clsx('text-[10px] font-semibold uppercase tracking-widest', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                   Exposure Layers
                 </p>
-                <span className="text-[10px] text-gray-600">OSM</span>
+                <span className={clsx('text-[10px]', theme === 'dark' ? 'text-gray-600' : 'text-slate-500')}>OSM</span>
               </div>
 
               <div className="space-y-1">
@@ -141,44 +149,49 @@ export default function FloodRiskLegend({
                       'w-full rounded-lg border px-2.5 py-2 text-left transition',
                       exposureVisibility[layer.id]
                         ? 'border-blue-600/70 bg-blue-950/50'
-                        : 'border-gray-800 bg-gray-800/40 hover:border-gray-700 hover:bg-gray-800/70'
+                        : theme === 'dark'
+                          ? 'border-gray-800 bg-gray-800/40 hover:border-gray-700 hover:bg-gray-800/70'
+                          : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'
                     )}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className={clsx(
-                        'text-[11px] font-medium',
-                        exposureVisibility[layer.id] ? 'text-white' : 'text-gray-300'
-                      )}>
+                      <span
+                        className={clsx(
+                          'text-[11px] font-medium',
+                          exposureVisibility[layer.id]
+                            ? 'text-white'
+                            : theme === 'dark'
+                              ? 'text-gray-300'
+                              : 'text-slate-800'
+                        )}
+                      >
                         {layer.label}
                       </span>
-                      <span className={clsx(
-                        'text-[10px]',
-                        exposureVisibility[layer.id] ? 'text-blue-200' : 'text-gray-500'
-                      )}>
+                      <span className={clsx('text-[10px]', exposureVisibility[layer.id] ? 'text-blue-200' : theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                         {layer.feature_count?.toLocaleString?.() ?? layer.feature_count}
                       </span>
                     </div>
 
-                    <p className="mt-1 text-[10px] leading-tight text-gray-500">
+                    <p className={clsx('mt-1 text-[10px] leading-tight', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                       {layer.description}
                     </p>
                   </button>
                 ))}
               </div>
 
-              <p className="text-[10px] text-gray-500 leading-tight">
+              <p className={clsx('text-[10px] leading-tight', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                 Adds roads, bridges, and settlements for impact context.
               </p>
 
               {visibleExposureLayers.length > 0 && (
-                <div className="pt-2 border-t border-gray-800 space-y-2">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+                <div className={clsx('space-y-2 border-t pt-2', theme === 'dark' ? 'border-gray-800' : 'border-slate-200')}>
+                  <p className={clsx('text-[10px] font-semibold uppercase tracking-widest', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
                     Exposure Symbology
                   </p>
 
                   {visibleExposureLayers.map(layer => (
                     <div key={`${layer.id}-symbols`} className="space-y-1">
-                      <p className="text-[10px] font-medium text-gray-400">
+                      <p className={clsx('text-[10px] font-medium', theme === 'dark' ? 'text-gray-400' : 'text-slate-500')}>
                         {layer.label}
                       </p>
 
@@ -192,12 +205,12 @@ export default function FloodRiskLegend({
                                   background: symbol.dash ? 'transparent' : symbol.color,
                                   borderTop: symbol.dash ? `2px dashed ${symbol.color}` : 'none',
                                   borderRadius: symbol.dash ? 0 : 999,
-                                  height: symbol.dash ? 2 : 2,
+                                  height: 2,
                                 }}
                               />
                             ) : (
                               <span
-                                className="h-2.5 w-2.5 rounded-full shrink-0"
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
                                 style={{
                                   background: symbol.color,
                                   border: `1.2px solid ${symbol.stroke || symbol.color}`,
@@ -205,7 +218,7 @@ export default function FloodRiskLegend({
                                 }}
                               />
                             )}
-                            <span className="text-[10px] text-gray-400">{symbol.label}</span>
+                            <span className={clsx('text-[10px]', theme === 'dark' ? 'text-gray-400' : 'text-slate-500')}>{symbol.label}</span>
                           </div>
                         ))}
                       </div>

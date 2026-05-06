@@ -6,18 +6,18 @@ import { IconAlertTriangle } from './Icons'
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const TIER_STYLE = {
-  Watch:     'bg-yellow-950/80 border-yellow-700/60 text-yellow-300',
-  Warning:   'bg-orange-950/80 border-orange-700/60 text-orange-300',
-  Emergency: 'bg-red-950/80   border-red-700/60   text-red-300',
+  Watch: 'bg-yellow-950/80 border-yellow-700/60 text-yellow-300',
+  Warning: 'bg-orange-950/80 border-orange-700/60 text-orange-300',
+  Emergency: 'bg-red-950/80 border-red-700/60 text-red-300',
 }
 
 const TIER_ICON_COLOR = {
-  Watch:     'text-yellow-400',
-  Warning:   'text-orange-400',
+  Watch: 'text-yellow-400',
+  Warning: 'text-orange-400',
   Emergency: 'text-red-400',
 }
 
-export default function AlertBanner() {
+export default function AlertBanner({ theme = 'dark' }) {
   const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
@@ -33,13 +33,17 @@ export default function AlertBanner() {
   if (!alerts.length) return null
 
   return (
-    <div className="flex gap-2 px-4 py-2 overflow-x-auto bg-gray-950 border-b border-gray-800
-                    shrink-0 scrollbar-none">
+    <div
+      className={clsx(
+        'flex gap-2 px-4 py-2 overflow-x-auto border-b shrink-0 scrollbar-none',
+        theme === 'dark' ? 'bg-gray-950 border-gray-800' : 'bg-slate-100 border-slate-200'
+      )}
+    >
       {alerts.map(a => (
-        <div key={a.id}
+        <div
+          key={a.id}
           className={clsx(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[11px]',
-            'shrink-0 font-medium',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[11px] shrink-0 font-medium',
             TIER_STYLE[a.risk_tier]
           )}
         >

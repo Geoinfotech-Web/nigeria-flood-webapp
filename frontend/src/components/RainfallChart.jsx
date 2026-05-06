@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export default function RainfallChart() {
+export default function RainfallChart({ theme = 'dark' }) {
   const [data, setData] = useState([])
 
   useEffect(() => {
@@ -14,7 +14,6 @@ export default function RainfallChart() {
       .catch(console.error)
   }, [])
 
-  // Group by date, sum across stations
   const byDate = {}
   for (const r of data) {
     const d = r.date.slice(0, 10)
@@ -27,16 +26,21 @@ export default function RainfallChart() {
     tooltip: { trigger: 'axis' },
     grid: { top: 24, bottom: 32, left: 48, right: 12 },
     xAxis: {
-      type: 'category', data: dates,
-      axisLabel: { color: '#9ca3af', fontSize: 10,
-        formatter: v => format(new Date(v), 'dd MMM') },
-      axisLine: { lineStyle: { color: '#374151' } },
+      type: 'category',
+      data: dates,
+      axisLabel: {
+        color: '#9ca3af',
+        fontSize: 10,
+        formatter: v => format(new Date(v), 'dd MMM'),
+      },
+      axisLine: { lineStyle: { color: theme === 'dark' ? '#374151' : '#cbd5e1' } },
     },
     yAxis: {
-      type: 'value', name: 'mm',
+      type: 'value',
+      name: 'mm',
       nameTextStyle: { color: '#9ca3af', fontSize: 10 },
       axisLabel: { color: '#9ca3af', fontSize: 10 },
-      splitLine: { lineStyle: { color: '#1f2937' } },
+      splitLine: { lineStyle: { color: theme === 'dark' ? '#1f2937' : '#e2e8f0' } },
     },
     series: [{
       type: 'bar',
@@ -47,8 +51,10 @@ export default function RainfallChart() {
 
   return (
     <div>
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-        Rainfall — 7 days
+      <h3 className={theme === 'dark'
+        ? 'mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400'
+        : 'mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500'}>
+        Rainfall â€” 7 days
       </h3>
       <ReactECharts option={option} style={{ height: 140 }} />
     </div>
