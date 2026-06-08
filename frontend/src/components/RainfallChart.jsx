@@ -5,14 +5,21 @@ import { format } from 'date-fns'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export default function RainfallChart({ theme = 'dark' }) {
+export default function RainfallChart({ stationId, stationName, theme = 'dark' }) {
   const [data, setData] = useState([])
 
   useEffect(() => {
-    axios.get(`${API}/rainfall/daily?days=7`)
-      .then(r => setData(r.data))
-      .catch(console.error)
-  }, [])
+    if (!stationId) return
+
+    const load = () =>
+      axios.get(`${API}/stations/${stationId}/rainfall?days=7`)
+        .then(r => setData(r.data))
+        .catch(console.error)
+
+    load()
+    const id = setInterval(load, 300_000)
+    return () => clearInterval(id)
+  }, [stationId])
 
   const byDate = {}
   for (const r of data) {
@@ -54,7 +61,7 @@ export default function RainfallChart({ theme = 'dark' }) {
       <h3 className={theme === 'dark'
         ? 'mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400'
         : 'mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500'}>
-        Rainfall â€” 7 days
+        {stationName ? `${stationName} Rainfall - 7 Days` : 'Rainfall - 7 Days'}
       </h3>
       <ReactECharts option={option} style={{ height: 140 }} />
     </div>

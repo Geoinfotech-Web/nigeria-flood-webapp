@@ -5,15 +5,40 @@ import { format } from 'date-fns'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export default function GaugeChart({ stationId, theme = 'dark' }) {
+export default function GaugeChart({ stationId, liveReading = null, theme = 'dark' }) {
   const [data, setData] = useState([])
 
   useEffect(() => {
     if (!stationId) return
-    axios.get(`${API}/stations/${stationId}/readings?hours=24`)
-      .then(r => setData(r.data))
-      .catch(console.error)
+
+    const load = () =>
+      axios.get(`${API}/stations/${stationId}/readings?hours=24`)
+        .then(r => setData(r.data))
+        .catch(console.error)
+
+    load()
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
   }, [stationId])
+
+  const seriesData = [...data]
+  if (liveReading?.time) {
+    const lastPoint = seriesData[seriesData.length - 1]
+    if (!lastPoint) {
+      seriesData.push({ time: liveReading.time, water_level_m: liveReading.water_level_m })
+    } else {
+      const lastTime = new Date(lastPoint.time).getTime()
+      const liveTime = new Date(liveReading.time).getTime()
+      if (liveTime > lastTime) {
+        seriesData.push({ time: liveReading.time, water_level_m: liveReading.water_level_m })
+      } else if (liveTime === lastTime) {
+        seriesData[seriesData.length - 1] = {
+          ...lastPoint,
+          water_level_m: liveReading.water_level_m,
+        }
+      }
+    }
+  }
 
   const option = {
     backgroundColor: 'transparent',
@@ -41,7 +66,7 @@ export default function GaugeChart({ stationId, theme = 'dark' }) {
     series: [{
       type: 'line',
       smooth: true,
-      data: data.map(d => [d.time, d.water_level_m]),
+      data: seriesData.map(d => [d.time, d.water_level_m]),
       lineStyle: { color: '#3b82f6', width: 2 },
       areaStyle: {
         color: {
@@ -65,7 +90,7 @@ export default function GaugeChart({ stationId, theme = 'dark' }) {
       <h3 className={theme === 'dark'
         ? 'mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400'
         : 'mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500'}>
-        Water Level â€” 24h
+        Water Level - 24h
       </h3>
       <ReactECharts option={option} style={{ height: 160 }} />
     </div>

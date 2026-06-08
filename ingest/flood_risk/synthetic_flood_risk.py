@@ -191,6 +191,11 @@ def generate_synthetic_risk(export_geojson_path: str = None):
     return fc
 
 
+def run(export_geojson_path: str = None):
+    """Scheduler entrypoint used by ingest/main.py."""
+    return generate_synthetic_risk(export_geojson_path)
+
+
 def _multipolygon_to_wkt(geom: dict) -> str:
     rings = []
     for poly in geom["coordinates"]:

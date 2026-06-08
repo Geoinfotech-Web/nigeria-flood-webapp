@@ -22,7 +22,8 @@ export default function App() {
     setSelected(current => (current === stationId ? null : stationId))
   }
 
-  const selectedStation = stations.find(s => s.id === selected)
+  const sortedStations = [...stations].sort((a, b) => a.name.localeCompare(b.name))
+  const selectedStation = sortedStations.find(s => s.id === selected)
 
   return (
     <div
@@ -115,7 +116,7 @@ export default function App() {
           )}
         >
           <StationList
-            stations={stations}
+            stations={sortedStations}
             liveReadings={liveReadings}
             selected={selected}
             onSelect={handleSelectStation}
@@ -126,7 +127,7 @@ export default function App() {
 
         <main className="relative flex-1">
           <MapPanel
-            stations={stations}
+            stations={sortedStations}
             liveReadings={liveReadings}
             selected={selected}
             onSelect={handleSelectStation}
@@ -182,9 +183,9 @@ export default function App() {
             <div className="space-y-5 p-4">
               <PredictionPanel stationId={selected} theme={theme} />
               <div className={clsx('border-t', theme === 'dark' ? 'border-gray-800' : 'border-slate-200')} />
-              <GaugeChart stationId={selected} theme={theme} />
+              <GaugeChart stationId={selected} liveReading={liveReadings[selected]} theme={theme} />
               <div className={clsx('border-t', theme === 'dark' ? 'border-gray-800' : 'border-slate-200')} />
-              <RainfallChart theme={theme} />
+              <RainfallChart stationId={selected} stationName={selectedStation.name} theme={theme} />
             </div>
           </aside>
         )}
