@@ -20,6 +20,11 @@ Coverage added:
   Zamfara River  — Gusau
   Katsina Ala    — Takum
 
+NOTE: As of the 26-station seed, these are also created directly by
+infra/timescaledb/init.sql on a fresh `docker-compose up`. This script
+remains for topping up an already-running database and is idempotent
+(ON CONFLICT DO NOTHING), so it's a safe no-op if the stations exist.
+
 Run:  DB_HOST=localhost python ingest/expand_stations.py
 """
 

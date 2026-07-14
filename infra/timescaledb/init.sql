@@ -120,6 +120,66 @@ VALUES
   ('MET_PHC',    'Port Harcourt Int', 4.8156,  7.0134, ST_SetSRID(ST_MakePoint(7.0134,  4.8156), 4326))
 ON CONFLICT (code) DO NOTHING;
 
+-- ─── Seed: 21 basin-expansion gauge stations (5 + 21 = 26 total) ──
+-- Covers all major Nigerian river basins: Niger, Benue, Kaduna,
+-- Cross River, Anambra, Ogun, Hadejia, Komadugu Yobe, Rima, Gongola,
+-- Osun, Imo, Zamfara, Katsina Ala.
+INSERT INTO gauge_stations (code, name, river, state, lat, lon, bank_full_m, geom)
+VALUES
+  ('NIGER_JEB',  'Jebba Dam',         'Niger',         'Kwara',        9.1167,  4.8167, 15.0, ST_SetSRID(ST_MakePoint( 4.8167,  9.1167), 4326)),
+  ('NIGER_KAI',  'Kainji Downstream', 'Niger',         'Niger',       10.3667,  4.6333, 16.5, ST_SetSRID(ST_MakePoint( 4.6333, 10.3667), 4326)),
+  ('NIGER_IDA',  'Idah Crossing',     'Niger',         'Kogi',         7.1000,  6.7333, 13.5, ST_SetSRID(ST_MakePoint( 6.7333,  7.1000), 4326)),
+  ('NIGER_ASA',  'Asaba',             'Niger',         'Delta',        6.2034,  6.7260, 11.0, ST_SetSRID(ST_MakePoint( 6.7260,  6.2034), 4326)),
+  ('BENUE_MAK',  'Makurdi',           'Benue',         'Benue',        7.7316,  8.5213, 11.5, ST_SetSRID(ST_MakePoint( 8.5213,  7.7316), 4326)),
+  ('BENUE_IBI',  'Ibi',               'Benue',         'Taraba',       8.1833,  9.7333,  9.0, ST_SetSRID(ST_MakePoint( 9.7333,  8.1833), 4326)),
+  ('BENUE_NUM',  'Numan',             'Benue',         'Adamawa',      9.4667, 12.0333,  8.5, ST_SetSRID(ST_MakePoint(12.0333,  9.4667), 4326)),
+  ('KADUNA_SHI', 'Shiroro Dam',       'Kaduna',        'Niger',       10.5000,  6.8333,  7.5, ST_SetSRID(ST_MakePoint( 6.8333, 10.5000), 4326)),
+  ('KADUNA_KAD', 'Kaduna City',       'Kaduna',        'Kaduna',      10.5272,  7.4424,  6.5, ST_SetSRID(ST_MakePoint( 7.4424, 10.5272), 4326)),
+  ('CROSS_IKO',  'Ikom',              'Cross River',   'Cross River',  5.9618,  8.7087,  8.5, ST_SetSRID(ST_MakePoint( 8.7087,  5.9618), 4326)),
+  ('CROSS_CAL',  'Calabar',           'Cross River',   'Cross River',  4.9481,  8.3220,  7.0, ST_SetSRID(ST_MakePoint( 8.3220,  4.9481), 4326)),
+  ('ANAM_OTU',   'Otuocha',           'Anambra',       'Anambra',      6.5000,  6.8333,  8.0, ST_SetSRID(ST_MakePoint( 6.8333,  6.5000), 4326)),
+  ('OGUN_ABE',   'Abeokuta',          'Ogun',          'Ogun',         7.1475,  3.3508,  6.0, ST_SetSRID(ST_MakePoint( 3.3508,  7.1475), 4326)),
+  ('HADEJIA_HAD','Hadejia',           'Hadejia',       'Jigawa',      12.4544, 10.0456,  4.5, ST_SetSRID(ST_MakePoint(10.0456, 12.4544), 4326)),
+  ('YOBE_GAS',   'Gashua',            'Komadugu Yobe', 'Yobe',        12.8700, 11.0500,  4.0, ST_SetSRID(ST_MakePoint(11.0500, 12.8700), 4326)),
+  ('SOKOTO_ARG', 'Argungu',           'Rima',          'Kebbi',       12.7447,  4.5232,  5.5, ST_SetSRID(ST_MakePoint( 4.5232, 12.7447), 4326)),
+  ('GONG_YOL',   'Yola',              'Benue/Gongola', 'Adamawa',      9.2035, 12.4954,  7.5, ST_SetSRID(ST_MakePoint(12.4954,  9.2035), 4326)),
+  ('OSUN_OSO',   'Osogbo',            'Osun',          'Osun',         7.7826,  4.5418,  5.0, ST_SetSRID(ST_MakePoint( 4.5418,  7.7826), 4326)),
+  ('IMO_OWE',    'Owerri',            'Imo',           'Imo',          5.4836,  7.0331,  4.5, ST_SetSRID(ST_MakePoint( 7.0331,  5.4836), 4326)),
+  ('ZAMFARA_GUS','Gusau',             'Zamfara',       'Zamfara',     12.1704,  6.6644,  4.0, ST_SetSRID(ST_MakePoint( 6.6644, 12.1704), 4326)),
+  ('KATALA_TAK', 'Takum',             'Katsina Ala',   'Taraba',       7.2647,  9.9736,  6.5, ST_SetSRID(ST_MakePoint( 9.9736,  7.2647), 4326))
+ON CONFLICT (code) DO NOTHING;
+
+-- ─── Seed: 25 catchment/city met stations (4 + 25 = 29 total) ─────
+-- One rainfall sampling point per basin gauge, plus strategic cities.
+INSERT INTO met_stations (code, name, lat, lon, geom)
+VALUES
+  ('MET_JEBBA',    'Jebba Catchment',    9.1167,  4.8167, ST_SetSRID(ST_MakePoint( 4.8167,  9.1167), 4326)),
+  ('MET_KAINJI',   'Kainji Catchment',  10.3667,  4.6333, ST_SetSRID(ST_MakePoint( 4.6333, 10.3667), 4326)),
+  ('MET_IDAH',     'Idah Catchment',     7.1000,  6.7333, ST_SetSRID(ST_MakePoint( 6.7333,  7.1000), 4326)),
+  ('MET_ASABA',    'Asaba Catchment',    6.2034,  6.7260, ST_SetSRID(ST_MakePoint( 6.7260,  6.2034), 4326)),
+  ('MET_MAKURDI',  'Makurdi Catchment',  7.7316,  8.5213, ST_SetSRID(ST_MakePoint( 8.5213,  7.7316), 4326)),
+  ('MET_IBI',      'Ibi Catchment',      8.1833,  9.7333, ST_SetSRID(ST_MakePoint( 9.7333,  8.1833), 4326)),
+  ('MET_NUMAN',    'Numan Catchment',    9.4667, 12.0333, ST_SetSRID(ST_MakePoint(12.0333,  9.4667), 4326)),
+  ('MET_SHIRORO',  'Shiroro Catchment', 10.5000,  6.8333, ST_SetSRID(ST_MakePoint( 6.8333, 10.5000), 4326)),
+  ('MET_IKOM',     'Ikom Catchment',     5.9618,  8.7087, ST_SetSRID(ST_MakePoint( 8.7087,  5.9618), 4326)),
+  ('MET_CALABAR',  'Calabar Catchment',  4.9481,  8.3220, ST_SetSRID(ST_MakePoint( 8.3220,  4.9481), 4326)),
+  ('MET_OTUOCHA',  'Otuocha Catchment',  6.5000,  6.8333, ST_SetSRID(ST_MakePoint( 6.8333,  6.5000), 4326)),
+  ('MET_ABEOK',    'Abeokuta Catchment', 7.1475,  3.3508, ST_SetSRID(ST_MakePoint( 3.3508,  7.1475), 4326)),
+  ('MET_HADEJIA',  'Hadejia Catchment', 12.4544, 10.0456, ST_SetSRID(ST_MakePoint(10.0456, 12.4544), 4326)),
+  ('MET_GASHUA',   'Gashua Catchment',  12.8700, 11.0500, ST_SetSRID(ST_MakePoint(11.0500, 12.8700), 4326)),
+  ('MET_ARGUNGU',  'Argungu Catchment', 12.7447,  4.5232, ST_SetSRID(ST_MakePoint( 4.5232, 12.7447), 4326)),
+  ('MET_YOLA',     'Yola Catchment',     9.2035, 12.4954, ST_SetSRID(ST_MakePoint(12.4954,  9.2035), 4326)),
+  ('MET_OSOGBO',   'Osogbo Catchment',   7.7826,  4.5418, ST_SetSRID(ST_MakePoint( 4.5418,  7.7826), 4326)),
+  ('MET_OWERRI',   'Owerri Catchment',   5.4836,  7.0331, ST_SetSRID(ST_MakePoint( 7.0331,  5.4836), 4326)),
+  ('MET_GUSAU',    'Gusau Catchment',   12.1704,  6.6644, ST_SetSRID(ST_MakePoint( 6.6644, 12.1704), 4326)),
+  ('MET_TAKUM',    'Takum Catchment',    7.2647,  9.9736, ST_SetSRID(ST_MakePoint( 9.9736,  7.2647), 4326)),
+  ('MET_MAIDUGURI','Maiduguri',         11.8460, 13.1571, ST_SetSRID(ST_MakePoint(13.1571, 11.8460), 4326)),
+  ('MET_SOKOTO',   'Sokoto City',       13.0622,  5.2339, ST_SetSRID(ST_MakePoint( 5.2339, 13.0622), 4326)),
+  ('MET_BENIN',    'Benin City',         6.3350,  5.6270, ST_SetSRID(ST_MakePoint( 5.6270,  6.3350), 4326)),
+  ('MET_ENUGU',    'Enugu',              6.4584,  7.5464, ST_SetSRID(ST_MakePoint( 7.5464,  6.4584), 4326)),
+  ('MET_KADUNA',   'Kaduna City',       10.5105,  7.4165, ST_SetSRID(ST_MakePoint( 7.4165, 10.5105), 4326))
+ON CONFLICT (code) DO NOTHING;
+
 -- ─── Continuous aggregates for dashboard queries ──────────────
 -- Hourly gauge summary
 CREATE MATERIALIZED VIEW IF NOT EXISTS gauge_hourly
