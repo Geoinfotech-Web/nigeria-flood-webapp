@@ -50,6 +50,7 @@ DB_DSN = (
 
 OPENMETEO_BASE = "https://api.open-meteo.com/v1/forecast"
 FLOOD_API_BASE = "https://flood-api.open-meteo.com/v1/flood"
+MET_HISTORY_HOURS = 24 * 7
 
 # Manning inverse constant (calibrated for Nigerian rivers)
 MANNING_K = 35.0
@@ -79,21 +80,23 @@ def load_gauge_stations(conn) -> list[dict]:
 
 # ── OpenMeteo fetchers ────────────────────────────────────────────────────────
 
-def fetch_met(station: dict, hours_back: int = 3) -> list[dict]:
+def fetch_met(station: dict, hours_back: int = MET_HISTORY_HOURS) -> list[dict]:
     """Fetch recent hourly met observations from OpenMeteo."""
+    past_days = max(1, min(14, (hours_back + 23) // 24))
     url = (
         f"{OPENMETEO_BASE}"
         f"?latitude={station['lat']}&longitude={station['lon']}"
         f"&hourly=precipitation,temperature_2m,relative_humidity_2m,"
         f"wind_speed_10m,surface_pressure"
-        f"&past_days=1&forecast_days=0&timezone=UTC"
+        f"&past_days={past_days}&forecast_days=0&timezone=UTC"
     )
     try:
         data = _get(url)
         hourly = data.get("hourly", {})
         times  = hourly.get("time", [])
         rows   = []
-        for i, t in enumerate(times[-hours_back:], start=max(0, len(times) - hours_back)):
+        start_idx = max(0, len(times) - hours_back)
+        for i, t in enumerate(times[start_idx:], start=start_idx):
             rows.append({
                 "time":          datetime.fromisoformat(t).replace(tzinfo=timezone.utc),
                 "rainfall_mm":   hourly["precipitation"][i] or 0.0,
@@ -146,10 +149,25 @@ def write_met(conn, station_id: int, rows: list[dict]):
             for r in rows]
     with conn.cursor() as cur:
         execute_values(cur, """
+            WITH incoming (
+                time, station_id, rainfall_mm, temperature_c,
+                humidity_pct, wind_speed_ms, pressure_hpa
+            ) AS (
+                VALUES %s
+            )
             INSERT INTO met_readings
               (time, station_id, rainfall_mm, temperature_c,
                humidity_pct, wind_speed_ms, pressure_hpa)
-            VALUES %s ON CONFLICT DO NOTHING
+            SELECT
+                i.time, i.station_id, i.rainfall_mm, i.temperature_c,
+                i.humidity_pct, i.wind_speed_ms, i.pressure_hpa
+            FROM incoming i
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM met_readings mr
+                WHERE mr.station_id = i.station_id
+                  AND mr.time = i.time
+            )
         """, data)
     conn.commit()
 
@@ -161,8 +179,19 @@ def write_gauge(conn, station_id: int, rows: list[dict]):
             for r in rows]
     with conn.cursor() as cur:
         execute_values(cur, """
+            WITH incoming (time, station_id, water_level_m, flow_rate_m3s) AS (
+                VALUES %s
+            )
             INSERT INTO gauge_readings (time, station_id, water_level_m, flow_rate_m3s)
-            VALUES %s ON CONFLICT DO NOTHING
+            SELECT
+                i.time, i.station_id, i.water_level_m, i.flow_rate_m3s
+            FROM incoming i
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM gauge_readings gr
+                WHERE gr.station_id = i.station_id
+                  AND gr.time = i.time
+            )
         """, data)
     conn.commit()
 
@@ -180,7 +209,7 @@ def run_once():
     # Met stations — OpenMeteo hourly
     met_ok = 0
     for s in met_stations:
-        rows = fetch_met(s, hours_back=3)
+        rows = fetch_met(s, hours_back=MET_HISTORY_HOURS)
         write_met(conn, s["id"], rows)
         if rows:
             met_ok += 1
