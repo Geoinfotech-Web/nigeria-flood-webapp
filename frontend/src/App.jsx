@@ -14,7 +14,10 @@ import { useGaugeFeed } from './hooks/useGaugeFeed'
 import { useStations } from './hooks/useStations'
 import { usePlaceConditions } from './hooks/usePlaceConditions'
 import { useNearbySettlements } from './hooks/useNearbySettlements'
+import { useNearbyRoads } from './hooks/useNearbyRoads'
 import { useDetectLocation } from './hooks/useDetectLocation'
+import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
+import AffectedPlacesStat from './components/AffectedPlacesStat'
 
 function readPlaceFromUrl() {
   try {
@@ -56,6 +59,7 @@ export default function App() {
   const [mode, setMode] = useState('public')
   const [selected, setSelected] = useState(null)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
+  const [highlightedRoad, setHighlightedRoad] = useState(null)
 
   const sortedStations = useMemo(
     () => [...stations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -64,13 +68,26 @@ export default function App() {
   const selectedStation = sortedStations.find((s) => s.id === selected)
 
   const handlePlaceSelect = useCallback((result) => {
+    setHighlightedRoad(null)
     setPlace(result)
     setSelected(null)
   }, [])
 
   const placeConditions = usePlaceConditions(place, sortedStations)
-  const { settlements, loading: settlementsLoading } = useNearbySettlements(place)
+  const { settlements, localSummary, loading: settlementsLoading } = useNearbySettlements(
+    place,
+    placeConditions.nearby,
+  )
+  const { roads: nearbyRoads, summary: roadSummary, loading: roadsLoading } = useNearbyRoads(place)
   const { detect, locating, error: locationError } = useDetectLocation(handlePlaceSelect)
+  const {
+    summary: nationalAffectedSummary,
+    loading: affectedLoading,
+  } = useAffectedSettlementsSummary({ minTier: 'Warning', radiusKm: 25 })
+
+  const stripSummary = place ? localSummary : nationalAffectedSummary
+  const stripLoading = place ? settlementsLoading : affectedLoading
+  const stripScope = place ? 'local' : 'nationwide'
 
   // Auto-detect location once on public mode if no place is set (URL/share)
   useEffect(() => {
@@ -102,6 +119,7 @@ export default function App() {
   const clearPlace = () => {
     setPlace(null)
     setSelected(null)
+    setHighlightedRoad(null)
   }
 
   const handleAlertStation = (stationName) => {
@@ -135,7 +153,14 @@ export default function App() {
         locationError={locationError}
       />
 
-      <NationalAlertsStrip theme={theme} onSelectStation={handleAlertStation} />
+      <NationalAlertsStrip
+        theme={theme}
+        onSelectStation={handleAlertStation}
+        affectedSummary={stripSummary}
+        affectedLoading={stripLoading}
+        affectedScope={stripScope}
+        placeName={place?.name}
+      />
 
       {mode === 'public' ? (
         <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
@@ -156,7 +181,13 @@ export default function App() {
                   primaryStation={placeConditions.primaryStation}
                   nearby={placeConditions.nearby}
                   nearbySettlements={settlements}
+                  localSettlementSummary={localSummary}
                   settlementsLoading={settlementsLoading}
+                  nearbyRoads={nearbyRoads}
+                  roadSummary={roadSummary}
+                  roadsLoading={roadsLoading}
+                  selectedRoad={highlightedRoad}
+                  onSelectRoad={setHighlightedRoad}
                   loading={placeConditions.loading}
                   liveReadings={liveReadings}
                   theme={theme}
@@ -193,8 +224,22 @@ export default function App() {
                     )}
                   >
                     Search a city or town to see the nearest river-gauge forecast for the next
-                    72 hours. Flood extent maps are coming soon from our inundation team.
+                    72 hours, nearby towns at flood susceptibility risk, and which major roads
+                    near you are exposed. Flood extent maps are coming soon from our inundation team.
                   </p>
+                  <div className="mt-4">
+                    <AffectedPlacesStat
+                      summary={
+                        place
+                          ? localSummary
+                          : nationalAffectedSummary
+                      }
+                      loading={place ? settlementsLoading : affectedLoading}
+                      theme={theme}
+                      scope={place ? 'local' : 'nationwide'}
+                      placeName={place?.name}
+                    />
+                  </div>
                 </div>
                 <ul
                   className={clsx(
@@ -235,6 +280,7 @@ export default function App() {
               theme={theme}
               variant="public"
               placeFocus={place}
+              roadHighlight={highlightedRoad}
               showSearch={false}
             />
           </main>

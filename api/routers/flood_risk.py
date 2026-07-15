@@ -65,14 +65,22 @@ OVERLAY_METADATA = {
                 {"label": "Highly Susceptible", "color": "#800026", "range": "> 75"},
                 {"label": "High", "color": "#e31a1c", "range": "51-75"},
                 {"label": "Moderate", "color": "#fd8d3c", "range": "26-50"},
-                {"label": "Low", "color": "#feb24c", "range": "0-25"},
+                {"label": "Low", "color": "#ffffb2", "range": "0-25"},
             ],
         },
         "render": {
             "bidx": "1",
-            "rescale": "1,4",
             "resampling": "nearest",
-            "colormap_name": "ylorrd",
+            # Discrete class values 1-4 — do NOT rescale (breaks colormap lookup)
+            "colormap": json.dumps(
+                {
+                    "1": [255, 255, 178, 255],  # Low — pale yellow
+                    "2": [253, 141, 60, 255],   # Moderate — orange
+                    "3": [227, 26, 28, 255],    # High
+                    "4": [128, 0, 38, 255],     # Highly Susceptible
+                },
+                separators=(",", ":"),
+            ),
         },
     },
 }
@@ -191,7 +199,7 @@ async def list_tile_layers(request: Request):
         params = {"url": cog_url}
         if render:
             params.update(render)
-        encoded = up.urlencode(params, doseq=True, safe=":,")
+        encoded = up.urlencode(params, doseq=True, safe=":/")
         return f"{base}/flood-risk/tiles/{{z}}/{{x}}/{{y}}.png?{encoded}"
 
     async def _fetch_bounds(cog_url: str) -> list[float] | None:
@@ -234,6 +242,17 @@ async def list_tile_layers(request: Request):
 
 
 # ── TiTiler tile proxy ────────────────────────────────────────────────────────
+_SUSCEPTIBILITY_COLORMAP = json.dumps(
+    {
+        "1": [255, 255, 178, 255],
+        "2": [253, 141, 60, 255],
+        "3": [227, 26, 28, 255],
+        "4": [128, 0, 38, 255],
+    },
+    separators=(",", ":"),
+)
+
+
 @router.get("/tiles/{z}/{x}/{y}.png")
 async def proxy_tile(
     z: int, x: int, y: int,
@@ -251,17 +270,28 @@ async def proxy_tile(
     params = {"url": url}
     if bidx:
         params["bidx"] = bidx
-    if colormap_name:
-        params["colormap_name"] = colormap_name
-    if colormap:
-        params["colormap"] = colormap
-    if rescale:
-        params["rescale"] = rescale
     if resampling:
         params["resampling"] = resampling
+
+    # Classified susceptibility uses discrete values 1-4. Never rescale those
+    # tiles with a discrete colormap — rescale remaps class IDs and yields
+    # near-empty tiles.
+    is_susceptibility = "susceptibility_classes" in (url or "")
+    if is_susceptibility:
+        params["colormap"] = colormap or _SUSCEPTIBILITY_COLORMAP
+        params.setdefault("bidx", "1")
+        params.setdefault("resampling", "nearest")
+    else:
+        if colormap_name:
+            params["colormap_name"] = colormap_name
+        if colormap:
+            params["colormap"] = colormap
+        if rescale:
+            params["rescale"] = rescale
+
     tile_url = (
         f"{TITILER_BASE}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png"
-        f"?{up.urlencode(params, doseq=True, safe=':,{}[]')}"
+        f"?{up.urlencode(params, doseq=True, safe=':/')}"
     )
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -270,7 +300,7 @@ async def proxy_tile(
             return Response(
                 content=resp.content,
                 media_type="image/png",
-                headers={"Cache-Control": "public, max-age=3600"},
+                headers={"Cache-Control": "public, max-age=60"},
             )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:

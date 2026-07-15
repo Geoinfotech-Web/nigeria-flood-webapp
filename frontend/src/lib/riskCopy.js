@@ -20,6 +20,29 @@ export const RISK_LABEL = {
   Emergency: 'Flood emergency',
 }
 
+/** Matches GEE flood susceptibility class map (1–4). */
+export const SUSCEPTIBILITY_ORDER = {
+  Low: 1,
+  Moderate: 2,
+  High: 3,
+  'Highly Susceptible': 4,
+}
+
+export const SUSCEPTIBILITY_COLOR = {
+  Low: '#ffffb2',
+  Moderate: '#fd8d3c',
+  High: '#e31a1c',
+  'Highly Susceptible': '#800026',
+}
+
+/** Darker text colours for Low (pale yellow is hard to read as text). */
+export const SUSCEPTIBILITY_TEXT_COLOR = {
+  Low: '#a16207',
+  Moderate: '#c2410c',
+  High: '#e31a1c',
+  'Highly Susceptible': '#800026',
+}
+
 export function worstRisk(tiers) {
   return tiers.reduce(
     (worst, tier) => (RISK_ORDER[tier] > RISK_ORDER[worst] ? tier : worst),

@@ -1,9 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { formatDistance } from '../lib/geo'
 import {
   RISK_COLOR,
   RISK_LABEL,
+  SUSCEPTIBILITY_COLOR,
+  SUSCEPTIBILITY_TEXT_COLOR,
   actionHint,
   placeRiskMessage,
 } from '../lib/riskCopy'
@@ -31,7 +33,13 @@ export default function PlaceBriefPanel({
   primaryStation,
   nearby,
   nearbySettlements = [],
+  localSettlementSummary = null,
   settlementsLoading = false,
+  nearbyRoads = [],
+  roadSummary = null,
+  roadsLoading = false,
+  selectedRoad = null,
+  onSelectRoad,
   loading,
   liveReadings,
   theme = 'light',
@@ -40,11 +48,48 @@ export default function PlaceBriefPanel({
   onSelectPlace,
 }) {
   const [showDetails, setShowDetails] = useState(false)
+  const [panelTab, setPanelTab] = useState('places') // places | roads
   const tier = overallRisk || 'Normal'
   const badge = (theme === 'dark' ? DARK_BADGE : LIGHT_BADGE)[tier]
   const horizons = primaryStation?.prediction?.horizons || {}
   const elevated = overallRisk && overallRisk !== 'Normal'
+  const highlyLikely = localSettlementSummary?.highly_likely ?? 0
+  const highlySusceptible = localSettlementSummary?.highly_susceptible ?? 0
+  const bySusceptibility = localSettlementSummary?.by_susceptibility || {}
 
+  useEffect(() => {
+    setPanelTab('places')
+    setShowDetails(false)
+  }, [place?.lat, place?.lon, place?.name])
+
+  const roadKey = (r) => `${r.osm_id || r.name}-${r.lat}-${r.lon}`
+  const placesCount = nearbySettlements.length
+  const roadsCount = nearbyRoads.length
+  const roadsAtRisk = roadSummary?.at_risk ?? 0
+
+  const tabBtn = (id, label, count, loadingTab) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={panelTab === id}
+      onClick={() => setPanelTab(id)}
+      className={clsx(
+        'flex-1 rounded-lg px-2.5 py-2 text-left transition',
+        panelTab === id
+          ? theme === 'dark'
+            ? 'bg-gray-800 text-white shadow-sm'
+            : 'bg-white text-slate-900 shadow-sm'
+          : theme === 'dark'
+            ? 'text-gray-400 hover:text-gray-200'
+            : 'text-slate-500 hover:text-slate-800',
+      )}
+    >
+      <span className="block text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+      <span className="mt-0.5 block text-xs font-medium tabular-nums">
+        {loadingTab ? '…' : count}
+      </span>
+    </button>
+  )
   return (
     <section
       className={clsx(
@@ -195,82 +240,301 @@ export default function PlaceBriefPanel({
           </>
         )}
 
-        {(settlementsLoading || nearbySettlements.length > 0) && (
-          <div>
-            <h3
-              className={clsx(
-                'mb-1 text-[10px] font-semibold uppercase tracking-widest',
-                theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-              )}
-            >
-              Neighbouring towns & villages
-            </h3>
-            <p
-              className={clsx(
-                'mb-2 text-[11px] leading-relaxed',
-                theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
-              )}
-            >
-              {elevated
-                ? 'These nearby settlements may also be affected by the same flood outlook.'
-                : 'Communities within about 25 km that share the surrounding area.'}
-            </p>
-
-            {settlementsLoading && nearbySettlements.length === 0 && (
-              <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
-                Loading neighbouring settlements…
-              </p>
+        <div>
+          <div
+            role="tablist"
+            aria-label="Nearby places and roads"
+            className={clsx(
+              'mb-3 flex gap-1 rounded-xl border p-1',
+              theme === 'dark' ? 'border-gray-800 bg-gray-950/50' : 'border-slate-200 bg-slate-100/80',
             )}
+          >
+            {tabBtn('places', 'Towns & villages', placesCount, settlementsLoading)}
+            {tabBtn(
+              'roads',
+              'Streets & roads',
+              roadsAtRisk > 0 ? `${roadsAtRisk} at risk` : roadsCount,
+              roadsLoading,
+            )}
+          </div>
 
-            <ul className="space-y-1.5">
-              {nearbySettlements.map((s) => (
-                <li key={`${s.name}-${s.lat}-${s.lon}`}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectPlace?.({
-                        name: s.name,
-                        display_name: s.display_name || `${s.name}, Nigeria`,
-                        lat: s.lat,
-                        lon: s.lon,
-                        bbox_lnglat: null,
-                      })
-                    }
+          {panelTab === 'places' && (
+            <div className="space-y-3">
+              {localSettlementSummary && nearbySettlements.length > 0 && (
+                <div
+                  className={clsx(
+                    'rounded-xl border px-3.5 py-3',
+                    highlySusceptible > 0 || highlyLikely > 0
+                      ? theme === 'dark'
+                        ? 'border-orange-800/50 bg-orange-950/30'
+                        : 'border-orange-200 bg-orange-50'
+                      : theme === 'dark'
+                        ? 'border-gray-800 bg-gray-950/40'
+                        : 'border-slate-200 bg-slate-50',
+                  )}
+                >
+                  <p
                     className={clsx(
-                      'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition',
-                      theme === 'dark'
-                        ? 'border-gray-800 bg-gray-950/40 hover:border-gray-600'
-                        : 'border-slate-100 bg-slate-50/80 hover:border-slate-300 hover:bg-white',
+                      'text-[10px] font-semibold uppercase tracking-widest',
+                      theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
                     )}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{s.name}</span>
+                    Nearby impact · ~25 km
+                  </p>
+                  <p className="mt-1 text-[13px] font-semibold">
+                    <span className="tabular-nums text-xl">{highlySusceptible || highlyLikely}</span>
+                    {' '}of {localSettlementSummary.total} places in high / highly susceptible areas
+                    {highlyLikely > 0 ? (
                       <span
                         className={clsx(
-                          'block truncate',
-                          theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                          'mt-0.5 block text-[11px] font-normal',
+                          theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
                         )}
                       >
-                        {s.class}
-                        {s.population
-                          ? ` · pop. ${Number(s.population).toLocaleString()}`
-                          : ''}
+                        {highlyLikely} also on elevated gauge forecast (warning/emergency)
                       </span>
-                    </span>
-                    <span
+                    ) : null}
+                  </p>
+                  {(bySusceptibility['Highly Susceptible'] ||
+                    bySusceptibility.High ||
+                    bySusceptibility.Moderate ||
+                    bySusceptibility.Low) ? (
+                    <p
                       className={clsx(
-                        'shrink-0 tabular-nums',
+                        'mt-1 text-[11px]',
                         theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
                       )}
                     >
-                      {formatDistance(s.distance_km)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                      {[
+                        bySusceptibility['Highly Susceptible']
+                          ? `${bySusceptibility['Highly Susceptible']} highly susceptible`
+                          : null,
+                        bySusceptibility.High ? `${bySusceptibility.High} high` : null,
+                        bySusceptibility.Moderate ? `${bySusceptibility.Moderate} moderate` : null,
+                        bySusceptibility.Low ? `${bySusceptibility.Low} low` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+
+              <p
+                className={clsx(
+                  'text-[11px] leading-relaxed',
+                  theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                )}
+              >
+                Flood susceptibility at each place. Tap a name to focus the map there.
+              </p>
+
+              {settlementsLoading && nearbySettlements.length === 0 && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  Loading neighbouring settlements…
+                </p>
+              )}
+
+              {!settlementsLoading && nearbySettlements.length === 0 && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  No neighbouring towns or villages found nearby.
+                </p>
+              )}
+
+              <ul className="space-y-1.5">
+                {nearbySettlements.map((s) => {
+                  const sus = s.susceptibility
+                  const susColor = SUSCEPTIBILITY_COLOR[sus]
+                  const susText = SUSCEPTIBILITY_TEXT_COLOR[sus]
+                  const gaugeElevated = s.risk_tier && s.risk_tier !== 'Normal'
+                  return (
+                    <li key={`${s.name}-${s.lat}-${s.lon}`}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectPlace?.({
+                            name: s.name,
+                            display_name: s.display_name || `${s.name}, Nigeria`,
+                            lat: s.lat,
+                            lon: s.lon,
+                            bbox_lnglat: null,
+                          })
+                        }
+                        className={clsx(
+                          'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition',
+                          theme === 'dark'
+                            ? 'border-gray-800 bg-gray-950/40 hover:border-gray-600'
+                            : 'border-slate-100 bg-slate-50/80 hover:border-slate-300 hover:bg-white',
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{s.name}</span>
+                          <span
+                            className={clsx(
+                              'block truncate',
+                              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                            )}
+                          >
+                            {s.class} · {formatDistance(s.distance_km)}
+                            {s.nearest_gauge ? ` · via ${s.nearest_gauge}` : ''}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          {sus ? (
+                            <span
+                              className="inline-flex items-center justify-end gap-1.5 font-semibold"
+                              style={{ color: susText }}
+                            >
+                              <span
+                                className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm border border-black/10"
+                                style={{ backgroundColor: susColor }}
+                                aria-hidden
+                              />
+                              {sus}
+                            </span>
+                          ) : (
+                            <span
+                              className={clsx(
+                                'font-medium',
+                                theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                              )}
+                            >
+                              Unclassified
+                            </span>
+                          )}
+                          {gaugeElevated ? (
+                            <span
+                              className="mt-0.5 block text-[10px] font-medium"
+                              style={{ color: RISK_COLOR[s.risk_tier] }}
+                            >
+                              {RISK_LABEL[s.risk_tier] || s.risk_tier}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          {panelTab === 'roads' && (
+            <div className="space-y-3">
+              <p
+                className={clsx(
+                  'text-[11px] leading-relaxed',
+                  theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                )}
+              >
+                Major roads within ~{roadSummary?.radius_km ?? 12} km with Moderate+ flood
+                susceptibility. Tap a road to highlight it on the map. Residential streets are not
+                included.
+              </p>
+
+              {roadsLoading && nearbyRoads.length === 0 && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  Checking roads near this location…
+                </p>
+              )}
+
+              {!roadsLoading && nearbyRoads.length === 0 && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  No moderate-or-higher susceptibility roads found nearby among mapped highways and
+                  major routes.
+                </p>
+              )}
+
+              {roadSummary && nearbyRoads.length > 0 && (
+                <p
+                  className={clsx(
+                    'text-[11px]',
+                    theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                  )}
+                >
+                  {(roadSummary.at_risk ?? 0) > 0
+                    ? `${roadSummary.at_risk} high / highly susceptible`
+                    : 'None at high susceptibility'}
+                  {roadSummary.by_susceptibility?.Moderate
+                    ? ` · ${roadSummary.by_susceptibility.Moderate} moderate`
+                    : ''}
+                  {' · '}
+                  showing {nearbyRoads.length}
+                </p>
+              )}
+
+              <ul className="space-y-1.5">
+                {nearbyRoads.map((r) => {
+                  const sus = r.susceptibility
+                  const susColor = SUSCEPTIBILITY_COLOR[sus]
+                  const susText = SUSCEPTIBILITY_TEXT_COLOR[sus]
+                  const key = roadKey(r)
+                  const active =
+                    selectedRoad &&
+                    (selectedRoad.osm_id
+                      ? selectedRoad.osm_id === r.osm_id
+                      : roadKey(selectedRoad) === key)
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectRoad?.(active ? null : r)}
+                        className={clsx(
+                          'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition',
+                          active
+                            ? theme === 'dark'
+                              ? 'border-sky-500 bg-sky-950/40 ring-1 ring-sky-500/40'
+                              : 'border-sky-400 bg-sky-50 ring-1 ring-sky-300'
+                            : theme === 'dark'
+                              ? 'border-gray-800 bg-gray-950/40 hover:border-gray-600'
+                              : 'border-slate-100 bg-slate-50/80 hover:border-slate-300 hover:bg-white',
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{r.name}</span>
+                          <span
+                            className={clsx(
+                              'block truncate',
+                              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                            )}
+                          >
+                            {r.class}
+                            {r.bridge ? ' · bridge' : ''}
+                            {' · '}
+                            {formatDistance(r.distance_km)}
+                            {active ? ' · on map' : ''}
+                          </span>
+                        </span>
+                        {sus ? (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1.5 font-semibold"
+                            style={{ color: susText }}
+                          >
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-sm border border-black/10"
+                              style={{ backgroundColor: susColor }}
+                              aria-hidden
+                            />
+                            {sus}
+                          </span>
+                        ) : (
+                          <span
+                            className={clsx(
+                              'shrink-0 font-medium',
+                              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                            )}
+                          >
+                            Unclassified
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
 
         {overallRisk && nearby.length > 0 && (
           <div>

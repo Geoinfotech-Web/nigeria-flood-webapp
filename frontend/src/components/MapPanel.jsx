@@ -7,6 +7,7 @@ import FloodRiskLegend from './FloodRiskLegend'
 import ImpactSummaryPanel from './ImpactSummaryPanel'
 import LayersPanel from './LayersPanel'
 import { IconHome } from './Icons'
+import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
 
 const RISK_COLOR = {
   Normal:    '#22c55e',
@@ -259,6 +260,7 @@ export default function MapPanel({
   theme = 'dark',
   variant = 'expert',
   placeFocus = null,
+  roadHighlight = null,
   onPlaceSelect,
   showSearch = true,
 }) {
@@ -727,6 +729,140 @@ export default function MapPanel({
       .setLngLat([placeFocus.lon, placeFocus.lat])
       .addTo(map)
   }, [mapReady, placeFocus])
+
+  // Highlight a road selected from the place panel
+  useEffect(() => {
+    if (!mapReady || !mapObj.current) return
+    const map = mapObj.current
+
+    const ensureLayers = () => {
+      if (!map.getSource('road-highlight')) {
+        map.addSource('road-highlight', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        })
+      }
+      if (!map.getLayer('road-highlight-glow')) {
+        map.addLayer({
+          id: 'road-highlight-glow',
+          type: 'line',
+          source: 'road-highlight',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 12,
+            'line-opacity': 0.85,
+          },
+        })
+      }
+      if (!map.getLayer('road-highlight-line')) {
+        map.addLayer({
+          id: 'road-highlight-line',
+          type: 'line',
+          source: 'road-highlight',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 5,
+            'line-opacity': 1,
+          },
+        })
+      }
+      if (!map.getLayer('road-highlight-point')) {
+        map.addLayer({
+          id: 'road-highlight-point',
+          type: 'circle',
+          source: 'road-highlight',
+          filter: ['==', ['geometry-type'], 'Point'],
+          paint: {
+            'circle-radius': 8,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff',
+          },
+        })
+      }
+    }
+
+    try {
+      ensureLayers()
+    } catch {
+      return
+    }
+
+    const source = map.getSource('road-highlight')
+    if (!source) return
+
+    if (!roadHighlight) {
+      source.setData({ type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    const color =
+      SUSCEPTIBILITY_COLOR[roadHighlight.susceptibility] ||
+      '#0284c7'
+    const coords = roadHighlight.coordinates
+    const hasLine = Array.isArray(coords) && coords.length >= 2
+
+    const feature = hasLine
+      ? {
+          type: 'Feature',
+          properties: {
+            name: roadHighlight.name,
+            color,
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: coords,
+          },
+        }
+      : {
+          type: 'Feature',
+          properties: {
+            name: roadHighlight.name,
+            color,
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [roadHighlight.lon, roadHighlight.lat],
+          },
+        }
+
+    source.setData({ type: 'FeatureCollection', features: [feature] })
+
+    if (hasLine) {
+      let minLon = Infinity
+      let minLat = Infinity
+      let maxLon = -Infinity
+      let maxLat = -Infinity
+      coords.forEach(([lon, lat]) => {
+        if (lon < minLon) minLon = lon
+        if (lat < minLat) minLat = lat
+        if (lon > maxLon) maxLon = lon
+        if (lat > maxLat) maxLat = lat
+      })
+      const pad = 0.01
+      map.fitBounds(
+        [
+          [minLon - pad, minLat - pad],
+          [maxLon + pad, maxLat + pad],
+        ],
+        {
+          padding: publicMode
+            ? { top: 80, right: 40, bottom: 300, left: 40 }
+            : 80,
+          duration: 900,
+          maxZoom: 14,
+        },
+      )
+    } else if (Number.isFinite(roadHighlight.lon) && Number.isFinite(roadHighlight.lat)) {
+      map.flyTo({
+        center: [roadHighlight.lon, roadHighlight.lat],
+        zoom: 13,
+        duration: 900,
+      })
+    }
+  }, [mapReady, roadHighlight, publicMode])
 
   return (
     <div className="relative w-full h-full">
