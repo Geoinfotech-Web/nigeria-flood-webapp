@@ -24,6 +24,12 @@ const EXPOSURE_SYMBOLS = {
     { label: 'Town', color: '#cbd5e1', stroke: '#0f172a', type: 'circle' },
     { label: 'Village', color: '#94a3b8', stroke: '#0f172a', type: 'circle' },
   ],
+  buildings: [
+    { label: 'Highly Susceptible', color: '#800026', stroke: '#4a0016', type: 'circle' },
+    { label: 'High', color: '#e31a1c', stroke: '#7f1d1d', type: 'circle' },
+    { label: 'Moderate', color: '#fd8d3c', stroke: '#9a3412', type: 'circle' },
+    { label: 'Low', color: '#ffffb2', stroke: '#a16207', type: 'circle' },
+  ],
 }
 
 export default function FloodRiskLegend({

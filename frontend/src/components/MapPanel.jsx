@@ -148,6 +148,56 @@ function addRoadLayers(map, sourceId) {
   })
 }
 
+function addBuildingLayer(map, sourceId) {
+  if (map.getLayer('exposure-buildings')) return
+  map.addLayer({
+    id: 'exposure-buildings',
+    type: 'circle',
+    source: sourceId,
+    minzoom: 11,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.2, 14, 4.5, 16, 6],
+      'circle-color': [
+        'case',
+        ['==', ['get', 'susceptibility'], 'Highly Susceptible'], '#800026',
+        ['==', ['get', 'susceptibility'], 'High'], '#e31a1c',
+        ['==', ['get', 'susceptibility'], 'Moderate'], '#fd8d3c',
+        ['==', ['get', 'susceptibility'], 'Low'], '#ffffb2',
+        ['==', ['get', 'zone_tier'], 'Emergency'], '#ef4444',
+        ['==', ['get', 'zone_tier'], 'Warning'], '#f97316',
+        ['==', ['get', 'zone_tier'], 'Watch'], '#eab308',
+        '#c4b5fd',
+      ],
+      'circle-stroke-width': 1,
+      'circle-stroke-color': [
+        'case',
+        ['==', ['get', 'susceptibility'], 'Low'], '#a16207',
+        '#4c1d95',
+      ],
+      'circle-opacity': 0.9,
+    },
+  })
+
+  map.on('click', 'exposure-buildings', (e) => {
+    const props = e.features?.[0]?.properties || {}
+    new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+          <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Building'}</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+            <span style="color:#6b7280">Type</span>
+            <span>${props.class || 'Building'}</span>
+          </div>
+          ${props.susceptibility ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Susceptibility</span><span style="font-weight:600">${props.susceptibility}</span></div>` : ''}
+          ${props.zone_tier ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Flood zone</span><span style="font-weight:600">${props.zone_tier}</span></div>` : '<div style="color:#6b7280">Outside elevated flood zone</div>'}
+        </div>
+      `)
+      .addTo(map)
+  })
+  registerPointerCursor(map, 'exposure-buildings')
+}
+
 function addBridgeLayer(map, sourceId) {
   if (!map.getLayer('exposure-bridges')) {
     map.addLayer({
@@ -261,6 +311,8 @@ export default function MapPanel({
   variant = 'expert',
   placeFocus = null,
   roadHighlight = null,
+  forceBuildingsLayer = false,
+  onBuildingsViewportChange = null,
   onPlaceSelect,
   showSearch = true,
 }) {
@@ -283,12 +335,16 @@ export default function MapPanel({
     roads: null,
     bridges: null,
     places: null,
+    buildings: null,
   })
   const [exposureVisible, setExposureVisible] = useState({
     roads: false,
     bridges: false,
     places: false,
+    buildings: false,
   })
+  const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
+  const buildingsFetchRef = useRef(0)
   const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
@@ -385,7 +441,7 @@ export default function MapPanel({
 
   useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
-      if (!visible || exposureData[layerId]) return
+      if (!visible || layerId === 'buildings' || exposureData[layerId]) return
       fetch(`${API}/exposure/${layerId}`)
         .then(r => r.json())
         .then(data => {
@@ -397,6 +453,118 @@ export default function MapPanel({
         .catch(console.error)
     })
   }, [exposureVisible, exposureData])
+
+  // Force-on Buildings exposure when the place panel Buildings tab is active
+  useEffect(() => {
+    if (!forceBuildingsLayer) return
+    setExposureVisible((current) =>
+      current.buildings ? current : { ...current, buildings: true },
+    )
+  }, [forceBuildingsLayer])
+
+  // Buildings: on-demand for current map viewport (OSM Overpass)
+  useEffect(() => {
+    if (!mapReady || !mapObj.current || !exposureVisible.buildings) {
+      setBuildingsStatus(null)
+      onBuildingsViewportChange?.(null)
+      return undefined
+    }
+
+    const map = mapObj.current
+    let debounceId = null
+
+    const loadBuildings = () => {
+      const zoom = map.getZoom()
+      if (zoom < 11) {
+        setBuildingsStatus('zoom')
+        setExposureData((current) => ({
+          ...current,
+          buildings: { type: 'FeatureCollection', features: [] },
+        }))
+        onBuildingsViewportChange?.({
+          buildings: [],
+          summary: null,
+          status: 'zoom',
+        })
+        return
+      }
+
+      const bounds = map.getBounds()
+      const west = bounds.getWest()
+      const south = bounds.getSouth()
+      const east = bounds.getEast()
+      const north = bounds.getNorth()
+      const spanOk =
+        Math.abs(north - south) <= 0.25 && Math.abs(east - west) <= 0.25
+      if (!spanOk) {
+        setBuildingsStatus('zoom')
+        onBuildingsViewportChange?.({
+          buildings: [],
+          summary: null,
+          status: 'zoom',
+        })
+        return
+      }
+
+      const requestId = ++buildingsFetchRef.current
+      setBuildingsStatus('loading')
+      onBuildingsViewportChange?.({
+        buildings: [],
+        summary: null,
+        status: 'loading',
+      })
+
+      const params = new URLSearchParams({
+        west: String(west),
+        south: String(south),
+        east: String(east),
+        north: String(north),
+        limit: '2000',
+        with_zones: 'true',
+        min_tier: 'Watch',
+        list_limit: '60',
+      })
+      fetch(`${API}/exposure/buildings?${params.toString()}`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`Buildings ${r.status}`)
+          return r.json()
+        })
+        .then((data) => {
+          if (requestId !== buildingsFetchRef.current) return
+          setExposureData((current) => ({ ...current, buildings: data }))
+          setBuildingsStatus('ready')
+          onBuildingsViewportChange?.({
+            buildings: Array.isArray(data?.buildings) ? data.buildings : [],
+            summary: data?.summary || null,
+            status: 'ready',
+            bounds: { west, south, east, north },
+          })
+        })
+        .catch((err) => {
+          if (requestId !== buildingsFetchRef.current) return
+          console.error(err)
+          setBuildingsStatus('error')
+          onBuildingsViewportChange?.({
+            buildings: [],
+            summary: null,
+            status: 'error',
+            error: err,
+          })
+        })
+    }
+
+    const onMoveEnd = () => {
+      clearTimeout(debounceId)
+      debounceId = setTimeout(loadBuildings, 650)
+    }
+
+    loadBuildings()
+    map.on('moveend', onMoveEnd)
+    return () => {
+      clearTimeout(debounceId)
+      map.off('moveend', onMoveEnd)
+    }
+  }, [mapReady, exposureVisible.buildings, onBuildingsViewportChange])
 
   // ── Add risk GeoJSON layer once map + data are ready ──────────────────────
   useEffect(() => {
@@ -587,6 +755,22 @@ export default function MapPanel({
           map.setLayoutProperty(labelId, 'visibility', exposureVisible.places ? 'visible' : 'none')
         }
       })
+    }
+
+    if (exposureData.buildings) {
+      if (map.getSource('exposure-buildings')) {
+        map.getSource('exposure-buildings').setData(exposureData.buildings)
+      } else {
+        map.addSource('exposure-buildings', { type: 'geojson', data: exposureData.buildings })
+        addBuildingLayer(map, 'exposure-buildings')
+      }
+      if (map.getLayer('exposure-buildings')) {
+        map.setLayoutProperty(
+          'exposure-buildings',
+          'visibility',
+          exposureVisible.buildings ? 'visible' : 'none',
+        )
+      }
     }
   }, [mapReady, exposureData, exposureVisible])
 
@@ -877,7 +1061,7 @@ export default function MapPanel({
       )}
 
       {/* Unified Layers panel — top left */}
-      <div className="absolute top-3 left-3 z-10">
+      <div className="absolute top-3 left-3 z-10 space-y-2">
         <LayersPanel
           theme={theme}
           riskAreasVisible={riskAreasVisible}
@@ -895,6 +1079,22 @@ export default function MapPanel({
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
         />
+        {exposureVisible.buildings && buildingsStatus && (
+          <div
+            className={clsx(
+              'max-w-[14rem] rounded-lg border px-2.5 py-1.5 text-[10px] shadow',
+              theme === 'dark'
+                ? 'border-gray-700 bg-gray-900/90 text-gray-300'
+                : 'border-slate-200 bg-white text-slate-600',
+            )}
+          >
+            {buildingsStatus === 'loading' && 'Loading buildings for this view…'}
+            {buildingsStatus === 'zoom' && 'Zoom in closer to load buildings.'}
+            {buildingsStatus === 'error' && 'Could not load buildings (OSM).'}
+            {buildingsStatus === 'ready' &&
+              `${(exposureData.buildings?.features || []).length.toLocaleString()} buildings in view`}
+          </div>
+        )}
       </div>
 
       {/* Home + basemap — below zoom (+/−) only; fullscreen is bottom-right */}
