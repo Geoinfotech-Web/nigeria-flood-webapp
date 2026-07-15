@@ -49,21 +49,50 @@ async def reverse_geocode(
     lat: float = Query(...),
     lon: float = Query(...),
 ):
-    """Reverse geocode a lat/lon to a place name."""
+    """Reverse geocode a lat/lon to a place usable by the public outlook panel."""
     try:
         resp = await _client.get(
             "https://nominatim.openstreetmap.org/reverse",
-            params={"lat": lat, "lon": lon, "format": "json"},
+            params={
+                "lat": lat,
+                "lon": lon,
+                "format": "json",
+                "addressdetails": 1,
+                "zoom": 14,
+            },
         )
         resp.raise_for_status()
         r = resp.json()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Reverse geocoding unavailable: {exc}")
 
-    addr = r.get("address", {})
+    addr = r.get("address", {}) or {}
+    name = (
+        addr.get("city")
+        or addr.get("town")
+        or addr.get("village")
+        or addr.get("suburb")
+        or addr.get("county")
+        or addr.get("state")
+        or r.get("name")
+        or "Your location"
+    )
+    display = r.get("display_name") or f"{name}, Nigeria"
+    bbox = r.get("boundingbox")
+    bbox_lnglat = None
+    if bbox and len(bbox) == 4:
+        bbox_lnglat = [float(bbox[2]), float(bbox[0]), float(bbox[3]), float(bbox[1])]
+
     return {
-        "display_name": r.get("display_name"),
-        "city":    addr.get("city") or addr.get("town") or addr.get("village"),
-        "state":   addr.get("state"),
-        "country": addr.get("country"),
+        "display_name": display,
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "city": addr.get("city") or addr.get("town") or addr.get("village"),
+        "state": addr.get("state"),
+        "country": addr.get("country") or "Nigeria",
+        "type": r.get("type") or addr.get("place") or "locality",
+        "bbox": [float(x) for x in bbox] if bbox else None,
+        "bbox_lnglat": bbox_lnglat,
+        "from_geolocation": True,
     }

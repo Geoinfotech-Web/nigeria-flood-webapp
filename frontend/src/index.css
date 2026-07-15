@@ -2,50 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --flood-ink: #0f172a;
+  --flood-river: #0369a1;
+  --flood-mist: #e0f2fe;
+}
+
+body {
+  font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: 'Fraunces', Georgia, serif;
+}
+
 /* ── Map ── */
 .maplibregl-map { font-family: inherit; }
 
 .maplibregl-popup-content {
-  background: #111827 !important;
-  border: 1px solid #374151 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important;
+  background: #0f172a !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35) !important;
   padding: 0 !important;
-  color: #f3f4f6;
+  color: #f1f5f9;
 }
 
 .maplibregl-popup-tip {
-  border-top-color: #374151 !important;
-  border-bottom-color: #374151 !important;
+  border-top-color: #334155 !important;
+  border-bottom-color: #334155 !important;
 }
 
 /* ── Scrollbars ── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { scrollbar-width: none; }
 
 /* ── MapLibre control overrides ── */
 .maplibregl-ctrl-group {
-  background: rgba(17, 24, 39, 0.90) !important;
-  border: 1px solid #374151 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
 }
 .maplibregl-ctrl-group button {
-  color: #9ca3af !important;
+  color: #475569 !important;
 }
 .maplibregl-ctrl-group button:hover {
-  background: rgba(55, 65, 81, 0.8) !important;
-  color: #f9fafb !important;
+  background: rgba(241, 245, 249, 0.95) !important;
+  color: #0f172a !important;
 }
 .maplibregl-ctrl-scale {
-  background: rgba(17, 24, 39, 0.80) !important;
-  border-color: #4b5563 !important;
-  color: #9ca3af !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: #94a3b8 !important;
+  color: #64748b !important;
   font-size: 10px !important;
   border-radius: 4px;
   padding: 1px 4px;

@@ -5,7 +5,7 @@ import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
 import ImpactSummaryPanel from './ImpactSummaryPanel'
-import RiskLayerControl from './RiskLayerControl'
+import LayersPanel from './LayersPanel'
 import { IconHome } from './Icons'
 
 const RISK_COLOR = {
@@ -257,11 +257,18 @@ export default function MapPanel({
   basemap,
   onBasemapChange,
   theme = 'dark',
+  variant = 'expert',
+  placeFocus = null,
+  onPlaceSelect,
+  showSearch = true,
 }) {
+  const publicMode = variant === 'public'
   const mapRef     = useRef(null)
   const mapObj     = useRef(null)
   const markersRef = useRef({})
-  const [riskVisible, setRiskVisible] = useState(true)
+  const [riskAreasVisible, setRiskAreasVisible] = useState(true)
+  const [satelliteVisible, setSatelliteVisible] = useState(true)
+  const [gaugesVisible, setGaugesVisible] = useState(true)
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
   const [mapReady,    setMapReady]    = useState(false)
@@ -278,7 +285,7 @@ export default function MapPanel({
   const [exposureVisible, setExposureVisible] = useState({
     roads: false,
     bridges: false,
-    places: true,
+    places: false,
   })
   const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
   const resetToHomeView = useCallback(() => {
@@ -291,6 +298,15 @@ export default function MapPanel({
   const toggleExposureLayer = useCallback((layerId) => {
     setExposureVisible(current => ({ ...current, [layerId]: !current[layerId] }))
   }, [])
+  const handleToggleSatellite = useCallback(() => {
+    setSatelliteVisible((v) => {
+      const next = !v
+      if (next && !activeTile && tileLayers[0]) {
+        setActiveTile(String(tileLayers[0].id))
+      }
+      return next
+    })
+  }, [activeTile, tileLayers])
 
   // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -302,9 +318,12 @@ export default function MapPanel({
       zoom: 5.5,
       minZoom: 4,
     })
-    mapObj.current.addControl(new maplibregl.NavigationControl(), 'top-right')
+    mapObj.current.addControl(
+      new maplibregl.NavigationControl({ showCompass: false }),
+      'top-right',
+    )
     mapObj.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
-    mapObj.current.addControl(new maplibregl.FullscreenControl(), 'top-right')
+    mapObj.current.addControl(new maplibregl.FullscreenControl(), 'bottom-right')
 
     mapObj.current.on('load', () => setMapReady(true))
     return () => { mapObj.current?.remove(); setMapReady(false) }
@@ -465,12 +484,12 @@ export default function MapPanel({
     if (!mapReady) return
     const map = mapObj.current
     if (!map.getLayer('flood-risk-fill')) return
-    const vis = riskVisible ? 'visible' : 'none'
+    const vis = riskAreasVisible ? 'visible' : 'none'
     map.setLayoutProperty('flood-risk-fill',    'visibility', vis)
     map.setLayoutProperty('flood-risk-outline', 'visibility', vis)
     map.setPaintProperty('flood-risk-fill',    'fill-opacity',  riskOpacity * 0.6)
     map.setPaintProperty('flood-risk-outline', 'line-opacity',  riskOpacity)
-  }, [mapReady, riskVisible, riskOpacity])
+  }, [mapReady, riskAreasVisible, riskOpacity])
 
   // ── Add / swap GEE raster tile layer ──────────────────────────────────────
   useEffect(() => {
@@ -481,7 +500,7 @@ export default function MapPanel({
     if (map.getLayer('gee-tiles')) map.removeLayer('gee-tiles')
     if (map.getSource('gee-tiles')) map.removeSource('gee-tiles')
 
-    if (!activeTile || !riskVisible) return
+    if (!satelliteVisible || !activeTile) return
 
     const layer = tileLayers.find(l => String(l.id) === activeTile)
     if (!layer) return
@@ -507,7 +526,7 @@ export default function MapPanel({
       source: 'gee-tiles',
       paint:  { 'raster-opacity': riskOpacity * 0.75 },
     }, map.getLayer('flood-risk-fill') ? 'flood-risk-fill' : undefined)
-  }, [mapReady, activeTile, riskVisible, tileLayers])
+  }, [mapReady, activeTile, satelliteVisible, tileLayers])
 
   // ── Sync GEE tile opacity when slider changes ─────────────────────────────
   useEffect(() => {
@@ -571,16 +590,23 @@ export default function MapPanel({
 
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapReady || !stations.length) return
+    if (!mapReady) return
     const map = mapObj.current
+
+    // Clear existing station markers (keep place pin under __place)
+    Object.keys(markersRef.current).forEach((key) => {
+      if (key === '__place') return
+      markersRef.current[key]?.remove()
+      delete markersRef.current[key]
+    })
+
+    if (!gaugesVisible || !stations.length) return
 
     stations.forEach(s => {
       const reading = liveReadings[s.id]
       const risk  = reading?.risk_tier || 'Normal'
       const color = RISK_COLOR[risk]
       const pct   = reading ? Math.round((reading.water_level_m / s.bank_full_m) * 100) : 0
-
-      markersRef.current[s.id]?.remove()
 
       const el = document.createElement('div')
       el.className = 'cursor-pointer'
@@ -624,7 +650,7 @@ export default function MapPanel({
         .setPopup(popup)
         .addTo(map)
     })
-  }, [mapReady, stations, liveReadings, selected])
+  }, [mapReady, stations, liveReadings, selected, gaugesVisible, onSelect])
 
   // ── Fly-to on station select ───────────────────────────────────────────────
   useEffect(() => {
@@ -637,48 +663,106 @@ export default function MapPanel({
   const handleSearchResult = useCallback((result) => {
     if (!mapObj.current) return
     if (result.bbox_lnglat) {
-      mapObj.current.fitBounds(result.bbox_lnglat, { padding: 60, duration: 1200 })
+      const pad = publicMode
+        ? { top: 80, right: 40, bottom: 280, left: 40 }
+        : 60
+      mapObj.current.fitBounds(
+        [
+          [result.bbox_lnglat[0], result.bbox_lnglat[1]],
+          [result.bbox_lnglat[2], result.bbox_lnglat[3]],
+        ],
+        { padding: pad, duration: 1200, maxZoom: 11 },
+      )
     } else {
-      mapObj.current.flyTo({ center: [result.lon, result.lat], zoom: 12, duration: 1200 })
+      mapObj.current.flyTo({ center: [result.lon, result.lat], zoom: 10, duration: 1200 })
     }
-  }, [])
+    onPlaceSelect?.(result)
+  }, [onPlaceSelect, publicMode])
+
+  // External place focus (header search in public mode)
+  useEffect(() => {
+    if (!mapReady || !placeFocus || !mapObj.current) return
+    if (placeFocus.bbox_lnglat?.length === 4) {
+      mapObj.current.fitBounds(
+        [
+          [placeFocus.bbox_lnglat[0], placeFocus.bbox_lnglat[1]],
+          [placeFocus.bbox_lnglat[2], placeFocus.bbox_lnglat[3]],
+        ],
+        {
+          padding: publicMode
+            ? { top: 80, right: 40, bottom: 280, left: 40 }
+            : 60,
+          duration: 1200,
+          maxZoom: 11,
+        },
+      )
+    } else {
+      mapObj.current.flyTo({
+        center: [placeFocus.lon, placeFocus.lat],
+        zoom: 10,
+        duration: 1200,
+      })
+    }
+  }, [placeFocus, mapReady, publicMode])
+
+  // Place pin marker
+  useEffect(() => {
+    if (!mapReady || !mapObj.current) return
+    const map = mapObj.current
+    const existing = markersRef.current.__place
+    existing?.remove()
+    delete markersRef.current.__place
+
+    if (!placeFocus) return
+
+    const el = document.createElement('div')
+    el.innerHTML = `
+      <div style="
+        width:16px;height:16px;border-radius:50%;
+        background:#0284c7;border:3px solid white;
+        box-shadow:0 2px 12px rgba(2,132,199,.55);
+      "></div>
+    `
+    markersRef.current.__place = new maplibregl.Marker({ element: el })
+      .setLngLat([placeFocus.lon, placeFocus.lat])
+      .addTo(map)
+  }, [mapReady, placeFocus])
 
   return (
     <div className="relative w-full h-full">
       {/* Map canvas */}
       <div ref={mapRef} className="w-full h-full" />
 
-      {/* Search bar — top centre */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-80">
-        <SearchBar onResult={handleSearchResult} theme={theme} />
-      </div>
+      {/* Search bar — top centre (expert / optional) */}
+      {showSearch && (
+        <div className="absolute top-3 left-1/2 z-10 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2">
+          <SearchBar onResult={handleSearchResult} theme={theme} />
+        </div>
+      )}
 
-      {/* Basemap switcher — top right */}
-      <div className="absolute top-[14.25rem] right-3 z-10">
-        <BasemapSwitcher
-          current={basemap}
-          onChange={onBasemapChange}
-          options={BASEMAPS}
-          theme={theme}
-        />
-      </div>
-
-      {/* Risk layer control — top left */}
+      {/* Unified Layers panel — top left */}
       <div className="absolute top-3 left-3 z-10">
-        <RiskLayerControl
-          visible={riskVisible}
-          opacity={riskOpacity}
-          onToggle={() => setRiskVisible(v => !v)}
-          onOpacity={setRiskOpacity}
+        <LayersPanel
+          theme={theme}
+          riskAreasVisible={riskAreasVisible}
+          onToggleRiskAreas={() => setRiskAreasVisible((v) => !v)}
+          riskOpacity={riskOpacity}
+          onRiskOpacity={setRiskOpacity}
+          satelliteVisible={satelliteVisible}
+          onToggleSatellite={handleToggleSatellite}
           tileLayers={tileLayers}
           activeTile={activeTile}
           onTileLayer={setActiveTile}
-          theme={theme}
+          gaugesVisible={gaugesVisible}
+          onToggleGauges={() => setGaugesVisible((v) => !v)}
+          exposureLayers={exposureMeta.filter((layer) => layer.available)}
+          exposureVisibility={exposureVisible}
+          onToggleExposure={toggleExposureLayer}
         />
       </div>
 
-      {/* Home control — top right */}
-      <div className="absolute top-[10.25rem] right-3 z-10">
+      {/* Home + basemap — below zoom (+/−) only; fullscreen is bottom-right */}
+      <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">
         <button
           type="button"
           onClick={resetToHomeView}
@@ -696,22 +780,28 @@ export default function MapPanel({
         >
           <IconHome size={16} />
         </button>
-      </div>
-
-      {/* Legend — bottom left (above scale) */}
-      <div className="absolute bottom-10 left-3 z-10">
-        <FloodRiskLegend
-          overlayLegend={activeLayer?.legend ?? null}
-          exposureLayers={exposureMeta.filter(layer => layer.available)}
-          exposureVisibility={exposureVisible}
-          onToggleExposure={toggleExposureLayer}
+        <BasemapSwitcher
+          current={basemap}
+          onChange={onBasemapChange}
+          options={BASEMAPS}
           theme={theme}
         />
       </div>
 
-      {/* Impact summary — bottom dock */}
-      {impactSummary && (
-        <div className="absolute bottom-3 left-64 right-3 z-10">
+      {/* Legend — symbology only */}
+      <div className="absolute bottom-10 left-3 z-10 hidden sm:block">
+        <FloodRiskLegend
+          overlayLegend={satelliteVisible ? (activeLayer?.legend ?? null) : null}
+          visibleExposureIds={Object.keys(exposureVisible).filter((id) => exposureVisible[id])}
+          showGauges={gaugesVisible}
+          showRiskAreas={riskAreasVisible}
+          theme={theme}
+        />
+      </div>
+
+      {/* Impact summary — expert only */}
+      {!publicMode && impactSummary && (
+        <div className="absolute bottom-3 left-64 right-3 z-10 hidden md:block">
           <ImpactSummaryPanel summary={impactSummary} theme={theme} />
         </div>
       )}
