@@ -78,6 +78,21 @@ async def reverse_geocode(
         or "Your location"
     )
     display = r.get("display_name") or f"{name}, Nigeria"
+    street = (
+        addr.get("road")
+        or addr.get("pedestrian")
+        or addr.get("residential")
+        or addr.get("footway")
+        or addr.get("path")
+    )
+    street_address = ", ".join(
+        part for part in [
+            " ".join(part for part in [addr.get("house_number"), street] if part),
+            addr.get("suburb") or addr.get("neighbourhood"),
+            addr.get("city") or addr.get("town") or addr.get("village"),
+            addr.get("state"),
+        ] if part
+    )
     bbox = r.get("boundingbox")
     bbox_lnglat = None
     if bbox and len(bbox) == 4:
@@ -85,6 +100,8 @@ async def reverse_geocode(
 
     return {
         "display_name": display,
+        "street": street,
+        "street_address": street_address or display,
         "name": name,
         "lat": lat,
         "lon": lon,

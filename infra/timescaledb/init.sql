@@ -101,6 +101,27 @@ CREATE TABLE IF NOT EXISTS alert_log (
     status       TEXT DEFAULT 'pending'
 );
 
+-- Community-submitted, anonymous flood incident reports
+CREATE TABLE IF NOT EXISTS flood_incident_reports (
+    id             BIGSERIAL PRIMARY KEY,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    location_name  TEXT NOT NULL,
+    affected_street TEXT,
+    flood_source   TEXT,
+    incident_type  TEXT NOT NULL,
+    severity       TEXT NOT NULL,
+    description    TEXT NOT NULL,
+    water_depth_cm DOUBLE PRECISION,
+    latitude       DOUBLE PRECISION,
+    longitude      DOUBLE PRECISION,
+    media_url      TEXT,
+    media_type     TEXT,
+    edit_token_hash TEXT,
+    updated_at     TIMESTAMPTZ,
+    status         TEXT NOT NULL DEFAULT 'unverified'
+);
+CREATE INDEX IF NOT EXISTS idx_flood_incident_reports_created
+    ON flood_incident_reports (created_at DESC);
 -- ─── Flood risk polygons (SAR/DEM inundation or synthetic fallback) ──
 CREATE TABLE IF NOT EXISTS flood_risk_areas (
     id           SERIAL PRIMARY KEY,

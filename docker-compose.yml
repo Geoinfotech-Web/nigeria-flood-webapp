@@ -75,13 +75,13 @@ services:
   # ─────────────────────────────────────────────
   # APACHE FLINK
   # ─────────────────────────────────────────────
-  flink_jobmanager:
+  flink-jobmanager:
     image: flink:1.18-scala_2.12
     container_name: flood_flink_jobmanager
     command: jobmanager
     environment:
       FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink_jobmanager
+        jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 4
         rest.port: 8081
     ports:
@@ -99,28 +99,29 @@ services:
     command: taskmanager
     environment:
       FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink_jobmanager
+        jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 4
     volumes:
       - ./flink/jobs:/opt/flink/jobs
       - flink_checkpoints:/opt/flink/checkpoints
     depends_on:
-      - flink_jobmanager
+      - flink-jobmanager
 
   # ─────────────────────────────────────────────
   # ML PLATFORM
   # ─────────────────────────────────────────────
   mlflow:
-    image: python:3.11-slim
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
     container_name: flood_mlflow
     command: >
-      bash -c "pip install mlflow boto3 psycopg2-binary --quiet &&
-               mlflow server
+      mlflow server
                --host 0.0.0.0
                --port 5000
                --backend-store-uri postgresql://flood:floodpass@timescaledb:5432/flooddb
                --artifacts-destination s3://mlflow-artifacts
-               --default-artifact-root s3://mlflow-artifacts"
+               --default-artifact-root s3://mlflow-artifacts
     environment:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
@@ -209,6 +210,7 @@ services:
         condition: service_healthy
     volumes:
       - ./api:/app
+      - incident_uploads:/app/uploads
 
   # ─────────────────────────────────────────────
   # FRONTEND
@@ -290,6 +292,7 @@ volumes:
   bentoml_models:
   prometheus_data:
   grafana_data:
+  incident_uploads:
 
 networks:
   default:

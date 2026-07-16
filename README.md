@@ -30,7 +30,7 @@ docker-compose up -d
 docker-compose run --rm ingest python backfill.py
 
 # 3. Start the Flink feature engineering job (standalone mode for local dev)
-docker-compose exec flink_jobmanager python /opt/flink/jobs/flood_features.py --standalone &
+docker-compose exec flink-jobmanager python /opt/flink/jobs/flood_features.py --standalone &
 
 # 4. Train ML models (needs ~500+ feature rows — takes 2-3 min)
 docker-compose run --rm bentoml python train.py

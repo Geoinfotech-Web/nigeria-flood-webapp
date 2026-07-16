@@ -9,6 +9,8 @@ import PublicHeader from './components/PublicHeader'
 import PlaceBriefPanel from './components/PlaceBriefPanel'
 import NationalAlertsStrip from './components/NationalAlertsStrip'
 import DisclaimerBar from './components/DisclaimerBar'
+import FloodIncidentReporter from './components/FloodIncidentReporter'
+import FloodSafeRouting from './components/FloodSafeRouting'
 import { IconX } from './components/Icons'
 import { useGaugeFeed } from './hooks/useGaugeFeed'
 import { useStations } from './hooks/useStations'
@@ -19,6 +21,7 @@ import { useNearbyBuildings } from './hooks/useNearbyBuildings'
 import { useDetectLocation } from './hooks/useDetectLocation'
 import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
 import AffectedPlacesStat from './components/AffectedPlacesStat'
+import RouteConditionsPanel from './components/RouteConditionsPanel'
 
 function readPlaceFromUrl() {
   try {
@@ -61,6 +64,8 @@ export default function App() {
   const [selected, setSelected] = useState(null)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
   const [highlightedRoad, setHighlightedRoad] = useState(null)
+  const [reportOpen, setReportOpen] = useState(false)
+  const [navigation, setNavigation] = useState(null)
   const [buildingsTabActive, setBuildingsTabActive] = useState(false)
   const [viewportBuildings, setViewportBuildings] = useState(null)
 
@@ -210,6 +215,15 @@ export default function App() {
         affectedLoading={stripLoading}
         affectedScope={stripScope}
         placeName={place?.name}
+        onReportFlood={() => setReportOpen(true)}
+        routingControl={<FloodSafeRouting theme={theme} onNavigationChange={setNavigation} inline expert={mode === 'expert'} />}
+      />
+
+      <FloodIncidentReporter
+        theme={theme}
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        showTrigger={false}
       />
 
       {mode === 'public' ? (
@@ -218,12 +232,22 @@ export default function App() {
           <aside
             className={clsx(
               'z-20 order-2 w-full shrink-0 md:order-1 md:w-[22rem] lg:w-[24rem]',
-              place
+              navigation || place
                 ? 'max-h-[48vh] md:max-h-none md:h-full'
                 : 'hidden md:flex md:max-h-none md:h-full',
             )}
           >
-            {place ? (
+            {navigation ? (
+              <div className="h-full p-0 md:p-3 md:pr-0">
+                <RouteConditionsPanel
+                  navigation={navigation}
+                  stations={sortedStations}
+                  liveReadings={liveReadings}
+                  theme={theme}
+                  onClose={() => setNavigation(null)}
+                />
+              </div>
+            ) : place ? (
               <div className="h-full p-0 md:p-3 md:pr-0">
                 <PlaceBriefPanel
                   place={place}
@@ -342,6 +366,7 @@ export default function App() {
               forceBuildingsLayer={buildingsTabActive}
               onBuildingsViewportChange={handleBuildingsViewportChange}
               showSearch={false}
+              navigation={navigation}
             />
           </main>
         </div>
@@ -376,6 +401,7 @@ export default function App() {
               placeFocus={place}
               onPlaceSelect={handlePlaceSelect}
               showSearch={false}
+              navigation={navigation}
             />
           </main>
 

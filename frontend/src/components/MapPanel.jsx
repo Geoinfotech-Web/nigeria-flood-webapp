@@ -411,6 +411,7 @@ export default function MapPanel({
   onBuildingsViewportChange = null,
   onPlaceSelect,
   showSearch = true,
+  navigation = null,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -463,6 +464,33 @@ export default function MapPanel({
   const toggleTileLayer = useCallback((source) => {
     setTileVisibility((current) => ({ ...current, [source]: !current[source] }))
   }, [])
+
+  useEffect(() => {
+    if (!mapReady || !mapObj.current) return
+    const map = mapObj.current
+    if (!navigation) {
+      if (map.getLayer('safe-route-line')) map.removeLayer('safe-route-line')
+      if (map.getLayer('safe-route-points')) map.removeLayer('safe-route-points')
+      if (map.getSource('safe-route')) map.removeSource('safe-route')
+      if (map.getSource('safe-route-points')) map.removeSource('safe-route-points')
+      return
+    }
+    if (map.getSource('safe-route')) map.getSource('safe-route').setData(navigation.route)
+    else {
+      map.addSource('safe-route', { type: 'geojson', data: navigation.route })
+      map.addLayer({ id: 'safe-route-line', type: 'line', source: 'safe-route', paint: { 'line-color': navigation.safe ? '#0284c7' : '#ef4444', 'line-width': 6, 'line-opacity': 0.9 } })
+    }
+    if (map.getLayer('safe-route-line')) map.setPaintProperty('safe-route-line', 'line-color', navigation.safe ? '#0284c7' : '#ef4444')
+    const points = { type: 'FeatureCollection', features: [
+      { type: 'Feature', properties: { kind: 'current' }, geometry: { type: 'Point', coordinates: [navigation.current.lon, navigation.current.lat] } },
+      { type: 'Feature', properties: { kind: 'destination' }, geometry: { type: 'Point', coordinates: [Number(navigation.destination.lon), Number(navigation.destination.lat)] } },
+    ] }
+    if (map.getSource('safe-route-points')) map.getSource('safe-route-points').setData(points)
+    else {
+      map.addSource('safe-route-points', { type: 'geojson', data: points })
+      map.addLayer({ id: 'safe-route-points', type: 'circle', source: 'safe-route-points', paint: { 'circle-radius': 7, 'circle-color': ['match', ['get', 'kind'], 'current', '#22c55e', '#0284c7'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } })
+    }
+  }, [mapReady, navigation])
 
   // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {

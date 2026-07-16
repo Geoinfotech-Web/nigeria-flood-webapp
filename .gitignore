@@ -1,5 +1,6 @@
 # ── Credentials & secrets ─────────────────────
 .env
+.tools/
 *.json
 !package.json
 !package-lock.json
