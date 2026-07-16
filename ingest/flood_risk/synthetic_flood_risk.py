@@ -132,8 +132,31 @@ def compute_state_risk(base_exposure: float, near_river: bool,
 
 
 def generate_synthetic_risk(export_geojson_path: str = None):
-    """Generate and store synthetic flood risk areas for all Nigeria states."""
+    """Generate and store synthetic flood risk areas for all Nigeria states.
+
+    Skipped when a fresh SAR/DEM inundation product already exists (prefer real extents).
+    """
     conn = psycopg2.connect(DB_DSN)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM flood_risk_areas
+                WHERE source = 'sar_dem_inundation'
+                  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                """
+            )
+            inundation_count = cur.fetchone()[0]
+        if inundation_count > 0:
+            log.info(
+                "Skipping synthetic risk — %d active SAR/DEM inundation polygons present",
+                inundation_count,
+            )
+            conn.close()
+            return {"type": "FeatureCollection", "features": [], "skipped": True}
+    except Exception as exc:
+        log.warning("Could not check inundation rows (%s) — continuing with synthetic", exc)
+
     live_modifiers = fetch_live_risk_modifiers(conn)
     avg_modifier = sum(live_modifiers.values()) / max(len(live_modifiers), 1)
 

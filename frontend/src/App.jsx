@@ -205,6 +205,7 @@ export default function App() {
       <NationalAlertsStrip
         theme={theme}
         onSelectStation={handleAlertStation}
+        onSelectPlace={handlePlaceSelect}
         affectedSummary={stripSummary}
         affectedLoading={stripLoading}
         affectedScope={stripScope}
@@ -279,8 +280,8 @@ export default function App() {
                   >
                     Search a city or town to see the nearest river-gauge forecast for the next
                     72 hours, nearby towns at flood susceptibility risk, major roads at risk,
-                    and how many buildings sit inside flood zones. Flood extent maps are coming
-                    soon from our inundation team.
+                    and buildings inside flood zones. Use separate toggles for Inundation
+                    probability, Inundation history, and Flood Susceptibility.
                   </p>
                   <div className="mt-4">
                     <AffectedPlacesStat
@@ -293,6 +294,7 @@ export default function App() {
                       theme={theme}
                       scope={place ? 'local' : 'nationwide'}
                       placeName={place?.name}
+                      onSelectPlace={handlePlaceSelect}
                     />
                   </div>
                 </div>
@@ -303,6 +305,7 @@ export default function App() {
                   )}
                 >
                   <li>Allow location, or search a city like Lokoja</li>
+                  <li>Open the highly-likely list and tap a place</li>
                   <li>Tap an active alert chip above to jump there</li>
                   <li>Switch to Expert for the full station console</li>
                 </ul>
@@ -370,8 +373,9 @@ export default function App() {
               onBasemapChange={setBasemap}
               theme={theme}
               variant="expert"
+              placeFocus={place}
               onPlaceSelect={handlePlaceSelect}
-              showSearch
+              showSearch={false}
             />
           </main>
 

@@ -1,9 +1,12 @@
-import React from 'react'
+import React, { useState } from 'react'
 import clsx from 'clsx'
+import { IconChevronDown, IconChevronUp } from './Icons'
+import { RISK_COLOR, RISK_LABEL } from '../lib/riskCopy'
 
 /**
  * Public tally of settlements at elevated flood risk.
- * Supports nationwide summary or place-local summary.
+ * Supports nationwide summary or place-local summary, plus an expandable
+ * clickable place list for the general outlook.
  */
 export default function AffectedPlacesStat({
   summary,
@@ -12,7 +15,10 @@ export default function AffectedPlacesStat({
   compact = false,
   scope = 'nationwide', // 'nationwide' | 'local'
   placeName = null,
+  onSelectPlace,
+  places: placesProp = null,
 }) {
+  const [listOpen, setListOpen] = useState(false)
   const dark = theme === 'dark'
   const highlyLikely =
     summary?.highly_likely ?? summary?.total ?? 0
@@ -21,6 +27,18 @@ export default function AffectedPlacesStat({
   const byClass = summary?.by_class || {}
   const byTier = summary?.by_tier || {}
   const isLocal = scope === 'local'
+  const places = placesProp ?? summary?.places ?? []
+  const canList = !isLocal && places.length > 0 && typeof onSelectPlace === 'function'
+
+  const selectPlace = (p) => {
+    onSelectPlace?.({
+      name: p.name,
+      display_name: p.display_name || `${p.name}, Nigeria`,
+      lat: p.lat,
+      lon: p.lon,
+      bbox_lnglat: null,
+    })
+  }
 
   if (loading && !summary) {
     return (
@@ -37,26 +55,96 @@ export default function AffectedPlacesStat({
 
   if (!summary) return null
 
+  const placeList = (
+    <ul
+      className={clsx(
+        'mt-2 max-h-[min(55vh,22rem)] space-y-1 overflow-y-auto overscroll-contain',
+        compact && 'max-h-[min(40vh,16rem)]',
+      )}
+    >
+      {places.map((p) => {
+        const tier = p.station_risk_tier
+        const tierColor = RISK_COLOR[tier] || '#64748b'
+        return (
+          <li key={`${p.name}-${p.lat}-${p.lon}`}>
+            <button
+              type="button"
+              onClick={() => selectPlace(p)}
+              className={clsx(
+                'flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition',
+                dark
+                  ? 'border-gray-800 bg-gray-950/50 hover:border-gray-600'
+                  : 'border-orange-100/80 bg-white/80 hover:border-orange-300 hover:bg-white',
+              )}
+            >
+              <span className="min-w-0">
+                <span className={clsx('block truncate font-medium', dark ? 'text-gray-100' : 'text-slate-800')}>
+                  {p.name}
+                </span>
+                <span className={clsx('block truncate', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  {p.class || 'Town'}
+                  {p.nearest_station ? ` · near ${p.nearest_station}` : ''}
+                </span>
+              </span>
+              {tier ? (
+                <span
+                  className="shrink-0 text-[10px] font-semibold"
+                  style={{ color: tierColor }}
+                >
+                  {RISK_LABEL[tier] || tier}
+                </span>
+              ) : null}
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
   if (compact) {
     return (
-      <div
-        className={clsx(
-          'inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shrink-0',
-          highlyLikely > 0
-            ? dark
-              ? 'border-orange-800/60 bg-orange-950/50 text-orange-200'
-              : 'border-orange-200 bg-orange-50 text-orange-900'
-            : dark
-              ? 'border-teal-800/60 bg-teal-950/40 text-teal-200'
-              : 'border-teal-200 bg-teal-50 text-teal-900',
-        )}
-      >
-        <span className="tabular-nums font-bold text-sm">{highlyLikely}</span>
-        <span className="truncate">
-          {isLocal
-            ? `highly likely near ${placeName || 'this place'}`
-            : `places highly likely affected`}
-        </span>
+      <div className="flex min-w-0 max-w-full flex-col gap-1.5">
+        <button
+          type="button"
+          disabled={!canList}
+          onClick={() => canList && setListOpen((v) => !v)}
+          className={clsx(
+            'inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shrink-0 text-left transition',
+            canList && 'cursor-pointer',
+            highlyLikely > 0
+              ? dark
+                ? 'border-orange-800/60 bg-orange-950/50 text-orange-200 hover:bg-orange-950/80'
+                : 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100'
+              : dark
+                ? 'border-teal-800/60 bg-teal-950/40 text-teal-200'
+                : 'border-teal-200 bg-teal-50 text-teal-900',
+            !canList && 'cursor-default',
+          )}
+          aria-expanded={canList ? listOpen : undefined}
+        >
+          <span className="tabular-nums font-bold text-sm">{highlyLikely}</span>
+          <span className="truncate">
+            {isLocal
+              ? `highly likely near ${placeName || 'this place'}`
+              : `places highly likely affected`}
+          </span>
+          {canList ? (
+            listOpen ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />
+          ) : null}
+        </button>
+        {listOpen && canList ? (
+          <div
+            className={clsx(
+              'w-full max-w-md rounded-xl border p-2 shadow-sm',
+              dark ? 'border-gray-800 bg-gray-900' : 'border-orange-200 bg-orange-50/95',
+            )}
+          >
+            <p className={clsx('px-1 text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+              Tap a place to open its outlook
+            </p>
+            {placeList}
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -136,6 +224,37 @@ export default function AffectedPlacesStat({
             .filter(Boolean)
             .join(' · ')}
         </p>
+      ) : null}
+
+      {canList ? (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setListOpen((v) => !v)}
+            className={clsx(
+              'inline-flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition',
+              dark
+                ? 'border-orange-800/50 bg-orange-950/40 text-orange-200 hover:bg-orange-950/70'
+                : 'border-orange-300 bg-white text-orange-900 hover:bg-orange-100/80',
+            )}
+            aria-expanded={listOpen}
+          >
+            <span>
+              {listOpen
+                ? 'Hide places'
+                : `View all ${highlyLikely.toLocaleString()} place${highlyLikely === 1 ? '' : 's'}`}
+            </span>
+            {listOpen ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
+          </button>
+          {listOpen ? (
+            <>
+              <p className={clsx('mt-2 text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                Tap a place to open its flood outlook
+              </p>
+              {placeList}
+            </>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

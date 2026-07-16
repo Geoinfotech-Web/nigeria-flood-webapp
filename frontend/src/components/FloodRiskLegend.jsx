@@ -2,11 +2,24 @@ import React, { useState } from 'react'
 import clsx from 'clsx'
 import { IconChevronDown, IconChevronUp } from './Icons'
 
-const TIERS = [
-  { tier: 'Emergency', color: '#ef4444', range: '> 75%' },
-  { tier: 'Warning', color: '#f97316', range: '50-75%' },
-  { tier: 'Watch', color: '#eab308', range: '25-50%' },
-  { tier: 'Normal', color: '#22c55e', range: '< 25%' },
+/** Inundation probability — darker blue = higher chance. */
+const PROBABILITY_ITEMS = [
+  { label: 'Very High', color: '#1e3a8a' },
+  { label: 'High', color: '#2563eb' },
+  { label: 'Moderate', color: '#93c5fd' },
+]
+
+/** Urban flash flood — purple/magenta to distinguish from inundation blues. */
+const URBAN_FLASH_ITEMS = [
+  { label: 'Highly likely', color: '#86198f' },
+  { label: 'Likely', color: '#d946ef' },
+]
+
+/** Default Flood Hub–style inundation history wet classes. */
+const DEFAULT_HISTORY_ITEMS = [
+  { label: '> 50%', color: '#6b21a8', range: 'Very frequent' },
+  { label: '25–50%', color: '#9333ea', range: 'Frequent' },
+  { label: '5–25%', color: '#c084fc', range: 'Occasional' },
 ]
 
 const EXPOSURE_SYMBOLS = {
@@ -32,22 +45,91 @@ const EXPOSURE_SYMBOLS = {
   ],
 }
 
+const BOUNDARY_SYMBOLS = {
+  states: [{ label: 'State', color: '#0f766e', type: 'line' }],
+  lgas: [{ label: 'LGA', color: '#64748b', type: 'line' }],
+}
+
+function SectionTitle({ children, theme }) {
+  return (
+    <p
+      className={clsx(
+        'mb-1.5 text-[10px] font-semibold uppercase tracking-widest',
+        theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+      )}
+    >
+      {children}
+    </p>
+  )
+}
+
+function CategoryItems({ items, theme }) {
+  return (
+    <div className="space-y-1.5">
+      {items.map((item) => (
+        <div key={item.label} className="flex items-center gap-2">
+          <span
+            className="h-3 w-3 shrink-0 rounded-sm"
+            style={{ background: item.color }}
+            aria-hidden
+          />
+          <span
+            className={clsx(
+              'text-[11px] font-medium',
+              theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
+            )}
+          >
+            {item.label}
+          </span>
+          {item.range ? (
+            <span
+              className={clsx(
+                'ml-auto text-[10px]',
+                theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+              )}
+            >
+              {item.range}
+            </span>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function FloodRiskLegend({
-  overlayLegend = null,
+  showProbability = false,
+  showUrbanFlash = false,
+  showHistory = false,
+  historyLegend = null,
+  susceptibilityLegend = null,
   visibleExposureIds = [],
+  visibleBoundaryIds = [],
   showGauges = true,
-  showRiskAreas = true,
   theme = 'dark',
 }) {
   const [collapsed, setCollapsed] = useState(false)
-  const hasContent = showRiskAreas || showGauges || overlayLegend || visibleExposureIds.length > 0
+
+  const historyItems =
+    historyLegend?.type === 'categories' && historyLegend.items?.length
+      ? historyLegend.items
+      : DEFAULT_HISTORY_ITEMS
+
+  const hasContent =
+    showProbability ||
+    showUrbanFlash ||
+    showHistory ||
+    susceptibilityLegend ||
+    showGauges ||
+    visibleExposureIds.length > 0 ||
+    visibleBoundaryIds.length > 0
 
   if (!hasContent) return null
 
   return (
     <div
       className={clsx(
-        'w-52 overflow-hidden rounded-lg border shadow-xl',
+        'w-56 overflow-hidden rounded-lg border shadow-xl',
         theme === 'dark' ? 'bg-gray-900/90 border-gray-700/80 backdrop-blur' : 'bg-white border-slate-200',
       )}
     >
@@ -74,98 +156,70 @@ export default function FloodRiskLegend({
       </button>
 
       {!collapsed && (
-        <div className="space-y-3 p-3">
-          {(showRiskAreas || overlayLegend) && (
+        <div className="space-y-3.5 p-3">
+          {showProbability && (
             <div>
+              <SectionTitle theme={theme}>Inundation probability</SectionTitle>
               <p
                 className={clsx(
-                  'mb-2 text-[10px] font-semibold uppercase tracking-widest',
+                  'mb-1.5 text-[10px] leading-snug',
                   theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                 )}
               >
-                {overlayLegend?.title || 'Flood risk'}
+                Flood probability for riverine inundation. Darker = higher.
               </p>
+              <CategoryItems items={PROBABILITY_ITEMS} theme={theme} />
+            </div>
+          )}
 
-              {overlayLegend?.type === 'gradient' ? (
-                <div className="space-y-2">
-                  <div
-                    className={clsx(
-                      'h-3 rounded-md border',
-                      theme === 'dark' ? 'border-gray-700' : 'border-slate-200',
-                    )}
-                    style={{ background: overlayLegend.gradient }}
-                  />
-                  <div
-                    className={clsx(
-                      'flex justify-between text-[10px] tabular-nums',
-                      theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-                    )}
-                  >
-                    <span>{overlayLegend.min_label}</span>
-                    <span>{overlayLegend.max_label}</span>
-                  </div>
-                </div>
-              ) : overlayLegend?.type === 'categories' ? (
-                <div className="space-y-1.5">
-                  {overlayLegend.items.map((item) => (
-                    <div key={item.label} className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                        style={{ background: item.color }}
-                      />
-                      <span
-                        className={clsx(
-                          'text-[11px] font-medium',
-                          theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
-                        )}
-                      >
-                        {item.label}
-                      </span>
-                      <span
-                        className={clsx(
-                          'ml-auto text-[10px] tabular-nums',
-                          theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-                        )}
-                      >
-                        {item.range}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : showRiskAreas ? (
-                <div className="space-y-1.5">
-                  {TIERS.map((t) => (
-                    <div key={t.tier} className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                        style={{ background: t.color }}
-                      />
-                      <span
-                        className={clsx(
-                          'text-[11px] font-medium',
-                          theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
-                        )}
-                      >
-                        {t.tier}
-                      </span>
-                      <span
-                        className={clsx(
-                          'ml-auto text-[10px] tabular-nums',
-                          theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-                        )}
-                      >
-                        {t.range}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+          {showUrbanFlash && (
+            <div>
+              <SectionTitle theme={theme}>Urban flash flood</SectionTitle>
+              <p
+                className={clsx(
+                  'mb-1.5 text-[10px] leading-snug',
+                  theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+                )}
+              >
+                Short-range rainfall over built-up areas. Darker = higher chance.
+              </p>
+              <CategoryItems items={URBAN_FLASH_ITEMS} theme={theme} />
+            </div>
+          )}
+
+          {showHistory && (
+            <div>
+              <SectionTitle theme={theme}>Inundation history</SectionTitle>
+              <p
+                className={clsx(
+                  'mb-1.5 text-[10px] leading-snug',
+                  theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+                )}
+              >
+                % of time under water in the past. Darker = flooded more often.
+              </p>
+              <CategoryItems items={historyItems} theme={theme} />
+            </div>
+          )}
+
+          {susceptibilityLegend?.type === 'categories' && (
+            <div>
+              <SectionTitle theme={theme}>{susceptibilityLegend.title}</SectionTitle>
+              <CategoryItems items={susceptibilityLegend.items} theme={theme} />
             </div>
           )}
 
           {showGauges && (
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-sky-500" />
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{
+                  background: '#22c55e',
+                  border: '2px solid #ffffff',
+                  boxShadow: '0 0 6px #22c55e',
+                }}
+                aria-hidden
+              />
               <span
                 className={clsx(
                   'text-[11px]',
@@ -177,16 +231,37 @@ export default function FloodRiskLegend({
             </div>
           )}
 
+          {visibleBoundaryIds.map((layerId) => (
+            <div key={`boundary-${layerId}`} className="space-y-1">
+              <SectionTitle theme={theme}>
+                {layerId === 'states' ? 'States' : layerId === 'lgas' ? 'LGAs' : layerId}
+              </SectionTitle>
+              {(BOUNDARY_SYMBOLS[layerId] || []).map((symbol) => (
+                <div key={`${layerId}-${symbol.label}`} className="flex items-center gap-2">
+                  <span
+                    className="block w-5 shrink-0"
+                    style={{
+                      background: symbol.color,
+                      borderRadius: 999,
+                      height: 2,
+                    }}
+                  />
+                  <span
+                    className={clsx(
+                      'text-[10px]',
+                      theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                    )}
+                  >
+                    {symbol.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+
           {visibleExposureIds.map((layerId) => (
             <div key={layerId} className="space-y-1">
-              <p
-                className={clsx(
-                  'text-[10px] font-semibold uppercase tracking-widest',
-                  theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-                )}
-              >
-                {layerId}
-              </p>
+              <SectionTitle theme={theme}>{layerId}</SectionTitle>
               {(EXPOSURE_SYMBOLS[layerId] || []).map((symbol) => (
                 <div key={`${layerId}-${symbol.label}`} className="flex items-center gap-2">
                   {symbol.type === 'line' ? (

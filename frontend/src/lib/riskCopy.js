@@ -52,7 +52,8 @@ export function worstRisk(tiers) {
 
 /**
  * Plain-language guidance for residents and local responders.
- * Inundation extent maps are owned by another workstream — keep language place + gauge based.
+ * Map Risk areas show SAR/DEM inundation (Very High / High / Moderate);
+ * this copy stays place + gauge based for early warning.
  */
 export function placeRiskMessage(tier, placeName, stationName) {
   const where = placeName || 'this area'

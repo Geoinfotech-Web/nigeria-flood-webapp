@@ -78,17 +78,20 @@ function Section({ title, theme, children }) {
 
 export default function LayersPanel({
   theme = 'light',
-  // Flood risk areas
+  // Flood risk areas (vector inundation probability)
   riskAreasVisible,
   onToggleRiskAreas,
   riskOpacity,
   onRiskOpacity,
-  // Satellite overlay
-  satelliteVisible,
-  onToggleSatellite,
+  // Urban flash flood (separate short-range vector layer)
+  urbanFlashVisible = false,
+  onToggleUrbanFlash,
+  urbanFlashOpacity = 0.6,
+  onUrbanFlashOpacity,
+  // Independent raster overlays (history, susceptibility, …)
   tileLayers = [],
-  activeTile,
-  onTileLayer,
+  tileVisibility = {},
+  onToggleTile,
   // Gauges
   gaugesVisible,
   onToggleGauges,
@@ -96,6 +99,10 @@ export default function LayersPanel({
   exposureLayers = [],
   exposureVisibility = {},
   onToggleExposure,
+  // Boundaries
+  boundaryLayers = [],
+  boundaryVisibility = {},
+  onToggleBoundary,
 }) {
   const [open, setOpen] = useState(true)
   const dark = theme === 'dark'
@@ -104,8 +111,13 @@ export default function LayersPanel({
     <div
       className={clsx(
         'w-[15.5rem] overflow-hidden rounded-xl border shadow-xl',
-        dark ? 'border-gray-700 bg-gray-900/94 backdrop-blur' : 'border-slate-200 bg-white',
+        dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white',
       )}
+      style={
+        dark
+          ? { backgroundColor: '#111827', borderColor: '#374151' }
+          : { backgroundColor: '#ffffff', borderColor: '#e2e8f0' }
+      }
     >
       <button
         type="button"
@@ -136,8 +148,8 @@ export default function LayersPanel({
         <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto p-3">
           <Section title="Flood risk" theme={theme}>
             <Row
-              label="Risk areas"
-              hint="State-level flood risk polygons"
+              label="Inundation probability"
+              hint="Vector extents — Very High / High / Moderate"
               on={riskAreasVisible}
               onToggle={onToggleRiskAreas}
               theme={theme}
@@ -165,38 +177,48 @@ export default function LayersPanel({
             </Row>
 
             <Row
-              label="Satellite overlay"
-              hint="Susceptibility / surface water / SAR"
-              on={satelliteVisible}
-              onToggle={onToggleSatellite}
+              label="Urban flash flood"
+              hint="Short-range rainfall model — Likely / Highly likely"
+              on={urbanFlashVisible}
+              onToggle={onToggleUrbanFlash}
               theme={theme}
             >
-              {tileLayers.length > 0 ? (
-                <div className="max-h-28 space-y-0.5 overflow-y-auto">
-                  {tileLayers.map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() => onTileLayer(String(l.id))}
-                      className={clsx(
-                        'w-full rounded-md px-2 py-1.5 text-left text-[11px] leading-tight transition',
-                        String(activeTile) === String(l.id)
-                          ? 'bg-sky-600 text-white'
-                          : dark
-                            ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                      )}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
+              <div className="space-y-1 pl-0.5">
+                <div
+                  className={clsx(
+                    'flex justify-between text-[10px]',
+                    dark ? 'text-gray-400' : 'text-slate-500',
+                  )}
+                >
+                  <span>Opacity</span>
+                  <span>{Math.round(urbanFlashOpacity * 100)}%</span>
                 </div>
-              ) : (
-                <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                  No satellite layers loaded yet.
-                </p>
-              )}
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value={urbanFlashOpacity}
+                  onChange={(e) => onUrbanFlashOpacity?.(parseFloat(e.target.value))}
+                  className="h-1.5 w-full cursor-pointer accent-fuchsia-600"
+                />
+              </div>
             </Row>
+
+            {tileLayers.map((layer) => (
+              <Row
+                key={layer.id}
+                label={layer.label}
+                hint={
+                  layer.source === 'jrc_occurrence'
+                    ? '3 wet classes · clipped to Nigeria'
+                    : layer.legend?.subtitle || layer.source
+                }
+                on={Boolean(tileVisibility[layer.source])}
+                onToggle={() => onToggleTile?.(layer.source)}
+                theme={theme}
+              />
+            ))}
           </Section>
 
           <Section title="Monitoring" theme={theme}>
@@ -207,6 +229,28 @@ export default function LayersPanel({
               onToggle={onToggleGauges}
               theme={theme}
             />
+          </Section>
+
+          <Section title="Boundaries" theme={theme}>
+            {boundaryLayers.length === 0 && (
+              <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                No boundary layers available.
+              </p>
+            )}
+            {boundaryLayers.map((layer) => (
+              <Row
+                key={layer.id}
+                label={layer.label}
+                hint={
+                  layer.feature_count != null
+                    ? `${Number(layer.feature_count).toLocaleString()} areas`
+                    : layer.description
+                }
+                on={Boolean(boundaryVisibility[layer.id])}
+                onToggle={() => onToggleBoundary?.(layer.id)}
+                theme={theme}
+              />
+            ))}
           </Section>
 
           <Section title="Exposure" theme={theme}>

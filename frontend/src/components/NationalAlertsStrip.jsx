@@ -10,6 +10,7 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 export default function NationalAlertsStrip({
   theme = 'light',
   onSelectStation,
+  onSelectPlace,
   affectedSummary = null,
   affectedLoading = false,
   affectedScope = 'nationwide',
@@ -45,6 +46,7 @@ export default function NationalAlertsStrip({
           compact
           scope={affectedScope}
           placeName={placeName}
+          onSelectPlace={onSelectPlace}
         />
         {!alerts.length && !affectedLoading && highlyLikely === 0 && (
           <span

@@ -61,16 +61,16 @@ export default function PublicHeader({
             </div>
           </div>
 
-          {mode === 'public' && (
-            <div className="mx-auto flex min-w-0 w-full max-w-md flex-1 items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <SearchBar
-                  onResult={onPlaceSelect}
-                  theme={theme}
-                  size="md"
-                  placeholder="Search a city, town, or state…"
-                />
-              </div>
+          <div className="mx-auto flex min-w-0 w-full max-w-md flex-1 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <SearchBar
+                onResult={onPlaceSelect}
+                theme={theme}
+                size="md"
+                placeholder="Search a city, town, or state…"
+              />
+            </div>
+            {onDetectLocation && (
               <button
                 type="button"
                 onClick={onDetectLocation}
@@ -96,10 +96,8 @@ export default function PublicHeader({
                   <IconLocate size={16} />
                 )}
               </button>
-            </div>
-          )}
-
-          {mode === 'expert' && <div className="min-w-0 flex-1" />}
+            )}
+          </div>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <div
@@ -161,7 +159,7 @@ export default function PublicHeader({
           </div>
         </div>
 
-        {mode === 'public' && locationError && (
+        {locationError && (
           <p
             className={clsx(
               'px-3 pb-2 text-[11px] sm:px-4',

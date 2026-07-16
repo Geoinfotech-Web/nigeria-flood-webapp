@@ -39,7 +39,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure
+from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure, boundaries
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
@@ -103,6 +103,7 @@ app.include_router(map_router.router,  prefix="/map",      tags=["map"])
 app.include_router(geocoding.router,   prefix="/geocode",  tags=["geocoding"])
 app.include_router(flood_risk.router,  prefix="/flood-risk", tags=["flood-risk"])
 app.include_router(exposure.router,    prefix="/exposure", tags=["exposure"])
+app.include_router(boundaries.router,  prefix="/boundaries", tags=["boundaries"])
 
 
 # ── WebSocket: live gauge readings ────────────────────────────────────────────

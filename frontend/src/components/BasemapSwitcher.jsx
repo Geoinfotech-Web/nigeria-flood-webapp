@@ -27,12 +27,14 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
         className={clsx(
           'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
           theme === 'dark'
-            ? 'border-gray-700/80 bg-gray-900/88 text-gray-200 backdrop-blur hover:border-gray-500 hover:bg-gray-800 hover:text-white'
-            : 'border-slate-200/90 bg-white/92 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+            ? 'border-gray-700 bg-gray-900 text-gray-200 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
         )}
-        style={theme === 'light'
-          ? { backgroundColor: '#ffffff', borderColor: '#cbd5e1', backdropFilter: 'none' }
-          : undefined}
+        style={
+          theme === 'dark'
+            ? { backgroundColor: '#111827', borderColor: '#374151' }
+            : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+        }
         aria-label="Change basemap"
         aria-expanded={expanded}
       >
@@ -52,12 +54,14 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
           className={clsx(
             'absolute top-full right-0 mt-2 w-40 overflow-hidden rounded-lg border shadow-2xl divide-y',
             theme === 'dark'
-              ? 'bg-gray-900/98 border-gray-700 divide-gray-800 backdrop-blur'
-              : 'bg-white/98 border-slate-200 divide-slate-200'
+              ? 'bg-gray-900 border-gray-700 divide-gray-800'
+              : 'bg-white border-slate-200 divide-slate-200'
           )}
-          style={theme === 'light'
-            ? { backgroundColor: '#ffffff', borderColor: '#cbd5e1', backdropFilter: 'none' }
-            : undefined}
+          style={
+            theme === 'dark'
+              ? { backgroundColor: '#111827', borderColor: '#374151' }
+              : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+          }
         >
           <div className={clsx('flex items-center justify-between px-3 py-2 text-[11px] uppercase tracking-[0.18em]', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
             <span>Basemap</span>

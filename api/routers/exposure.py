@@ -592,7 +592,8 @@ async def affected_settlements_summary(
     have elevated flood outlook (Warning/Emergency by default = highly likely).
     """
     min_rank = _TIER_RANK.get(min_tier, 2)
-    cache_key = f"affected-settlements:{min_tier}:{radius_km}"
+    # v3 returns the full places list (no 80-item cap) for the public outlook panel.
+    cache_key = f"affected-settlements:v3:{min_tier}:{radius_km}"
     try:
         cached = await request.app.state.redis.get(cache_key)
         if cached:
@@ -696,6 +697,32 @@ async def affected_settlements_summary(
             "settlements_in_buffer": local_new,
         })
 
+    class_rank = {"City": 0, "Town": 1, "Village": 2}
+    places = sorted(
+        seen.values(),
+        key=lambda p: (
+            -_TIER_RANK.get(p.get("station_risk_tier") or "", 0),
+            class_rank.get(p.get("class") or "Town", 1),
+            (p.get("name") or "").lower(),
+        ),
+    )
+    places_out = [
+        {
+            "name": p.get("name"),
+            "class": p.get("class") or "Town",
+            "lat": p.get("lat"),
+            "lon": p.get("lon"),
+            "display_name": p.get("display_name") or f"{p.get('name')}, Nigeria",
+            "population": p.get("population"),
+            "susceptibility": p.get("susceptibility"),
+            "susceptibility_class": p.get("susceptibility_class"),
+            "nearest_station": p.get("nearest_station"),
+            "station_risk_tier": p.get("station_risk_tier"),
+            "distance_km": p.get("distance_km"),
+        }
+        for p in places
+    ]
+
     payload = {
         "total": len(seen),
         "highly_likely": len(seen),
@@ -704,6 +731,7 @@ async def affected_settlements_summary(
         "elevated_stations": len(elevated),
         "by_class": by_class,
         "stations": station_counts,
+        "places": places_out,
         "label": (
             f"{len(seen)} towns/villages within {int(radius_km)} km of "
             f"{min_tier}+ flood outlook gauges"

@@ -42,24 +42,56 @@ body {
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { scrollbar-width: none; }
 
-/* ── MapLibre control overrides ── */
+/* ── MapLibre control overrides (theme via .map-ui-light / .map-ui-dark) ── */
 .maplibregl-ctrl-group {
-  background: rgba(255, 255, 255, 0.94) !important;
-  border: 1px solid #cbd5e1 !important;
   border-radius: 10px !important;
+  overflow: hidden;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
 }
-.maplibregl-ctrl-group button {
-  color: #475569 !important;
+
+.map-ui-light .maplibregl-ctrl-group {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
 }
-.maplibregl-ctrl-group button:hover {
-  background: rgba(241, 245, 249, 0.95) !important;
-  color: #0f172a !important;
+.map-ui-light .maplibregl-ctrl-group button {
+  background-color: transparent !important;
 }
-.maplibregl-ctrl-scale {
-  background: rgba(255, 255, 255, 0.9) !important;
+.map-ui-light .maplibregl-ctrl-group button + button {
+  border-top-color: #e2e8f0 !important;
+}
+.map-ui-light .maplibregl-ctrl-group button:hover {
+  background: #f1f5f9 !important;
+}
+.map-ui-light .maplibregl-ctrl-scale {
+  background: rgba(255, 255, 255, 0.95) !important;
   border-color: #94a3b8 !important;
   color: #64748b !important;
+  font-size: 10px !important;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.map-ui-dark .maplibregl-ctrl-group {
+  background: #111827 !important;
+  border: 1px solid #374151 !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35) !important;
+}
+.map-ui-dark .maplibregl-ctrl-group button {
+  background-color: transparent !important;
+}
+.map-ui-dark .maplibregl-ctrl-group button + button {
+  border-top-color: #374151 !important;
+}
+.map-ui-dark .maplibregl-ctrl-group button:hover {
+  background: #1f2937 !important;
+}
+.map-ui-dark .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(1.35);
+}
+.map-ui-dark .maplibregl-ctrl-scale {
+  background: rgba(17, 24, 39, 0.95) !important;
+  border-color: #4b5563 !important;
+  color: #d1d5db !important;
   font-size: 10px !important;
   border-radius: 4px;
   padding: 1px 4px;

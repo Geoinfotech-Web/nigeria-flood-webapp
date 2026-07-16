@@ -6,3 +6,4 @@ httpx==0.27.0
 earthengine-api==0.1.390
 rasterio==1.3.10
 boto3==1.34.69
+shapely==2.0.4

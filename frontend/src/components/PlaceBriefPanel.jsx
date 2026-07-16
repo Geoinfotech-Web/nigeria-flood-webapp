@@ -829,8 +829,8 @@ export default function PlaceBriefPanel({
                   : 'border-slate-200 text-slate-500',
               )}
             >
-              Detailed flood extent (inundation) maps for this place are being prepared. Until then,
-              use gauge forecasts and local advisories as your guide.
+              Toggle Inundation probability or Inundation history on the map. Gauge forecasts
+              remain the primary early-warning guide.
             </p>
 
             {primaryStation && (
