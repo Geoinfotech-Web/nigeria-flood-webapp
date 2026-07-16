@@ -101,6 +101,61 @@ CREATE TABLE IF NOT EXISTS alert_log (
     status       TEXT DEFAULT 'pending'
 );
 
+-- Community-submitted, anonymous flood incident reports
+CREATE TABLE IF NOT EXISTS flood_incident_reports (
+    id             BIGSERIAL PRIMARY KEY,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    location_name  TEXT NOT NULL,
+    affected_street TEXT,
+    flood_source   TEXT,
+    incident_type  TEXT NOT NULL,
+    severity       TEXT NOT NULL,
+    description    TEXT NOT NULL,
+    water_depth_cm DOUBLE PRECISION,
+    latitude       DOUBLE PRECISION,
+    longitude      DOUBLE PRECISION,
+    media_url      TEXT,
+    media_type     TEXT,
+    edit_token_hash TEXT,
+    updated_at     TIMESTAMPTZ,
+    status         TEXT NOT NULL DEFAULT 'unverified'
+);
+CREATE INDEX IF NOT EXISTS idx_flood_incident_reports_created
+    ON flood_incident_reports (created_at DESC);
+
+-- Spatial flood-risk areas produced by the synthetic and satellite jobs.
+CREATE TABLE IF NOT EXISTS flood_risk_areas (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    admin_level TEXT NOT NULL,
+    state       TEXT,
+    geom        GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    risk_score  DOUBLE PRECISION NOT NULL CHECK (risk_score BETWEEN 0 AND 1),
+    risk_tier   TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    valid_from  DATE,
+    valid_to    DATE,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_geom
+    ON flood_risk_areas USING GIST (geom);
+CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_latest
+    ON flood_risk_areas (source, valid_from DESC);
+
+-- Registry for Cloud Optimised GeoTIFF overlays served through TiTiler.
+CREATE TABLE IF NOT EXISTS flood_risk_tiles (
+    id          BIGSERIAL PRIMARY KEY,
+    source      TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    minio_path  TEXT NOT NULL,
+    tile_url    TEXT NOT NULL,
+    valid_from  DATE,
+    valid_to    DATE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_flood_risk_tiles_latest
+    ON flood_risk_tiles (source, created_at DESC);
+
 -- ─── Seed: 5 gauge stations across Nigeria ───────────────────
 INSERT INTO gauge_stations (code, name, river, state, lat, lon, bank_full_m, geom)
 VALUES

@@ -35,11 +35,12 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure
+from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure, incidents, news, routing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
@@ -63,6 +64,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+os.makedirs("/app/uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -77,6 +80,29 @@ async def startup():
     app.state.db    = await asyncpg.create_pool(DB_DSN, min_size=2, max_size=10)
     app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     app.state.http  = httpx.AsyncClient(base_url=BENTOML_URL, timeout=10.0)
+    async with app.state.db.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS flood_incident_reports (
+                id BIGSERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                location_name TEXT NOT NULL,
+                incident_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                description TEXT NOT NULL,
+                water_depth_cm DOUBLE PRECISION,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                status TEXT NOT NULL DEFAULT 'unverified'
+            );
+            CREATE INDEX IF NOT EXISTS idx_flood_incident_reports_created
+                ON flood_incident_reports (created_at DESC);
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS media_url TEXT;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS media_type TEXT;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS edit_token_hash TEXT;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS affected_street TEXT;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS flood_source TEXT;
+        """)
     log.info("DB pool and Redis ready")
 
 
@@ -103,6 +129,9 @@ app.include_router(map_router.router,  prefix="/map",      tags=["map"])
 app.include_router(geocoding.router,   prefix="/geocode",  tags=["geocoding"])
 app.include_router(flood_risk.router,  prefix="/flood-risk", tags=["flood-risk"])
 app.include_router(exposure.router,    prefix="/exposure", tags=["exposure"])
+app.include_router(incidents.router,   prefix="/incidents", tags=["community incidents"])
+app.include_router(news.router,        prefix="/news", tags=["live flood news"])
+app.include_router(routing.router,     prefix="/routing", tags=["flood-aware routing"])
 
 
 # ── WebSocket: live gauge readings ────────────────────────────────────────────
