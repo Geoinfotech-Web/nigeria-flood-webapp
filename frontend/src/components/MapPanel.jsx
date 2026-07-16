@@ -14,6 +14,18 @@ const RISK_COLOR = {
   Watch:     '#eab308',
   Warning:   '#f97316',
   Emergency: '#ef4444',
+  Moderate:  '#93c5fd',
+  High:      '#2563eb',
+  'Very High': '#1e3a8a',
+  // Urban flash / legacy inundation labels
+  Likely:    '#3b82f6',
+  'Highly Likely': '#1e3a8a',
+}
+
+/** Distinct purple/magenta ramp for urban flash flood (separate from inundation blues). */
+const URBAN_FLASH_COLOR = {
+  Likely: '#d946ef',
+  'Highly Likely': '#86198f',
 }
 
 // ── Basemap definitions ──────────────────────────────────────────────────────
@@ -148,6 +160,140 @@ function addRoadLayers(map, sourceId) {
   })
 }
 
+function addAdminBoundaryLayers(map, sourceId, layerKey) {
+  const fillId = `admin-${layerKey}-fill`
+  const lineId = `admin-${layerKey}-line`
+  const labelId = `admin-${layerKey}-label`
+  const isState = layerKey === 'states'
+  const lineColor = isState ? '#0f766e' : '#64748b'
+  const fillColor = isState ? '#14b8a6' : '#94a3b8'
+  const minzoom = isState ? 4 : 7
+  const labelMinzoom = isState ? 5 : 9
+
+  if (!map.getLayer(fillId)) {
+    map.addLayer({
+      id: fillId,
+      type: 'fill',
+      source: sourceId,
+      minzoom,
+      paint: {
+        'fill-color': fillColor,
+        'fill-opacity': 0.06,
+      },
+    })
+  }
+  if (!map.getLayer(lineId)) {
+    map.addLayer({
+      id: lineId,
+      type: 'line',
+      source: sourceId,
+      minzoom,
+      paint: {
+        'line-color': lineColor,
+        'line-width': isState
+          ? ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.2, 12, 2.8]
+          : ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.2, 13, 1.8],
+        'line-opacity': 0.85,
+      },
+    })
+  }
+  if (!map.getLayer(labelId)) {
+    map.addLayer({
+      id: labelId,
+      type: 'symbol',
+      source: sourceId,
+      minzoom: labelMinzoom,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': isState
+          ? ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 13, 11, 15]
+          : ['interpolate', ['linear'], ['zoom'], 9, 9, 12, 11, 14, 12],
+        'text-font': ['Open Sans Regular'],
+        'text-max-width': 10,
+        'text-padding': 2,
+        'symbol-placement': 'point',
+      },
+      paint: {
+        'text-color': isState ? '#0f766e' : '#475569',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.4,
+      },
+    })
+  }
+
+  if (!map._adminPopupBound?.[layerKey]) {
+    map._adminPopupBound = map._adminPopupBound || {}
+    map._adminPopupBound[layerKey] = true
+    map.on('click', fillId, (e) => {
+      const props = e.features?.[0]?.properties || {}
+      new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Boundary'}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="color:#6b7280">Level</span>
+              <span>${isState ? 'State' : 'LGA'}</span>
+            </div>
+            ${props.state && !isState ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
+          </div>
+        `)
+        .addTo(map)
+    })
+    registerPointerCursor(map, fillId)
+  }
+}
+
+function addBuildingLayer(map, sourceId) {
+  if (map.getLayer('exposure-buildings')) return
+  map.addLayer({
+    id: 'exposure-buildings',
+    type: 'circle',
+    source: sourceId,
+    minzoom: 11,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.2, 14, 4.5, 16, 6],
+      'circle-color': [
+        'case',
+        ['==', ['get', 'susceptibility'], 'Highly Susceptible'], '#800026',
+        ['==', ['get', 'susceptibility'], 'High'], '#e31a1c',
+        ['==', ['get', 'susceptibility'], 'Moderate'], '#fd8d3c',
+        ['==', ['get', 'susceptibility'], 'Low'], '#ffffb2',
+        ['==', ['get', 'zone_tier'], 'Emergency'], '#ef4444',
+        ['==', ['get', 'zone_tier'], 'Warning'], '#f97316',
+        ['==', ['get', 'zone_tier'], 'Watch'], '#eab308',
+        '#c4b5fd',
+      ],
+      'circle-stroke-width': 1,
+      'circle-stroke-color': [
+        'case',
+        ['==', ['get', 'susceptibility'], 'Low'], '#a16207',
+        '#4c1d95',
+      ],
+      'circle-opacity': 0.9,
+    },
+  })
+
+  map.on('click', 'exposure-buildings', (e) => {
+    const props = e.features?.[0]?.properties || {}
+    new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+          <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Building'}</div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+            <span style="color:#6b7280">Type</span>
+            <span>${props.class || 'Building'}</span>
+          </div>
+          ${props.susceptibility ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Susceptibility</span><span style="font-weight:600">${props.susceptibility}</span></div>` : ''}
+          ${props.zone_tier ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Flood zone</span><span style="font-weight:600">${props.zone_tier}</span></div>` : '<div style="color:#6b7280">Outside elevated flood zone</div>'}
+        </div>
+      `)
+      .addTo(map)
+  })
+  registerPointerCursor(map, 'exposure-buildings')
+}
+
 function addBridgeLayer(map, sourceId) {
   if (!map.getLayer('exposure-bridges')) {
     map.addLayer({
@@ -261,6 +407,8 @@ export default function MapPanel({
   variant = 'expert',
   placeFocus = null,
   roadHighlight = null,
+  forceBuildingsLayer = false,
+  onBuildingsViewportChange = null,
   onPlaceSelect,
   showSearch = true,
   navigation = null,
@@ -270,13 +418,16 @@ export default function MapPanel({
   const mapObj     = useRef(null)
   const markersRef = useRef({})
   const [riskAreasVisible, setRiskAreasVisible] = useState(true)
-  const [satelliteVisible, setSatelliteVisible] = useState(true)
+  const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
+  const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
   const [gaugesVisible, setGaugesVisible] = useState(true)
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
+  const [urbanFlashData, setUrbanFlashData] = useState(null)
   const [mapReady,    setMapReady]    = useState(false)
   const [tileLayers,  setTileLayers]  = useState([])
-  const [activeTile,  setActiveTile]  = useState(null)  // layer id string or null
+  /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
+  const [tileVisibility, setTileVisibility] = useState({})
   const [impactSummary, setImpactSummary] = useState(null)
   const [selectedRiskArea, setSelectedRiskArea] = useState(null)
   const [exposureMeta, setExposureMeta] = useState([])
@@ -284,13 +435,19 @@ export default function MapPanel({
     roads: null,
     bridges: null,
     places: null,
+    buildings: null,
   })
   const [exposureVisible, setExposureVisible] = useState({
     roads: false,
     bridges: false,
     places: false,
+    buildings: false,
   })
-  const activeLayer = tileLayers.find(l => String(l.id) === String(activeTile)) ?? null
+  const [boundaryMeta, setBoundaryMeta] = useState([])
+  const [boundaryData, setBoundaryData] = useState({ states: null, lgas: null })
+  const [boundaryVisible, setBoundaryVisible] = useState({ states: false, lgas: false })
+  const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
+  const buildingsFetchRef = useRef(0)
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
     mapObj.current.fitBounds(DEFAULT_NIGERIA_BOUNDS, {
@@ -301,15 +458,12 @@ export default function MapPanel({
   const toggleExposureLayer = useCallback((layerId) => {
     setExposureVisible(current => ({ ...current, [layerId]: !current[layerId] }))
   }, [])
-  const handleToggleSatellite = useCallback(() => {
-    setSatelliteVisible((v) => {
-      const next = !v
-      if (next && !activeTile && tileLayers[0]) {
-        setActiveTile(String(tileLayers[0].id))
-      }
-      return next
-    })
-  }, [activeTile, tileLayers])
+  const toggleBoundaryLayer = useCallback((layerId) => {
+    setBoundaryVisible((current) => ({ ...current, [layerId]: !current[layerId] }))
+  }, [])
+  const toggleTileLayer = useCallback((source) => {
+    setTileVisibility((current) => ({ ...current, [source]: !current[source] }))
+  }, [])
 
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -367,15 +521,30 @@ export default function MapPanel({
       .catch(console.error)
   }, [])
 
+  // ── Load urban flash flood GeoJSON (separate source) ───────────────────────
+  useEffect(() => {
+    fetch(`${API}/flood-risk/geojson?source=urban_flash_flood`)
+      .then((r) => r.json())
+      .then(setUrbanFlashData)
+      .catch(console.error)
+  }, [])
+
   // ── Load available raster tile layers ─────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/flood-risk/layers`)
       .then(r => r.json())
       .then(layers => {
         setTileLayers(layers)
-        // Auto-select the classified susceptibility layer if present, else first available layer.
-        const gee = layers.find(l => l.source === 'gee_susceptibility_classes')
-        setActiveTile(gee ? String(gee.id) : (layers[0] ? String(layers[0].id) : null))
+        // Default: Inundation History on, susceptibility off
+        setTileVisibility((current) => {
+          const next = { ...current }
+          layers.forEach((layer) => {
+            if (next[layer.source] === undefined) {
+              next[layer.source] = layer.source === 'jrc_occurrence'
+            }
+          })
+          return next
+        })
       })
       .catch(console.error)
   }, [])
@@ -386,6 +555,28 @@ export default function MapPanel({
       .then(setExposureMeta)
       .catch(console.error)
   }, [])
+
+  useEffect(() => {
+    fetch(`${API}/boundaries/manifest`)
+      .then((r) => r.json())
+      .then(setBoundaryMeta)
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    Object.entries(boundaryVisible).forEach(([layerId, visible]) => {
+      if (!visible || boundaryData[layerId]) return
+      fetch(`${API}/boundaries/${layerId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          setBoundaryData((current) => {
+            if (current[layerId]) return current
+            return { ...current, [layerId]: data }
+          })
+        })
+        .catch(console.error)
+    })
+  }, [boundaryVisible, boundaryData])
 
   useEffect(() => {
     const loadImpactSummary = () => {
@@ -413,7 +604,7 @@ export default function MapPanel({
 
   useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
-      if (!visible || exposureData[layerId]) return
+      if (!visible || layerId === 'buildings' || exposureData[layerId]) return
       fetch(`${API}/exposure/${layerId}`)
         .then(r => r.json())
         .then(data => {
@@ -425,6 +616,118 @@ export default function MapPanel({
         .catch(console.error)
     })
   }, [exposureVisible, exposureData])
+
+  // Force-on Buildings exposure when the place panel Buildings tab is active
+  useEffect(() => {
+    if (!forceBuildingsLayer) return
+    setExposureVisible((current) =>
+      current.buildings ? current : { ...current, buildings: true },
+    )
+  }, [forceBuildingsLayer])
+
+  // Buildings: on-demand for current map viewport (OSM Overpass)
+  useEffect(() => {
+    if (!mapReady || !mapObj.current || !exposureVisible.buildings) {
+      setBuildingsStatus(null)
+      onBuildingsViewportChange?.(null)
+      return undefined
+    }
+
+    const map = mapObj.current
+    let debounceId = null
+
+    const loadBuildings = () => {
+      const zoom = map.getZoom()
+      if (zoom < 11) {
+        setBuildingsStatus('zoom')
+        setExposureData((current) => ({
+          ...current,
+          buildings: { type: 'FeatureCollection', features: [] },
+        }))
+        onBuildingsViewportChange?.({
+          buildings: [],
+          summary: null,
+          status: 'zoom',
+        })
+        return
+      }
+
+      const bounds = map.getBounds()
+      const west = bounds.getWest()
+      const south = bounds.getSouth()
+      const east = bounds.getEast()
+      const north = bounds.getNorth()
+      const spanOk =
+        Math.abs(north - south) <= 0.25 && Math.abs(east - west) <= 0.25
+      if (!spanOk) {
+        setBuildingsStatus('zoom')
+        onBuildingsViewportChange?.({
+          buildings: [],
+          summary: null,
+          status: 'zoom',
+        })
+        return
+      }
+
+      const requestId = ++buildingsFetchRef.current
+      setBuildingsStatus('loading')
+      onBuildingsViewportChange?.({
+        buildings: [],
+        summary: null,
+        status: 'loading',
+      })
+
+      const params = new URLSearchParams({
+        west: String(west),
+        south: String(south),
+        east: String(east),
+        north: String(north),
+        limit: '2000',
+        with_zones: 'true',
+        min_tier: 'Watch',
+        list_limit: '60',
+      })
+      fetch(`${API}/exposure/buildings?${params.toString()}`)
+        .then((r) => {
+          if (!r.ok) throw new Error(`Buildings ${r.status}`)
+          return r.json()
+        })
+        .then((data) => {
+          if (requestId !== buildingsFetchRef.current) return
+          setExposureData((current) => ({ ...current, buildings: data }))
+          setBuildingsStatus('ready')
+          onBuildingsViewportChange?.({
+            buildings: Array.isArray(data?.buildings) ? data.buildings : [],
+            summary: data?.summary || null,
+            status: 'ready',
+            bounds: { west, south, east, north },
+          })
+        })
+        .catch((err) => {
+          if (requestId !== buildingsFetchRef.current) return
+          console.error(err)
+          setBuildingsStatus('error')
+          onBuildingsViewportChange?.({
+            buildings: [],
+            summary: null,
+            status: 'error',
+            error: err,
+          })
+        })
+    }
+
+    const onMoveEnd = () => {
+      clearTimeout(debounceId)
+      debounceId = setTimeout(loadBuildings, 650)
+    }
+
+    loadBuildings()
+    map.on('moveend', onMoveEnd)
+    return () => {
+      clearTimeout(debounceId)
+      map.off('moveend', onMoveEnd)
+    }
+  }, [mapReady, exposureVisible.buildings, onBuildingsViewportChange])
 
   // ── Add risk GeoJSON layer once map + data are ready ──────────────────────
   useEffect(() => {
@@ -446,12 +749,17 @@ export default function MapPanel({
         paint: {
           'fill-color': [
             'match', ['get', 'risk_tier'],
-            'Emergency', '#ef4444',
-            'Warning',   '#f97316',
-            'Watch',     '#eab308',
+            'Very High',     '#1e3a8a',
+            'High',          '#2563eb',
+            'Moderate',      '#93c5fd',
+            'Highly Likely', '#1e3a8a',
+            'Likely',        '#3b82f6',
+            'Emergency',     '#ef4444',
+            'Warning',       '#f97316',
+            'Watch',         '#eab308',
             '#22c55e',
           ],
-          'fill-opacity': riskOpacity * 0.6,
+          'fill-opacity': riskOpacity * 0.55,
         },
       }, firstSymbol)
 
@@ -462,9 +770,14 @@ export default function MapPanel({
         paint: {
           'line-color': [
             'match', ['get', 'risk_tier'],
-            'Emergency', '#ef4444',
-            'Warning',   '#f97316',
-            'Watch',     '#eab308',
+            'Very High',     '#1e3a8a',
+            'High',          '#2563eb',
+            'Moderate',      '#93c5fd',
+            'Highly Likely', '#1e3a8a',
+            'Likely',        '#3b82f6',
+            'Emergency',     '#ef4444',
+            'Warning',       '#f97316',
+            'Watch',         '#eab308',
             '#22c55e',
           ],
           'line-width': 1.2,
@@ -482,15 +795,16 @@ export default function MapPanel({
           state: p.state,
         })
         onSelect(null)
+        const tierColor = RISK_COLOR[p.risk_tier] || '#3b82f6'
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
             <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
               <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${p.name}</div>
-              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px;text-transform:capitalize">${p.admin_level}</div>
+              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px;text-transform:capitalize">${p.admin_level === 'inundation' ? 'Inundation extent' : (p.admin_level || '')}</div>
               <div style="display:flex;justify-content:space-between;margin-bottom:2px">
-                <span style="color:#6b7280">Risk</span>
-                <span style="font-weight:600;color:${RISK_COLOR[p.risk_tier]}">${p.risk_tier}</span>
+                <span style="color:#6b7280">Likelihood</span>
+                <span style="font-weight:600;color:${tierColor}">${p.risk_tier}</span>
               </div>
               <div style="display:flex;justify-content:space-between;margin-bottom:2px">
                 <span style="color:#6b7280">Score</span>
@@ -521,51 +835,169 @@ export default function MapPanel({
     map.setPaintProperty('flood-risk-outline', 'line-opacity',  riskOpacity)
   }, [mapReady, riskAreasVisible, riskOpacity])
 
-  // ── Add / swap GEE raster tile layer ──────────────────────────────────────
+  // ── Add urban flash flood GeoJSON layer ────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !urbanFlashData) return
+    const map = mapObj.current
+
+    if (map.getSource('urban-flash')) {
+      map.getSource('urban-flash').setData(urbanFlashData)
+    } else {
+      map.addSource('urban-flash', { type: 'geojson', data: urbanFlashData })
+
+      const beforeId = map.getLayer('flood-risk-fill')
+        ? 'flood-risk-fill'
+        : map.getStyle().layers.find((l) => l.type === 'symbol')?.id
+
+      map.addLayer(
+        {
+          id: 'urban-flash-fill',
+          type: 'fill',
+          source: 'urban-flash',
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'risk_tier'],
+              'Highly Likely',
+              URBAN_FLASH_COLOR['Highly Likely'],
+              'Likely',
+              URBAN_FLASH_COLOR.Likely,
+              URBAN_FLASH_COLOR.Likely,
+            ],
+            'fill-opacity': urbanFlashOpacity * 0.55,
+          },
+        },
+        beforeId,
+      )
+
+      map.addLayer(
+        {
+          id: 'urban-flash-outline',
+          type: 'line',
+          source: 'urban-flash',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'risk_tier'],
+              'Highly Likely',
+              URBAN_FLASH_COLOR['Highly Likely'],
+              'Likely',
+              URBAN_FLASH_COLOR.Likely,
+              URBAN_FLASH_COLOR.Likely,
+            ],
+            'line-width': 1.4,
+            'line-opacity': urbanFlashOpacity,
+          },
+        },
+        beforeId,
+      )
+
+      map.on('click', 'urban-flash-fill', (e) => {
+        const p = e.features[0].properties
+        const tierColor = URBAN_FLASH_COLOR[p.risk_tier] || URBAN_FLASH_COLOR.Likely
+        new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+              <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${p.name}</div>
+              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px">Urban flash flood</div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+                <span style="color:#6b7280">Likelihood</span>
+                <span style="font-weight:600;color:${tierColor}">${p.risk_tier}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+                <span style="color:#6b7280">Score</span>
+                <span style="font-weight:500">${(p.risk_score * 100).toFixed(0)}%</span>
+              </div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="color:#6b7280">Valid to</span>
+                <span style="font-size:11px">${p.valid_to ?? '—'}</span>
+              </div>
+            </div>
+          `)
+          .addTo(map)
+      })
+      map.on('mouseenter', 'urban-flash-fill', () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', 'urban-flash-fill', () => {
+        map.getCanvas().style.cursor = ''
+      })
+    }
+  }, [mapReady, urbanFlashData])
+
+  // ── Update urban flash visibility + opacity ────────────────────────────────
   useEffect(() => {
     if (!mapReady) return
     const map = mapObj.current
+    if (!map.getLayer('urban-flash-fill')) return
+    const vis = urbanFlashVisible ? 'visible' : 'none'
+    map.setLayoutProperty('urban-flash-fill', 'visibility', vis)
+    map.setLayoutProperty('urban-flash-outline', 'visibility', vis)
+    map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.55)
+    map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity)
+  }, [mapReady, urbanFlashVisible, urbanFlashOpacity])
 
-    // Remove old tile layer if present
+  // ── Add / sync independent raster tile layers ─────────────────────────────
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+    const beforeId = map.getLayer('flood-risk-fill') ? 'flood-risk-fill' : undefined
+
+    // Remove stale raster layers
+    tileLayers.forEach((layer) => {
+      const layerId = `tiles-${layer.source}`
+      const sourceId = `tiles-src-${layer.source}`
+      const shouldShow = Boolean(tileVisibility[layer.source])
+      if (!shouldShow) {
+        if (map.getLayer(layerId)) map.removeLayer(layerId)
+        if (map.getSource(sourceId)) map.removeSource(sourceId)
+      }
+    })
+
+    // Also remove legacy single gee-tiles if present
     if (map.getLayer('gee-tiles')) map.removeLayer('gee-tiles')
     if (map.getSource('gee-tiles')) map.removeSource('gee-tiles')
 
-    if (!satelliteVisible || !activeTile) return
+    tileLayers.forEach((layer) => {
+      if (!tileVisibility[layer.source]) return
+      const layerId = `tiles-${layer.source}`
+      const sourceId = `tiles-src-${layer.source}`
+      const tileUrl = layer.tile_url
 
-    const layer = tileLayers.find(l => String(l.id) === activeTile)
-    if (!layer) return
-
-    // Replace {z}/{x}/{y} placeholders with MapLibre tokens
-    const tileUrl = layer.tile_url
-      .replace('{z}', '{z}')
-      .replace('{x}', '{x}')
-      .replace('{y}', '{y}')
-
-    map.addSource('gee-tiles', {
-      type: 'raster',
-      tiles: [tileUrl],
-      tileSize: 256,
-      attribution: layer.label,
-      bounds: layer.bounds ?? undefined,
+      if (!map.getSource(sourceId)) {
+        map.addSource(sourceId, {
+          type: 'raster',
+          tiles: [tileUrl],
+          tileSize: 256,
+          attribution: layer.label,
+          bounds: layer.bounds ?? undefined,
+        })
+      }
+      if (!map.getLayer(layerId)) {
+        map.addLayer({
+          id: layerId,
+          type: 'raster',
+          source: sourceId,
+          paint: { 'raster-opacity': riskOpacity * 0.75 },
+        }, beforeId)
+      } else {
+        map.setPaintProperty(layerId, 'raster-opacity', riskOpacity * 0.75)
+      }
     })
+  }, [mapReady, tileLayers, tileVisibility, riskOpacity])
 
-    // Insert below flood-risk-fill so polygons are still clickable on top
-    map.addLayer({
-      id:     'gee-tiles',
-      type:   'raster',
-      source: 'gee-tiles',
-      paint:  { 'raster-opacity': riskOpacity * 0.75 },
-    }, map.getLayer('flood-risk-fill') ? 'flood-risk-fill' : undefined)
-  }, [mapReady, activeTile, satelliteVisible, tileLayers])
-
-  // ── Sync GEE tile opacity when slider changes ─────────────────────────────
+  // ── Sync raster opacity when slider changes ───────────────────────────────
   useEffect(() => {
     if (!mapReady) return
     const map = mapObj.current
-    if (map.getLayer('gee-tiles')) {
-      map.setPaintProperty('gee-tiles', 'raster-opacity', riskOpacity * 0.75)
-    }
-  }, [mapReady, riskOpacity])
+    tileLayers.forEach((layer) => {
+      const layerId = `tiles-${layer.source}`
+      if (map.getLayer(layerId)) {
+        map.setPaintProperty(layerId, 'raster-opacity', riskOpacity * 0.75)
+      }
+    })
+  }, [mapReady, riskOpacity, tileLayers])
 
   useEffect(() => {
     if (!mapReady) return
@@ -616,7 +1048,51 @@ export default function MapPanel({
         }
       })
     }
+
+    if (exposureData.buildings) {
+      if (map.getSource('exposure-buildings')) {
+        map.getSource('exposure-buildings').setData(exposureData.buildings)
+      } else {
+        map.addSource('exposure-buildings', { type: 'geojson', data: exposureData.buildings })
+        addBuildingLayer(map, 'exposure-buildings')
+      }
+      if (map.getLayer('exposure-buildings')) {
+        map.setLayoutProperty(
+          'exposure-buildings',
+          'visibility',
+          exposureVisible.buildings ? 'visible' : 'none',
+        )
+      }
+    }
   }, [mapReady, exposureData, exposureVisible])
+
+  // ── Admin boundaries (states / LGAs) ───────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+
+    ;['states', 'lgas'].forEach((layerKey) => {
+      const data = boundaryData[layerKey]
+      const sourceId = `admin-${layerKey}`
+      if (!data) return
+
+      if (map.getSource(sourceId)) {
+        map.getSource(sourceId).setData(data)
+      } else {
+        map.addSource(sourceId, { type: 'geojson', data })
+        addAdminBoundaryLayers(map, sourceId, layerKey)
+      }
+
+      const visibility = boundaryVisible[layerKey] ? 'visible' : 'none'
+      ;[`admin-${layerKey}-fill`, `admin-${layerKey}-line`, `admin-${layerKey}-label`].forEach(
+        (id) => {
+          if (map.getLayer(id)) {
+            map.setLayoutProperty(id, 'visibility', visibility)
+          }
+        },
+      )
+    })
+  }, [mapReady, boundaryData, boundaryVisible])
 
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -893,9 +1369,14 @@ export default function MapPanel({
   }, [mapReady, roadHighlight, publicMode])
 
   return (
-    <div className="relative w-full h-full">
-      {/* Map canvas */}
-      <div ref={mapRef} className="w-full h-full" />
+    <div
+      className={clsx(
+        'relative h-full w-full',
+        theme === 'dark' ? 'map-ui-dark' : 'map-ui-light',
+      )}
+    >
+      {/* Map canvas — sibling/descendant MapLibre controls pick up .map-ui-* styles */}
+      <div ref={mapRef} className="h-full w-full" />
 
       {/* Search bar — top centre (expert / optional) */}
       {showSearch && (
@@ -905,24 +1386,45 @@ export default function MapPanel({
       )}
 
       {/* Unified Layers panel — top left */}
-      <div className="absolute top-3 left-3 z-10">
+      <div className="absolute top-3 left-3 z-10 space-y-2">
         <LayersPanel
           theme={theme}
           riskAreasVisible={riskAreasVisible}
           onToggleRiskAreas={() => setRiskAreasVisible((v) => !v)}
           riskOpacity={riskOpacity}
           onRiskOpacity={setRiskOpacity}
-          satelliteVisible={satelliteVisible}
-          onToggleSatellite={handleToggleSatellite}
+          urbanFlashVisible={urbanFlashVisible}
+          onToggleUrbanFlash={() => setUrbanFlashVisible((v) => !v)}
+          urbanFlashOpacity={urbanFlashOpacity}
+          onUrbanFlashOpacity={setUrbanFlashOpacity}
           tileLayers={tileLayers}
-          activeTile={activeTile}
-          onTileLayer={setActiveTile}
+          tileVisibility={tileVisibility}
+          onToggleTile={toggleTileLayer}
           gaugesVisible={gaugesVisible}
           onToggleGauges={() => setGaugesVisible((v) => !v)}
           exposureLayers={exposureMeta.filter((layer) => layer.available)}
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
+          boundaryLayers={boundaryMeta.filter((layer) => layer.available)}
+          boundaryVisibility={boundaryVisible}
+          onToggleBoundary={toggleBoundaryLayer}
         />
+        {exposureVisible.buildings && buildingsStatus && (
+          <div
+            className={clsx(
+              'max-w-[14rem] rounded-lg border px-2.5 py-1.5 text-[10px] shadow',
+              theme === 'dark'
+                ? 'border-gray-700 bg-gray-900/90 text-gray-300'
+                : 'border-slate-200 bg-white text-slate-600',
+            )}
+          >
+            {buildingsStatus === 'loading' && 'Loading buildings for this view…'}
+            {buildingsStatus === 'zoom' && 'Zoom in closer to load buildings.'}
+            {buildingsStatus === 'error' && 'Could not load buildings (OSM).'}
+            {buildingsStatus === 'ready' &&
+              `${(exposureData.buildings?.features || []).length.toLocaleString()} buildings in view`}
+          </div>
+        )}
       </div>
 
       {/* Home + basemap — below zoom (+/−) only; fullscreen is bottom-right */}
@@ -933,12 +1435,14 @@ export default function MapPanel({
           className={clsx(
             'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
             theme === 'dark'
-              ? 'border-gray-700/80 bg-gray-900/88 text-gray-200 backdrop-blur hover:border-gray-500 hover:bg-gray-800 hover:text-white'
-              : 'border-slate-200/90 bg-white/92 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-900'
+              ? 'border-gray-700 bg-gray-900 text-gray-200 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
           )}
-          style={theme === 'light'
-            ? { backgroundColor: '#ffffff', borderColor: '#cbd5e1', backdropFilter: 'none' }
-            : undefined}
+          style={
+            theme === 'dark'
+              ? { backgroundColor: '#111827', borderColor: '#374151' }
+              : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+          }
           aria-label="Reset map to Nigeria view"
           title="Home"
         >
@@ -955,10 +1459,20 @@ export default function MapPanel({
       {/* Legend — symbology only */}
       <div className="absolute bottom-10 left-3 z-10 hidden sm:block">
         <FloodRiskLegend
-          overlayLegend={satelliteVisible ? (activeLayer?.legend ?? null) : null}
+          showProbability={riskAreasVisible}
+          showUrbanFlash={urbanFlashVisible}
+          showHistory={Boolean(tileVisibility.jrc_occurrence)}
+          historyLegend={
+            tileLayers.find((l) => l.source === 'jrc_occurrence')?.legend ?? null
+          }
+          susceptibilityLegend={
+            tileVisibility.gee_susceptibility_classes
+              ? (tileLayers.find((l) => l.source === 'gee_susceptibility_classes')?.legend ?? null)
+              : null
+          }
           visibleExposureIds={Object.keys(exposureVisible).filter((id) => exposureVisible[id])}
+          visibleBoundaryIds={Object.keys(boundaryVisible).filter((id) => boundaryVisible[id])}
           showGauges={gaugesVisible}
-          showRiskAreas={riskAreasVisible}
           theme={theme}
         />
       </div>

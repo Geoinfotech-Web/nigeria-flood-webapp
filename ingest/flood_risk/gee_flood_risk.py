@@ -36,8 +36,8 @@ DB_DSN = (
 
 SOURCE_DEFS = {
     "jrc_occurrence": {
-        "filename": "nigeria_jrc_water_occurrence_{valid_from}_{mode}.tif",
-        "label": "JRC Global Surface Water",
+        "filename": "nigeria_inundation_history_classes_{valid_from}_{mode}.tif",
+        "label": "Inundation History",
     },
     "gee_susceptibility_classes": {
         "filename": "nigeria_flood_susceptibility_classes_{valid_from}_{mode}.tif",
@@ -78,17 +78,29 @@ def get_nigeria_geometry():
 
 
 def build_layers():
-    """Build raw JRC occurrence and 4-class susceptibility images."""
+    """Build 3-class inundation history + 4-class susceptibility, clipped to Nigeria."""
     import ee
 
     nigeria = get_nigeria_geometry()
 
-    jrc = (
+    jrc_raw = (
         ee.Image("JRC/GSW1_4/GlobalSurfaceWater")
         .select("occurrence")
         .unmask(0)
         .clip(nigeria)
-        .rename("jrc_occurrence")
+    )
+
+    # Flood Hub–style inundation history: 3 wet-frequency classes (%, time under water).
+    # Dry / never-wet pixels are masked so only Nigeria wet history is shown.
+    inundation_history = (
+        ee.Image(0)
+        .where(jrc_raw.gte(5).And(jrc_raw.lt(25)), 1)   # occasional
+        .where(jrc_raw.gte(25).And(jrc_raw.lt(50)), 2)  # frequent
+        .where(jrc_raw.gte(50), 3)                      # very frequent
+        .updateMask(jrc_raw.gte(5))
+        .clip(nigeria)
+        .rename("inundation_history")
+        .toUint8()
     )
 
     srtm = ee.Image("USGS/SRTMGL1_003").select("elevation").clip(nigeria)
@@ -97,7 +109,7 @@ def build_layers():
     slope_norm = slope.unitScale(0, 30).subtract(1).abs()
 
     susceptibility = (
-        jrc.multiply(0.5)
+        jrc_raw.multiply(0.5)
         .add(elev_norm.multiply(100).multiply(0.3))
         .add(slope_norm.multiply(100).multiply(0.2))
     ).rename("flood_susceptibility").clamp(0, 100).clip(nigeria)
@@ -114,7 +126,7 @@ def build_layers():
     )
 
     return {
-        "jrc_occurrence": jrc,
+        "jrc_occurrence": inundation_history,  # served as Inundation History (3 wet classes)
         "gee_susceptibility_classes": susceptibility_classes,
     }, nigeria
 

@@ -122,39 +122,58 @@ CREATE TABLE IF NOT EXISTS flood_incident_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_flood_incident_reports_created
     ON flood_incident_reports (created_at DESC);
-
--- Spatial flood-risk areas produced by the synthetic and satellite jobs.
+-- ─── Flood risk polygons (SAR/DEM inundation or synthetic fallback) ──
 CREATE TABLE IF NOT EXISTS flood_risk_areas (
-    id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL,
-    admin_level TEXT NOT NULL,
-    state       TEXT,
-    geom        GEOMETRY(MultiPolygon, 4326) NOT NULL,
-    risk_score  DOUBLE PRECISION NOT NULL CHECK (risk_score BETWEEN 0 AND 1),
-    risk_tier   TEXT NOT NULL,
-    source      TEXT NOT NULL,
-    valid_from  DATE,
-    valid_to    DATE,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id           SERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    admin_level  TEXT NOT NULL DEFAULT 'inundation',  -- inundation | state | lga
+    state        TEXT,
+    geom         GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    risk_score   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    risk_tier    TEXT NOT NULL,   -- Very High / High / Moderate (or urban Likely / Highly Likely; legacy Watch/Warning/…)
+    source       TEXT NOT NULL,   -- sar_dem_inundation | urban_flash_flood | synthetic | sentinel1
+    valid_from   DATE,
+    valid_to     DATE,
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_source
+    ON flood_risk_areas (source, valid_from DESC);
+CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_tier
+    ON flood_risk_areas (risk_tier);
 CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_geom
     ON flood_risk_areas USING GIST (geom);
-CREATE INDEX IF NOT EXISTS idx_flood_risk_areas_latest
-    ON flood_risk_areas (source, valid_from DESC);
 
--- Registry for Cloud Optimised GeoTIFF overlays served through TiTiler.
+-- ─── Raster tile registry (MinIO COGs served via TiTiler) ─────
 CREATE TABLE IF NOT EXISTS flood_risk_tiles (
-    id          BIGSERIAL PRIMARY KEY,
-    source      TEXT NOT NULL,
-    label       TEXT NOT NULL,
-    minio_path  TEXT NOT NULL,
-    tile_url    TEXT NOT NULL,
-    valid_from  DATE,
-    valid_to    DATE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id           SERIAL PRIMARY KEY,
+    source       TEXT NOT NULL,   -- sar_dem_inundation | gee_susceptibility_classes | jrc_occurrence
+    label        TEXT NOT NULL,
+    minio_path   TEXT NOT NULL,
+    tile_url     TEXT,
+    valid_from   DATE,
+    valid_to     DATE,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_flood_risk_tiles_latest
-    ON flood_risk_tiles (source, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flood_risk_tiles_source
+    ON flood_risk_tiles (source, valid_from DESC);
+
+-- ─── Urban built-up footprints (GEE monthly; used by flash-flood model) ──
+CREATE TABLE IF NOT EXISTS urban_footprints (
+    id               SERIAL PRIMARY KEY,
+    name             TEXT NOT NULL,
+    state            TEXT,
+    geom             GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    centroid_lat     DOUBLE PRECISION NOT NULL,
+    centroid_lon     DOUBLE PRECISION NOT NULL,
+    area_km2         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    impervious_frac  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    flat_frac        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_urban_footprints_geom
+    ON urban_footprints USING GIST (geom);
+CREATE INDEX IF NOT EXISTS idx_urban_footprints_centroid
+    ON urban_footprints (centroid_lat, centroid_lon);
 
 -- ─── Seed: 5 gauge stations across Nigeria ───────────────────
 INSERT INTO gauge_stations (code, name, river, state, lat, lon, bank_full_m, geom)

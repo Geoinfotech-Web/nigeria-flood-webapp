@@ -40,15 +40,20 @@ export default function PlaceBriefPanel({
   roadsLoading = false,
   selectedRoad = null,
   onSelectRoad,
+  nearbyBuildings = [],
+  buildingSummary = null,
+  buildingsLoading = false,
+  buildingsError = null,
   loading,
   liveReadings,
   theme = 'light',
   onClose,
   onSelectStation,
   onSelectPlace,
+  onPanelTabChange,
 }) {
   const [showDetails, setShowDetails] = useState(false)
-  const [panelTab, setPanelTab] = useState('places') // places | roads
+  const [panelTab, setPanelTab] = useState('places') // places | roads | buildings
   const tier = overallRisk || 'Normal'
   const badge = (theme === 'dark' ? DARK_BADGE : LIGHT_BADGE)[tier]
   const horizons = primaryStation?.prediction?.horizons || {}
@@ -62,19 +67,31 @@ export default function PlaceBriefPanel({
     setShowDetails(false)
   }, [place?.lat, place?.lon, place?.name])
 
+  useEffect(() => {
+    onPanelTabChange?.(panelTab)
+  }, [panelTab, onPanelTabChange])
+
+  const selectTab = (id) => {
+    setPanelTab(id)
+    onPanelTabChange?.(id)
+  }
+
   const roadKey = (r) => `${r.osm_id || r.name}-${r.lat}-${r.lon}`
   const placesCount = nearbySettlements.length
   const roadsCount = nearbyRoads.length
   const roadsAtRisk = roadSummary?.at_risk ?? 0
+  const buildingsExposed = buildingSummary?.exposed_in_flood_zones ?? 0
+  const buildingsTotal = buildingSummary?.total_in_radius ?? nearbyBuildings.length
+  const buildingsScope = buildingSummary?.scope === 'map_viewport' ? 'map view' : 'near place'
 
   const tabBtn = (id, label, count, loadingTab) => (
     <button
       type="button"
       role="tab"
       aria-selected={panelTab === id}
-      onClick={() => setPanelTab(id)}
+      onClick={() => selectTab(id)}
       className={clsx(
-        'flex-1 rounded-lg px-2.5 py-2 text-left transition',
+        'min-w-0 flex-1 rounded-lg px-1.5 py-2 text-left transition sm:px-2.5',
         panelTab === id
           ? theme === 'dark'
             ? 'bg-gray-800 text-white shadow-sm'
@@ -84,8 +101,10 @@ export default function PlaceBriefPanel({
             : 'text-slate-500 hover:text-slate-800',
       )}
     >
-      <span className="block text-[10px] font-semibold uppercase tracking-wider">{label}</span>
-      <span className="mt-0.5 block text-xs font-medium tabular-nums">
+      <span className="block truncate text-[9px] font-semibold uppercase tracking-wider sm:text-[10px]">
+        {label}
+      </span>
+      <span className="mt-0.5 block truncate text-[11px] font-medium tabular-nums sm:text-xs">
         {loadingTab ? '…' : count}
       </span>
     </button>
@@ -243,18 +262,24 @@ export default function PlaceBriefPanel({
         <div>
           <div
             role="tablist"
-            aria-label="Nearby places and roads"
+            aria-label="Nearby places, roads, and buildings"
             className={clsx(
               'mb-3 flex gap-1 rounded-xl border p-1',
               theme === 'dark' ? 'border-gray-800 bg-gray-950/50' : 'border-slate-200 bg-slate-100/80',
             )}
           >
-            {tabBtn('places', 'Towns & villages', placesCount, settlementsLoading)}
+            {tabBtn('places', 'Towns', placesCount, settlementsLoading)}
             {tabBtn(
               'roads',
-              'Streets & roads',
-              roadsAtRisk > 0 ? `${roadsAtRisk} at risk` : roadsCount,
+              'Roads',
+              roadsAtRisk > 0 ? `${roadsAtRisk} risk` : roadsCount,
               roadsLoading,
+            )}
+            {tabBtn(
+              'buildings',
+              'Buildings',
+              buildingsLoading ? '…' : buildingsExposed,
+              buildingsLoading,
             )}
           </div>
 
@@ -534,6 +559,217 @@ export default function PlaceBriefPanel({
               </ul>
             </div>
           )}
+
+          {panelTab === 'buildings' && (
+            <div className="space-y-3">
+              <div
+                className={clsx(
+                  'rounded-xl border px-3.5 py-3',
+                  buildingsExposed > 0 || (buildingSummary?.high_susceptibility ?? 0) > 0
+                    ? theme === 'dark'
+                      ? 'border-violet-800/50 bg-violet-950/30'
+                      : 'border-violet-200 bg-violet-50'
+                    : theme === 'dark'
+                      ? 'border-gray-800 bg-gray-950/40'
+                      : 'border-slate-200 bg-slate-50',
+                )}
+              >
+                <p
+                  className={clsx(
+                    'text-[10px] font-semibold uppercase tracking-widest',
+                    theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                  )}
+                >
+                  Buildings · zones & susceptibility · {buildingsScope}
+                </p>
+                <p className="mt-1 text-[13px] font-semibold">
+                  <span className="tabular-nums text-xl">{buildingsExposed}</span>
+                  {' '}of {buildingsTotal || '—'} in Watch / Warning / Emergency zones
+                </p>
+                {buildingSummary?.by_zone_tier && (
+                  <p
+                    className={clsx(
+                      'mt-1 text-[11px]',
+                      theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                    )}
+                  >
+                    {[
+                      buildingSummary.by_zone_tier.Emergency
+                        ? `${buildingSummary.by_zone_tier.Emergency} emergency`
+                        : null,
+                      buildingSummary.by_zone_tier.Warning
+                        ? `${buildingSummary.by_zone_tier.Warning} warning`
+                        : null,
+                      buildingSummary.by_zone_tier.Watch
+                        ? `${buildingSummary.by_zone_tier.Watch} watch`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'No zone overlaps'}
+                  </p>
+                )}
+                {buildingSummary?.by_susceptibility && (
+                  <p
+                    className={clsx(
+                      'mt-1.5 text-[11px]',
+                      theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                    )}
+                  >
+                    Susceptibility
+                    {buildingSummary.susceptibility_sample_size
+                      ? ` (${buildingSummary.susceptibility_sample_size} sampled)`
+                      : ''}
+                    :{' '}
+                    {[
+                      buildingSummary.by_susceptibility['Highly Susceptible']
+                        ? `${buildingSummary.by_susceptibility['Highly Susceptible']} highly`
+                        : null,
+                      buildingSummary.by_susceptibility.High
+                        ? `${buildingSummary.by_susceptibility.High} high`
+                        : null,
+                      buildingSummary.by_susceptibility.Moderate
+                        ? `${buildingSummary.by_susceptibility.Moderate} moderate`
+                        : null,
+                      buildingSummary.by_susceptibility.Low
+                        ? `${buildingSummary.by_susceptibility.Low} low`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'Unclassified'}
+                  </p>
+                )}
+              </div>
+
+              <p
+                className={clsx(
+                  'text-[11px] leading-relaxed',
+                  theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+                )}
+              >
+                Each building is classified Low → Highly Susceptible (same as the flood
+                susceptibility map), plus zone exposure. Pan or zoom to refresh. Tap a row to
+                highlight on the map.
+              </p>
+
+              {buildingSummary?.note && (
+                <p
+                  className={clsx(
+                    'text-[11px] leading-relaxed',
+                    theme === 'dark' ? 'text-amber-200/80' : 'text-amber-800',
+                  )}
+                >
+                  {buildingSummary.note}
+                </p>
+              )}
+
+              {buildingsLoading && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  Loading buildings & classifying susceptibility…
+                </p>
+              )}
+
+              {buildingsError && !buildingsLoading && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-red-300' : 'text-red-600')}>
+                  Could not load buildings (
+                  {buildingsError.response?.data?.detail ||
+                    buildingsError.message ||
+                    'network error'}
+                  ). Try again or zoom the map Buildings layer.
+                </p>
+              )}
+
+              {!buildingsLoading && !buildingsError && nearbyBuildings.length === 0 && (
+                <p className={clsx('text-xs', theme === 'dark' ? 'text-gray-500' : 'text-slate-400')}>
+                  No OSM buildings found within ~{buildingSummary?.radius_km ?? 3} km (coverage
+                  varies by area).
+                </p>
+              )}
+
+              <ul className="space-y-1.5">
+                {nearbyBuildings.map((b) => {
+                  const key = `${b.osm_id || b.name}-${b.lat}-${b.lon}`
+                  const active =
+                    selectedRoad &&
+                    (selectedRoad.osm_id
+                      ? selectedRoad.osm_id === b.osm_id
+                      : roadKey(selectedRoad) === key)
+                  const sus = b.susceptibility
+                  const susColor = SUSCEPTIBILITY_COLOR[sus]
+                  const susText = SUSCEPTIBILITY_TEXT_COLOR[sus]
+                  const exposed = Boolean(b.exposed || b.zone_tier)
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectRoad?.(
+                            active
+                              ? null
+                              : {
+                                  ...b,
+                                  name: b.name || `${b.class || 'Building'}`,
+                                  coordinates: null,
+                                },
+                          )
+                        }
+                        className={clsx(
+                          'flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition',
+                          active
+                            ? theme === 'dark'
+                              ? 'border-violet-500 bg-violet-950/40 ring-1 ring-violet-500/40'
+                              : 'border-violet-400 bg-violet-50 ring-1 ring-violet-300'
+                            : theme === 'dark'
+                              ? 'border-gray-800 bg-gray-950/40 hover:border-gray-600'
+                              : 'border-slate-100 bg-slate-50/80 hover:border-slate-300 hover:bg-white',
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">
+                            {b.name || `${b.class || 'Building'}`}
+                          </span>
+                          <span
+                            className={clsx(
+                              'block truncate',
+                              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                            )}
+                          >
+                            {b.class || 'Building'}
+                            {b.distance_km != null ? ` · ${formatDistance(b.distance_km)}` : ''}
+                            {exposed
+                              ? ` · ${RISK_LABEL[b.zone_tier] || b.zone_tier}`
+                              : ' · outside zone'}
+                            {active ? ' · on map' : ''}
+                          </span>
+                        </span>
+                        {sus ? (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1.5 font-semibold"
+                            style={{ color: susText }}
+                          >
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-sm border border-black/10"
+                              style={{ backgroundColor: susColor }}
+                              aria-hidden
+                            />
+                            {sus}
+                          </span>
+                        ) : (
+                          <span
+                            className={clsx(
+                              'shrink-0 font-medium',
+                              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+                            )}
+                          >
+                            Unclassified
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
         </div>
 
         {overallRisk && nearby.length > 0 && (
@@ -593,8 +829,8 @@ export default function PlaceBriefPanel({
                   : 'border-slate-200 text-slate-500',
               )}
             >
-              Detailed flood extent (inundation) maps for this place are being prepared. Until then,
-              use gauge forecasts and local advisories as your guide.
+              Toggle Inundation probability or Inundation history on the map. Gauge forecasts
+              remain the primary early-warning guide.
             </p>
 
             {primaryStation && (

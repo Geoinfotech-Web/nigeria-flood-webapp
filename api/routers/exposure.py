@@ -12,6 +12,9 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
+from shapely.geometry import Point, shape
+from shapely.ops import unary_union
+from shapely.prepared import prep
 
 router = APIRouter()
 _http = httpx.AsyncClient(timeout=12.0, headers={"User-Agent": "NigeriaFloodDashboard/1.0"})
@@ -43,7 +46,59 @@ LAYER_META = {
         "label": "Settlements",
         "description": "OpenStreetMap populated places including cities, towns, and villages.",
     },
+    "buildings": {
+        "label": "Buildings",
+        "description": (
+            "OpenStreetMap building footprints loaded for the current map view "
+            "(centroids). Use with flood risk zones to see exposure."
+        ),
+    },
 }
+
+BUILDING_CLASS_MAP = {
+    "apartments": "Residential",
+    "residential": "Residential",
+    "house": "Residential",
+    "detached": "Residential",
+    "semidetached_house": "Residential",
+    "terrace": "Residential",
+    "bungalow": "Residential",
+    "cabin": "Residential",
+    "dormitory": "Residential",
+    "commercial": "Commercial",
+    "retail": "Commercial",
+    "office": "Commercial",
+    "supermarket": "Commercial",
+    "kiosk": "Commercial",
+    "industrial": "Industrial",
+    "warehouse": "Industrial",
+    "manufacture": "Industrial",
+    "factory": "Industrial",
+    "school": "Public",
+    "university": "Public",
+    "college": "Public",
+    "hospital": "Public",
+    "clinic": "Public",
+    "church": "Public",
+    "mosque": "Public",
+    "temple": "Public",
+    "chapel": "Public",
+    "civic": "Public",
+    "government": "Public",
+    "public": "Public",
+}
+
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.ru/api/interpreter",
+]
+_overpass_http = httpx.AsyncClient(
+    timeout=httpx.Timeout(60.0, connect=15.0),
+    headers={"User-Agent": "NigeriaFloodDashboard/1.0"},
+    follow_redirects=True,
+)
 
 SETTLEMENT_CLASSES = {"City", "Town", "Village", "city", "town", "village"}
 
@@ -150,6 +205,15 @@ async def exposure_manifest():
             "feature_count": count,
             **LAYER_META[layer_name],
         })
+
+    # Buildings are fetched on-demand for the current map/place extent (too large nationwide).
+    manifest.append({
+        "id": "buildings",
+        "available": True,
+        "feature_count": None,
+        "on_demand": True,
+        **LAYER_META["buildings"],
+    })
 
     return manifest
 
@@ -528,7 +592,8 @@ async def affected_settlements_summary(
     have elevated flood outlook (Warning/Emergency by default = highly likely).
     """
     min_rank = _TIER_RANK.get(min_tier, 2)
-    cache_key = f"affected-settlements:{min_tier}:{radius_km}"
+    # v3 returns the full places list (no 80-item cap) for the public outlook panel.
+    cache_key = f"affected-settlements:v3:{min_tier}:{radius_km}"
     try:
         cached = await request.app.state.redis.get(cache_key)
         if cached:
@@ -632,6 +697,32 @@ async def affected_settlements_summary(
             "settlements_in_buffer": local_new,
         })
 
+    class_rank = {"City": 0, "Town": 1, "Village": 2}
+    places = sorted(
+        seen.values(),
+        key=lambda p: (
+            -_TIER_RANK.get(p.get("station_risk_tier") or "", 0),
+            class_rank.get(p.get("class") or "Town", 1),
+            (p.get("name") or "").lower(),
+        ),
+    )
+    places_out = [
+        {
+            "name": p.get("name"),
+            "class": p.get("class") or "Town",
+            "lat": p.get("lat"),
+            "lon": p.get("lon"),
+            "display_name": p.get("display_name") or f"{p.get('name')}, Nigeria",
+            "population": p.get("population"),
+            "susceptibility": p.get("susceptibility"),
+            "susceptibility_class": p.get("susceptibility_class"),
+            "nearest_station": p.get("nearest_station"),
+            "station_risk_tier": p.get("station_risk_tier"),
+            "distance_km": p.get("distance_km"),
+        }
+        for p in places
+    ]
+
     payload = {
         "total": len(seen),
         "highly_likely": len(seen),
@@ -640,6 +731,7 @@ async def affected_settlements_summary(
         "elevated_stations": len(elevated),
         "by_class": by_class,
         "stations": station_counts,
+        "places": places_out,
         "label": (
             f"{len(seen)} towns/villages within {int(radius_km)} km of "
             f"{min_tier}+ flood outlook gauges"
@@ -654,8 +746,528 @@ async def affected_settlements_summary(
     return payload
 
 
+def _building_class(tags: dict) -> str:
+    raw = (tags.get("building") or "yes").strip().lower()
+    if raw in ("yes", "true", "1"):
+        return "Building"
+    return BUILDING_CLASS_MAP.get(raw, "Building")
+
+
+def _overpass_elements_to_buildings(elements: list, limit: int) -> list[dict]:
+    features = []
+    for el in elements:
+        tags = el.get("tags") or {}
+        if "building" not in tags:
+            continue
+        center = el.get("center") or {}
+        lat = center.get("lat")
+        lon = center.get("lon")
+        if lat is None or lon is None:
+            # nodes
+            lat = el.get("lat")
+            lon = el.get("lon")
+        if lat is None or lon is None:
+            continue
+        name = (tags.get("name") or "").strip() or None
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [round(float(lon), 6), round(float(lat), 6)],
+            },
+            "properties": {
+                "osm_id": el.get("id"),
+                "osm_type": el.get("type"),
+                "name": name,
+                "class": _building_class(tags),
+                "building": tags.get("building"),
+                "levels": tags.get("building:levels") or tags.get("levels"),
+            },
+        })
+        if len(features) >= limit:
+            break
+    return features
+
+
+async def _fetch_overpass_buildings(query: str) -> list:
+    last_error = None
+    for base in OVERPASS_URLS:
+        for method in ("post", "get"):
+            try:
+                if method == "post":
+                    resp = await _overpass_http.post(base, data={"data": query})
+                else:
+                    resp = await _overpass_http.get(base, params={"data": query})
+                if resp.status_code >= 400:
+                    last_error = f"{base} → HTTP {resp.status_code}"
+                    continue
+                payload = resp.json() or {}
+                return payload.get("elements") or []
+            except Exception as exc:
+                last_error = exc
+                continue
+    raise HTTPException(
+        status_code=502,
+        detail=f"Overpass building query failed: {last_error}",
+    )
+
+
+def _bbox_cache_key(west: float, south: float, east: float, north: float, limit: int) -> str:
+    # ~0.01° ~ 1 km — coarse enough to reuse nearby pans
+    return (
+        "buildings-bbox:"
+        f"{round(west, 2)}:{round(south, 2)}:{round(east, 2)}:{round(north, 2)}:{limit}"
+    )
+
+
+async def _buildings_in_bbox(
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    limit: int = 2000,
+    redis=None,
+) -> dict:
+    # Guard against huge areas
+    if east < west:
+        west, east = east, west
+    if north < south:
+        south, north = north, south
+    span_lat = abs(north - south)
+    span_lon = abs(east - west)
+    if span_lat > 0.25 or span_lon > 0.25:
+        raise HTTPException(
+            status_code=400,
+            detail="Buildings layer requires a smaller map view (zoom in closer).",
+        )
+
+    cache_key = _bbox_cache_key(west, south, east, north, limit)
+    if redis is not None:
+        try:
+            cached = await redis.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    # Ways only + qt (quadtile) ordering — much faster than relations + full around scan
+    query = f"""
+[out:json][timeout:45];
+way["building"]({south},{west},{north},{east});
+out center qt;
+"""
+    elements = await _fetch_overpass_buildings(query)
+    features = _overpass_elements_to_buildings(elements, limit)
+    payload = {
+        "type": "FeatureCollection",
+        "features": features,
+        "meta": {
+            "count": len(features),
+            "bbox": [west, south, east, north],
+            "source": "openstreetmap/overpass",
+            "note": "Building centroids for the current map extent.",
+        },
+    }
+    if redis is not None:
+        try:
+            await redis.setex(cache_key, 300, json.dumps(payload))
+        except Exception:
+            pass
+    return payload
+
+
+async def _buildings_around(
+    lat: float,
+    lon: float,
+    radius_km: float,
+    limit: int = 1500,
+    redis=None,
+) -> list[dict]:
+    """Fetch buildings via a tight bbox, then keep those within radius_km."""
+    pad_lat = radius_km / 111.0
+    pad_lon = radius_km / max(111.0 * abs(math.cos(math.radians(lat))), 1e-6)
+    west, east = lon - pad_lon, lon + pad_lon
+    south, north = lat - pad_lat, lat + pad_lat
+    collection = await _buildings_in_bbox(
+        west, south, east, north, limit=max(limit * 2, 800), redis=redis
+    )
+    nearby = []
+    for feat in collection.get("features") or []:
+        coords = feat["geometry"]["coordinates"]
+        blon, blat = float(coords[0]), float(coords[1])
+        dist = _haversine_km(lat, lon, blat, blon)
+        if dist > radius_km:
+            continue
+        props = dict(feat["properties"] or {})
+        props["lat"] = blat
+        props["lon"] = blon
+        props["distance_km"] = round(dist, 2)
+        props["name"] = props.get("name") or props.get("class") or "Building"
+        nearby.append({"type": "Feature", "geometry": feat["geometry"], "properties": props})
+        if len(nearby) >= limit:
+            break
+    nearby.sort(key=lambda f: f["properties"].get("distance_km", 999))
+    return nearby
+
+
+async def _load_prepared_flood_zones(
+    request: Request,
+    tiers: list[str],
+    lat: float,
+    lon: float,
+    radius_km: float,
+):
+    """Load flood_risk_areas near a point for the given tiers."""
+    pad = max(radius_km / 111.0, 0.05)
+    west, east = lon - pad, lon + pad
+    south, north = lat - pad, lat + pad
+
+    async with request.app.state.db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT name, state, risk_tier, risk_score,
+                   ST_AsGeoJSON(geom)::json AS geometry
+            FROM flood_risk_areas
+            WHERE risk_tier = ANY($1::text[])
+              AND geom && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+            ORDER BY
+              CASE risk_tier
+                WHEN 'Emergency' THEN 3
+                WHEN 'Warning' THEN 2
+                WHEN 'Watch' THEN 1
+                ELSE 0
+              END DESC,
+              risk_score DESC
+            """,
+            tiers,
+            west,
+            south,
+            east,
+            north,
+        )
+
+    if not rows:
+        # Fallback: any elevated zones in Nigeria for those tiers (synthetic state boxes)
+        async with request.app.state.db.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (name, admin_level)
+                       name, state, risk_tier, risk_score,
+                       ST_AsGeoJSON(geom)::json AS geometry
+                FROM flood_risk_areas
+                WHERE risk_tier = ANY($1::text[])
+                ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+                """,
+                tiers,
+            )
+
+    by_tier: dict[str, list] = {t: [] for t in tiers}
+    zones_meta = []
+    for row in rows:
+        geom = row["geometry"]
+        if isinstance(geom, str):
+            geom = json.loads(geom)
+        try:
+            shp = shape(geom)
+        except Exception:
+            continue
+        tier = row["risk_tier"]
+        by_tier.setdefault(tier, []).append(shp)
+        zones_meta.append({
+            "name": row["name"],
+            "state": row["state"],
+            "risk_tier": tier,
+            "risk_score": float(row["risk_score"]) if row["risk_score"] is not None else None,
+        })
+
+    prepared = {}
+    for tier, geoms in by_tier.items():
+        if geoms:
+            prepared[tier] = prep(unary_union(geoms))
+    return prepared, zones_meta
+
+
+async def _classify_features_against_zones(
+    request: Request,
+    features: list[dict],
+    tiers: list[str],
+    lat: float,
+    lon: float,
+    radius_km: float,
+) -> tuple[list[dict], dict, list, str | None]:
+    """Annotate building features with zone_tier / exposed."""
+    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    prepared, zones_meta = await _load_prepared_flood_zones(
+        request, tiers, lat, lon, radius_km
+    )
+    note = None
+    if not prepared and "Watch" not in tiers:
+        prepared, zones_meta = await _load_prepared_flood_zones(
+            request, ["Watch", "Warning", "Emergency"], lat, lon, max(radius_km, 5)
+        )
+        if prepared:
+            note = "Counts include Watch zones (no Warning/Emergency coverage here)."
+            tiers = list(prepared.keys())
+
+    by_class: dict[str, int] = {}
+    by_zone_tier: dict[str, int] = {t: 0 for t in tiers}
+    listed = []
+
+    for feat in features:
+        props = dict(feat.get("properties") or {})
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        blon, blat = float(coords[0]), float(coords[1])
+        cls = props.get("class") or "Building"
+        by_class[cls] = by_class.get(cls, 0) + 1
+        pt = Point(blon, blat)
+        matched = [tier for tier, prep_g in prepared.items() if prep_g.intersects(pt)]
+        highest = max(matched, key=lambda t: tier_rank.get(t, 0)) if matched else None
+        if highest:
+            by_zone_tier[highest] = by_zone_tier.get(highest, 0) + 1
+
+        dist = props.get("distance_km")
+        if dist is None:
+            dist = round(_haversine_km(lat, lon, blat, blon), 2)
+
+        listed.append({
+            "osm_id": props.get("osm_id"),
+            "osm_type": props.get("osm_type"),
+            "name": props.get("name") or cls or "Building",
+            "class": cls,
+            "building": props.get("building"),
+            "levels": props.get("levels"),
+            "lat": blat,
+            "lon": blon,
+            "distance_km": dist,
+            "zone_tier": highest,
+            "exposed": highest is not None,
+        })
+
+    listed.sort(
+        key=lambda r: (
+            0 if r.get("exposed") else 1,
+            -(tier_rank.get(r.get("zone_tier") or "Normal", 0)),
+            r.get("distance_km") if r.get("distance_km") is not None else 999,
+        )
+    )
+    summary = {
+        "total_in_radius": len(listed),
+        "exposed_in_flood_zones": sum(by_zone_tier.values()),
+        "by_zone_tier": by_zone_tier,
+        "by_class": by_class,
+        "zones_considered": zones_meta[:12],
+    }
+    return listed, summary, zones_meta, note
+
+
+async def _attach_susceptibility(
+    request: Request,
+    rows: list[dict],
+    max_samples: int = 120,
+) -> tuple[dict[str, int], int]:
+    """Sample GEE susceptibility (Low→Highly Susceptible) for building centroids."""
+    by_susceptibility = {
+        "Highly Susceptible": 0,
+        "High": 0,
+        "Moderate": 0,
+        "Low": 0,
+    }
+    if not rows:
+        return by_susceptibility, 0
+
+    # Prefer nearby / already-sorted rows; never sample more than max_samples
+    sample = rows[:max_samples]
+    await _enrich_with_susceptibility(request, sample)
+
+    for row in sample:
+        sus = row.get("susceptibility")
+        if sus in by_susceptibility:
+            by_susceptibility[sus] += 1
+
+    # Re-rank: higher susceptibility first, then zone exposure, then distance
+    rows.sort(
+        key=lambda r: (
+            -(r.get("susceptibility_class") or 0),
+            0 if r.get("exposed") else 1,
+            r.get("distance_km") if r.get("distance_km") is not None else 999,
+        )
+    )
+    return by_susceptibility, len(sample)
+
+
+@router.get("/buildings")
+async def buildings_layer(
+    request: Request,
+    west: float = Query(..., description="BBox west (min lon)"),
+    south: float = Query(..., description="BBox south (min lat)"),
+    east: float = Query(..., description="BBox east (max lon)"),
+    north: float = Query(..., description="BBox north (max lat)"),
+    limit: int = Query(2000, ge=100, le=5000),
+    with_zones: bool = Query(
+        False,
+        description="Annotate each building with flood-zone + susceptibility classes",
+    ),
+    min_tier: str = Query(
+        "Watch",
+        description="Minimum flood-zone tier when with_zones=true",
+    ),
+    list_limit: int = Query(60, ge=10, le=150),
+):
+    """OpenStreetMap buildings for a map viewport (centroids)."""
+    collection = await _buildings_in_bbox(
+        west, south, east, north, limit, redis=getattr(request.app.state, "redis", None)
+    )
+    if not with_zones:
+        return collection
+
+    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    min_rank = tier_rank.get(min_tier, 1)
+    tiers = [t for t, r in tier_rank.items() if r >= min_rank and t != "Normal"]
+    center_lat = (south + north) / 2
+    center_lon = (west + east) / 2
+    radius_km = max(
+        _haversine_km(center_lat, center_lon, south, west),
+        _haversine_km(center_lat, center_lon, north, east),
+        1.0,
+    )
+
+    listed, summary, _zones, note = await _classify_features_against_zones(
+        request,
+        collection.get("features") or [],
+        tiers,
+        center_lat,
+        center_lon,
+        radius_km,
+    )
+
+    sample_n = max(list_limit, 120)
+    by_susceptibility, sus_n = await _attach_susceptibility(request, listed, sample_n)
+    summary["by_susceptibility"] = by_susceptibility
+    summary["susceptibility_sample_size"] = sus_n
+    summary["high_susceptibility"] = (
+        by_susceptibility.get("Highly Susceptible", 0) + by_susceptibility.get("High", 0)
+    )
+
+    # Attach zone + susceptibility props onto GeoJSON for map symbology
+    classified_by_id = {row["osm_id"]: row for row in listed if row.get("osm_id") is not None}
+    for feat in collection.get("features") or []:
+        props = feat.setdefault("properties", {})
+        hit = classified_by_id.get(props.get("osm_id"))
+        if not hit:
+            continue
+        props["zone_tier"] = hit.get("zone_tier")
+        props["exposed"] = hit.get("exposed")
+        props["susceptibility"] = hit.get("susceptibility")
+        props["susceptibility_class"] = hit.get("susceptibility_class")
+
+    collection["buildings"] = listed[:list_limit]
+    collection["summary"] = {
+        **summary,
+        "listed": min(len(listed), list_limit),
+        "radius_km": round(radius_km, 2),
+        "min_tier": min_tier,
+        "scope": "map_viewport",
+        "note": note
+        or (
+            "Buildings in the current map view. Zone = Watch/Warning/Emergency polygons. "
+            "Susceptibility = Low → Highly Susceptible from the flood susceptibility layer."
+        ),
+    }
+    return collection
+
+
+@router.get("/nearby-buildings")
+async def nearby_buildings(
+    request: Request,
+    lat: float = Query(..., description="Centre latitude"),
+    lon: float = Query(..., description="Centre longitude"),
+    radius_km: float = Query(3, ge=1, le=10),
+    limit: int = Query(1200, ge=50, le=3000),
+    list_limit: int = Query(40, ge=10, le=100),
+    min_tier: str = Query(
+        "Watch",
+        description="Minimum flood-zone tier to count as exposed: Watch, Warning, or Emergency",
+    ),
+):
+    """
+    List OSM buildings near a searched/user location with flood-zone exposure
+    and flood susceptibility class (Low → Highly Susceptible).
+    """
+    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    min_rank = tier_rank.get(min_tier, 1)
+    tiers = [t for t, r in tier_rank.items() if r >= min_rank and t != "Normal"]
+    if not tiers:
+        tiers = ["Watch", "Warning", "Emergency"]
+
+    cache_key = (
+        f"nearby-buildings:v4:{round(lat, 3)}:{round(lon, 3)}:"
+        f"{radius_km}:{min_tier}:{limit}:{list_limit}"
+    )
+    try:
+        cached = await request.app.state.redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    try:
+        features = await _buildings_around(
+            lat,
+            lon,
+            radius_km,
+            limit,
+            redis=getattr(request.app.state, "redis", None),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Building fetch failed: {exc}") from exc
+
+    listed, summary, _zones, note = await _classify_features_against_zones(
+        request, features, tiers, lat, lon, radius_km
+    )
+    sample_n = max(list_limit, 120)
+    by_susceptibility, sus_n = await _attach_susceptibility(request, listed, sample_n)
+    summary["by_susceptibility"] = by_susceptibility
+    summary["susceptibility_sample_size"] = sus_n
+    summary["high_susceptibility"] = (
+        by_susceptibility.get("Highly Susceptible", 0) + by_susceptibility.get("High", 0)
+    )
+
+    payload = {
+        "buildings": listed[:list_limit],
+        "summary": {
+            **summary,
+            "listed": min(len(listed), list_limit),
+            "radius_km": radius_km,
+            "min_tier": min_tier,
+            "scope": "place_radius",
+            "note": note
+            or (
+                "Nearby OSM buildings with flood-zone exposure and susceptibility class "
+                "(Low → Highly Susceptible). Pan the map with the Buildings tab open to refresh."
+            ),
+        },
+    }
+
+    try:
+        await request.app.state.redis.setex(cache_key, 300, json.dumps(payload))
+    except Exception:
+        pass
+
+    return payload
+
+
 @router.get("/{layer_name}")
 async def exposure_layer(layer_name: str):
+    if layer_name == "buildings":
+        raise HTTPException(
+            status_code=400,
+            detail="Use /exposure/buildings?west=&south=&east=&north= for the buildings layer.",
+        )
     if layer_name not in LAYER_FILES:
         raise HTTPException(status_code=404, detail="Unknown exposure layer")
 

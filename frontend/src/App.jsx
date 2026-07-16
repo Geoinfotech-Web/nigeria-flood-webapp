@@ -17,6 +17,7 @@ import { useStations } from './hooks/useStations'
 import { usePlaceConditions } from './hooks/usePlaceConditions'
 import { useNearbySettlements } from './hooks/useNearbySettlements'
 import { useNearbyRoads } from './hooks/useNearbyRoads'
+import { useNearbyBuildings } from './hooks/useNearbyBuildings'
 import { useDetectLocation } from './hooks/useDetectLocation'
 import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
 import AffectedPlacesStat from './components/AffectedPlacesStat'
@@ -65,6 +66,12 @@ export default function App() {
   const [highlightedRoad, setHighlightedRoad] = useState(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [navigation, setNavigation] = useState(null)
+  const [buildingsTabActive, setBuildingsTabActive] = useState(false)
+  const [viewportBuildings, setViewportBuildings] = useState(null)
+
+  const handleBuildingsViewportChange = useCallback((payload) => {
+    setViewportBuildings(payload)
+  }, [])
 
   const sortedStations = useMemo(
     () => [...stations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -74,6 +81,8 @@ export default function App() {
 
   const handlePlaceSelect = useCallback((result) => {
     setHighlightedRoad(null)
+    setBuildingsTabActive(false)
+    setViewportBuildings(null)
     setPlace(result)
     setSelected(null)
   }, [])
@@ -84,6 +93,44 @@ export default function App() {
     placeConditions.nearby,
   )
   const { roads: nearbyRoads, summary: roadSummary, loading: roadsLoading } = useNearbyRoads(place)
+  const {
+    buildings: placeBuildings,
+    summary: placeBuildingSummary,
+    loading: placeBuildingsLoading,
+    error: placeBuildingsError,
+  } = useNearbyBuildings(place)
+
+  // Prefer map-viewport buildings (updates on pan/zoom); fall back to place-radius query
+  const useViewport =
+    buildingsTabActive &&
+    viewportBuildings &&
+    (viewportBuildings.status === 'ready' ||
+      viewportBuildings.status === 'loading' ||
+      viewportBuildings.status === 'zoom')
+
+  const nearbyBuildings = useViewport
+    ? viewportBuildings.buildings || []
+    : placeBuildings
+  const buildingSummary = useViewport
+    ? viewportBuildings.summary ||
+      (viewportBuildings.status === 'zoom'
+        ? {
+            total_in_radius: 0,
+            exposed_in_flood_zones: 0,
+            note: 'Zoom in closer on the map to load buildings for this view.',
+            scope: 'map_viewport',
+          }
+        : null)
+    : placeBuildingSummary
+  const buildingsLoading = useViewport
+    ? viewportBuildings.status === 'loading'
+    : placeBuildingsLoading
+  const buildingsError =
+    useViewport && viewportBuildings.status === 'error'
+      ? viewportBuildings.error || new Error('Buildings failed to load')
+      : useViewport
+        ? null
+        : placeBuildingsError
   const { detect, locating, error: locationError } = useDetectLocation(handlePlaceSelect)
   const {
     summary: nationalAffectedSummary,
@@ -125,6 +172,8 @@ export default function App() {
     setPlace(null)
     setSelected(null)
     setHighlightedRoad(null)
+    setBuildingsTabActive(false)
+    setViewportBuildings(null)
   }
 
   const handleAlertStation = (stationName) => {
@@ -161,6 +210,7 @@ export default function App() {
       <NationalAlertsStrip
         theme={theme}
         onSelectStation={handleAlertStation}
+        onSelectPlace={handlePlaceSelect}
         affectedSummary={stripSummary}
         affectedLoading={stripLoading}
         affectedScope={stripScope}
@@ -212,12 +262,17 @@ export default function App() {
                   roadsLoading={roadsLoading}
                   selectedRoad={highlightedRoad}
                   onSelectRoad={setHighlightedRoad}
+                  nearbyBuildings={nearbyBuildings}
+                  buildingSummary={buildingSummary}
+                  buildingsLoading={buildingsLoading}
+                  buildingsError={buildingsError}
                   loading={placeConditions.loading}
                   liveReadings={liveReadings}
                   theme={theme}
                   onClose={clearPlace}
                   onSelectStation={handleSelectStation}
                   onSelectPlace={handlePlaceSelect}
+                  onPanelTabChange={(tab) => setBuildingsTabActive(tab === 'buildings')}
                 />
               </div>
             ) : (
@@ -248,8 +303,9 @@ export default function App() {
                     )}
                   >
                     Search a city or town to see the nearest river-gauge forecast for the next
-                    72 hours, nearby towns at flood susceptibility risk, and which major roads
-                    near you are exposed. Flood extent maps are coming soon from our inundation team.
+                    72 hours, nearby towns at flood susceptibility risk, major roads at risk,
+                    and buildings inside flood zones. Use separate toggles for Inundation
+                    probability, Inundation history, and Flood Susceptibility.
                   </p>
                   <div className="mt-4">
                     <AffectedPlacesStat
@@ -262,6 +318,7 @@ export default function App() {
                       theme={theme}
                       scope={place ? 'local' : 'nationwide'}
                       placeName={place?.name}
+                      onSelectPlace={handlePlaceSelect}
                     />
                   </div>
                 </div>
@@ -272,6 +329,7 @@ export default function App() {
                   )}
                 >
                   <li>Allow location, or search a city like Lokoja</li>
+                  <li>Open the highly-likely list and tap a place</li>
                   <li>Tap an active alert chip above to jump there</li>
                   <li>Switch to Expert for the full station console</li>
                 </ul>
@@ -305,6 +363,8 @@ export default function App() {
               variant="public"
               placeFocus={place}
               roadHighlight={highlightedRoad}
+              forceBuildingsLayer={buildingsTabActive}
+              onBuildingsViewportChange={handleBuildingsViewportChange}
               showSearch={false}
               navigation={navigation}
             />
@@ -338,8 +398,9 @@ export default function App() {
               onBasemapChange={setBasemap}
               theme={theme}
               variant="expert"
+              placeFocus={place}
               onPlaceSelect={handlePlaceSelect}
-              showSearch
+              showSearch={false}
               navigation={navigation}
             />
           </main>

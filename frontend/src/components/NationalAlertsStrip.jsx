@@ -10,6 +10,7 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 export default function NationalAlertsStrip({
   theme = 'light',
   onSelectStation,
+  onSelectPlace,
   affectedSummary = null,
   affectedLoading = false,
   affectedScope = 'nationwide',
@@ -31,7 +32,7 @@ export default function NationalAlertsStrip({
   return <div className={clsx('flex shrink-0 flex-col gap-2 border-b px-3 py-2 sm:px-4', theme === 'dark' ? 'border-gray-800 bg-gray-950' : 'border-slate-200 bg-slate-50')}>
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <AffectedPlacesStat summary={affectedSummary} loading={affectedLoading} theme={theme} compact scope={affectedScope} placeName={placeName} />
+        <AffectedPlacesStat summary={affectedSummary} loading={affectedLoading} theme={theme} compact scope={affectedScope} placeName={placeName} onSelectPlace={onSelectPlace} />
         {!alerts.length && !affectedLoading && highlyLikely === 0 && <span className={clsx('text-xs', theme === 'dark' ? 'text-teal-200/90' : 'text-teal-900')}>No active flood alerts nationwide from monitored gauges.</span>}
       </div>
       <div className="flex shrink-0 items-center gap-2">

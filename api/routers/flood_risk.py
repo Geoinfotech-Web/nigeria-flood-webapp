@@ -36,23 +36,32 @@ EXPOSURE_FILES = {
     "bridges": DATA_DIR / "exposure_bridges.geojson",
     "places": DATA_DIR / "exposure_places.geojson",
 }
-DEFAULT_IMPACT_TIERS = ("Warning", "Emergency")
+DEFAULT_IMPACT_TIERS = ("Warning", "Emergency", "Moderate", "High", "Very High")
 
 OVERLAY_METADATA = {
     "jrc_occurrence": {
-        "label": "JRC Global Surface Water",
+        "label": "Inundation History",
         "legend": {
-            "type": "gradient",
-            "title": "JRC Water Occurrence",
-            "subtitle": "Historical surface water presence",
-            "min_label": "0%",
-            "max_label": "100%",
-            "gradient": "linear-gradient(90deg, #081d58 0%, #225ea8 45%, #41b6c4 75%, #c7e9b4 100%)",
+            "type": "categories",
+            "title": "Inundation History",
+            "subtitle": "How often an area was under water (clipped to Nigeria)",
+            "items": [
+                {"label": "> 50%", "color": "#6b21a8", "range": "Very frequent"},
+                {"label": "25–50%", "color": "#9333ea", "range": "Frequent"},
+                {"label": "5–25%", "color": "#c084fc", "range": "Occasional"},
+            ],
         },
         "render": {
             "bidx": "1",
-            "rescale": "0,100",
-            "colormap_name": "ocean",
+            "resampling": "nearest",
+            "colormap": json.dumps(
+                {
+                    "1": [192, 132, 252, 220],  # 5–25% — light purple (high contrast on white)
+                    "2": [147, 51, 234, 230],   # 25–50% — mid purple
+                    "3": [107, 33, 168, 240],   # >50% — deep purple
+                },
+                separators=(",", ":"),
+            ),
         },
     },
     "gee_susceptibility_classes": {
@@ -109,52 +118,90 @@ def _serialise_counter(counter: Counter) -> dict[str, int]:
 
 
 def _severity_rank(tier: str) -> int:
-    return {"Emergency": 3, "Warning": 2, "Watch": 1, "Normal": 0}.get(tier, 0)
+    return {
+        "Very High": 5,
+        "Highly Likely": 4,  # urban flash / legacy
+        "Emergency": 3,
+        "High": 3,
+        "Likely": 3,  # urban flash / legacy
+        "Warning": 2,
+        "Moderate": 2,
+        "Watch": 1,
+        "Normal": 0,
+    }.get(tier, 0)
 
 
 # ── GeoJSON risk areas ────────────────────────────────────────────────────────
 @router.get("/geojson")
 async def flood_risk_geojson(
     request: Request,
-    source: str = Query(default=None, description="Filter by source: gee, synthetic, glofast"),
+    source: str = Query(
+        default=None,
+        description="Filter by source: sar_dem_inundation, urban_flash_flood, synthetic, sentinel1",
+    ),
     min_risk: float = Query(default=0.0, ge=0, le=1),
 ):
     """
-    Returns GeoJSON FeatureCollection of flood risk areas.
-    Updated by the ingest scheduler (weekly/monthly).
-    Falls back to synthetic risk from gauge data if no GEE tiles present.
+    Returns GeoJSON FeatureCollection of flood risk / inundation areas.
+    Prefers SAR/DEM inundation (Very High / High / Moderate) over synthetic state boxes.
+    Urban flash flood is served only via ?source=urban_flash_flood (separate layer).
     """
-    query = """
-        SELECT name, admin_level, state, risk_score, risk_tier,
-               source, valid_from, valid_to,
-               ST_AsGeoJSON(geom)::json AS geometry
-        FROM flood_risk_areas
-        WHERE risk_score >= $1
-    """
-    params = [min_risk]
-
-    if source:
-        query += f" AND source = ${len(params)+1}"
-        params.append(source)
-
-    # Prefer freshest data (latest valid_from)
-    query += " ORDER BY valid_from DESC, risk_score DESC"
+    prefer_inundation = source is None
 
     async with request.app.state.db.acquire() as conn:
-        rows = await conn.fetch(query, *params)
+        if prefer_inundation:
+            inundation_rows = await conn.fetch(
+                """
+                SELECT name, admin_level, state, risk_score, risk_tier,
+                       source, valid_from, valid_to,
+                       ST_AsGeoJSON(geom)::json AS geometry
+                FROM flood_risk_areas
+                WHERE source = 'sar_dem_inundation'
+                  AND risk_score >= $1
+                  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                ORDER BY risk_score DESC, name
+                """,
+                min_risk,
+            )
+            if inundation_rows:
+                rows = inundation_rows
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT name, admin_level, state, risk_score, risk_tier,
+                           source, valid_from, valid_to,
+                           ST_AsGeoJSON(geom)::json AS geometry
+                    FROM flood_risk_areas
+                    WHERE risk_score >= $1
+                      AND source NOT IN ('sentinel1', 'urban_flash_flood')
+                    ORDER BY valid_from DESC, risk_score DESC
+                    """,
+                    min_risk,
+                )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT name, admin_level, state, risk_score, risk_tier,
+                       source, valid_from, valid_to,
+                       ST_AsGeoJSON(geom)::json AS geometry
+                FROM flood_risk_areas
+                WHERE risk_score >= $1 AND source = $2
+                ORDER BY valid_from DESC, risk_score DESC
+                """,
+                min_risk,
+                source,
+            )
 
     if not rows:
-        # No risk data yet — trigger synthetic generation
         return _empty_feature_collection()
 
     features = []
     seen = set()
     for r in rows:
-        key = (r["name"], r["admin_level"])
+        key = (r["name"], r["admin_level"], r["source"], r["risk_tier"])
         if key in seen:
             continue
         seen.add(key)
-        # asyncpg returns ::json cast as a string — parse it into a dict
         geom = r["geometry"]
         if isinstance(geom, str):
             geom = json.loads(geom)
@@ -162,14 +209,14 @@ async def flood_risk_geojson(
             "type": "Feature",
             "geometry": geom,
             "properties": {
-                "name":       r["name"],
-                "admin_level":r["admin_level"],
-                "state":      r["state"],
-                "risk_score": round(r["risk_score"], 3),
-                "risk_tier":  r["risk_tier"],
-                "source":     r["source"],
-                "valid_from": str(r["valid_from"]) if r["valid_from"] else None,
-                "valid_to":   str(r["valid_to"])   if r["valid_to"]   else None,
+                "name":        r["name"],
+                "admin_level": r["admin_level"],
+                "state":       r["state"],
+                "risk_score":  round(r["risk_score"], 3) if r["risk_score"] is not None else None,
+                "risk_tier":   r["risk_tier"],
+                "source":      r["source"],
+                "valid_from":  str(r["valid_from"]) if r["valid_from"] else None,
+                "valid_to":    str(r["valid_to"]) if r["valid_to"] else None,
             },
         })
 
@@ -216,6 +263,9 @@ async def list_tile_layers(request: Request):
 
     layers = []
     for r in rows:
+        # Probability is served as vectors only — skip raster duplicate
+        if r["source"] == "sar_dem_inundation":
+            continue
         metadata = OVERLAY_METADATA.get(r["source"])
         if not metadata:
             continue
@@ -234,8 +284,8 @@ async def list_tile_layers(request: Request):
         })
 
     source_order = {
-        "gee_susceptibility_classes": 0,
-        "jrc_occurrence": 1,
+        "jrc_occurrence": 0,
+        "gee_susceptibility_classes": 1,
     }
     layers.sort(key=lambda layer: source_order.get(layer["source"], 99))
     return layers
@@ -273,12 +323,18 @@ async def proxy_tile(
     if resampling:
         params["resampling"] = resampling
 
-    # Classified susceptibility uses discrete values 1-4. Never rescale those
-    # tiles with a discrete colormap — rescale remaps class IDs and yields
-    # near-empty tiles.
-    is_susceptibility = "susceptibility_classes" in (url or "")
-    if is_susceptibility:
-        params["colormap"] = colormap or _SUSCEPTIBILITY_COLORMAP
+    # Discrete class rasters. Never rescale — rescale remaps class IDs.
+    is_discrete = (
+        "susceptibility_classes" in (url or "")
+        or "inundation_history" in (url or "")
+        or "sar_dem_inundation" in (url or "")
+        or "inundation" in (url or "")
+    )
+    if is_discrete:
+        if colormap:
+            params["colormap"] = colormap
+        elif "susceptibility_classes" in (url or ""):
+            params["colormap"] = _SUSCEPTIBILITY_COLORMAP
         params.setdefault("bidx", "1")
         params.setdefault("resampling", "nearest")
     else:
