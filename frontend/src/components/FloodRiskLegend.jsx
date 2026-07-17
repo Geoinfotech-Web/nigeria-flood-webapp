@@ -9,13 +9,13 @@ const PROBABILITY_ITEMS = [
   { label: 'Moderate', color: '#93c5fd' },
 ]
 
-/** Urban flash flood — purple/magenta to distinguish from inundation blues. */
+/** Urban flash flood — orange for likely, purple for highly likely. */
 const URBAN_FLASH_ITEMS = [
   { label: 'Highly likely', color: '#86198f' },
-  { label: 'Likely', color: '#d946ef' },
+  { label: 'Likely', color: '#f97316' },
 ]
 
-/** Default Flood Hub–style inundation history wet classes. */
+/** JRC Landsat inundation history wet classes. */
 const DEFAULT_HISTORY_ITEMS = [
   { label: '> 50%', color: '#6b21a8', range: 'Very frequent' },
   { label: '25–50%', color: '#9333ea', range: 'Frequent' },
@@ -196,7 +196,7 @@ export default function FloodRiskLegend({
                   theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                 )}
               >
-                % of time under water in the past. Darker = flooded more often.
+                % of time under water, JRC Landsat 1984–2021. Darker = flooded more often.
               </p>
               <CategoryItems items={historyItems} theme={theme} />
             </div>

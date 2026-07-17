@@ -44,7 +44,7 @@ OVERLAY_METADATA = {
         "legend": {
             "type": "categories",
             "title": "Inundation History",
-            "subtitle": "How often an area was under water (clipped to Nigeria)",
+            "subtitle": "JRC Global Surface Water (Landsat) 1984–2021",
             "items": [
                 {"label": "> 50%", "color": "#6b21a8", "range": "Very frequent"},
                 {"label": "25–50%", "color": "#9333ea", "range": "Frequent"},
@@ -56,9 +56,9 @@ OVERLAY_METADATA = {
             "resampling": "nearest",
             "colormap": json.dumps(
                 {
-                    "1": [192, 132, 252, 220],  # 5–25% — light purple (high contrast on white)
-                    "2": [147, 51, 234, 230],   # 25–50% — mid purple
-                    "3": [107, 33, 168, 240],   # >50% — deep purple
+                    "1": [192, 132, 252, 220],  # 5–25% — Occasional
+                    "2": [147, 51, 234, 230],   # 25–50% — Frequent
+                    "3": [107, 33, 168, 240],   # >50% — Very frequent
                 },
                 separators=(",", ":"),
             ),
@@ -137,14 +137,14 @@ async def flood_risk_geojson(
     request: Request,
     source: str = Query(
         default=None,
-        description="Filter by source: sar_dem_inundation, urban_flash_flood, synthetic, sentinel1",
+        description="Filter by source: sar_dem_inundation, inundation_history, urban_flash_flood, synthetic, sentinel1",
     ),
     min_risk: float = Query(default=0.0, ge=0, le=1),
 ):
     """
     Returns GeoJSON FeatureCollection of flood risk / inundation areas.
     Prefers SAR/DEM inundation (Very High / High / Moderate) over synthetic state boxes.
-    Urban flash flood is served only via ?source=urban_flash_flood (separate layer).
+    Inundation history and urban flash flood are served only via explicit ?source=.
     """
     prefer_inundation = source is None
 
@@ -173,7 +173,9 @@ async def flood_risk_geojson(
                            ST_AsGeoJSON(geom)::json AS geometry
                     FROM flood_risk_areas
                     WHERE risk_score >= $1
-                      AND source NOT IN ('sentinel1', 'urban_flash_flood')
+                      AND source NOT IN (
+                        'sentinel1', 'urban_flash_flood', 'inundation_history'
+                      )
                     ORDER BY valid_from DESC, risk_score DESC
                     """,
                     min_risk,

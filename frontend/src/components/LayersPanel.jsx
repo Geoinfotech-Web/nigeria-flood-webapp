@@ -209,11 +209,7 @@ export default function LayersPanel({
               <Row
                 key={layer.id}
                 label={layer.label}
-                hint={
-                  layer.source === 'jrc_occurrence'
-                    ? '3 wet classes · clipped to Nigeria'
-                    : layer.legend?.subtitle || layer.source
-                }
+                hint={layer.legend?.subtitle || layer.source}
                 on={Boolean(tileVisibility[layer.source])}
                 onToggle={() => onToggleTile?.(layer.source)}
                 theme={theme}

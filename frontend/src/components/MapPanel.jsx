@@ -22,9 +22,9 @@ const RISK_COLOR = {
   'Highly Likely': '#1e3a8a',
 }
 
-/** Distinct purple/magenta ramp for urban flash flood (separate from inundation blues). */
+/** Orange/purple urban flash ramp, separate from inundation blues. */
 const URBAN_FLASH_COLOR = {
-  Likely: '#d946ef',
+  Likely: '#f97316',
   'Highly Likely': '#86198f',
 }
 
@@ -979,7 +979,11 @@ export default function MapPanel({
           id: layerId,
           type: 'raster',
           source: sourceId,
-          paint: { 'raster-opacity': riskOpacity * 0.75 },
+          paint: {
+            'raster-opacity': riskOpacity * 0.75,
+            // Discrete class rasters must not bilinear-blur
+            'raster-resampling': 'nearest',
+          },
         }, beforeId)
       } else {
         map.setPaintProperty(layerId, 'raster-opacity', riskOpacity * 0.75)
