@@ -24,30 +24,18 @@ function Toggle({ on, onToggle, theme }) {
   )
 }
 
-function Row({ label, hint, on, onToggle, theme, children }) {
+function Row({ label, on, onToggle, theme, children }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p
-            className={clsx(
-              'text-[12px] font-medium leading-tight',
-              theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
-            )}
-          >
-            {label}
-          </p>
-          {hint && (
-            <p
-              className={clsx(
-                'mt-0.5 text-[10px] leading-tight',
-                theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
-              )}
-            >
-              {hint}
-            </p>
+        <p
+          className={clsx(
+            'min-w-0 text-[12px] font-medium leading-tight',
+            theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
           )}
-        </div>
+        >
+          {label}
+        </p>
         <Toggle on={on} onToggle={onToggle} theme={theme} />
       </div>
       {on && children}
@@ -149,7 +137,6 @@ export default function LayersPanel({
           <Section title="Flood risk" theme={theme}>
             <Row
               label="Inundation probability"
-              hint="Vector extents — Very High / High / Moderate"
               on={riskAreasVisible}
               onToggle={onToggleRiskAreas}
               theme={theme}
@@ -178,7 +165,6 @@ export default function LayersPanel({
 
             <Row
               label="Urban flash flood"
-              hint="Short-range rainfall model — Likely / Highly likely"
               on={urbanFlashVisible}
               onToggle={onToggleUrbanFlash}
               theme={theme}
@@ -209,7 +195,6 @@ export default function LayersPanel({
               <Row
                 key={layer.id}
                 label={layer.label}
-                hint={layer.legend?.subtitle || layer.source}
                 on={Boolean(tileVisibility[layer.source])}
                 onToggle={() => onToggleTile?.(layer.source)}
                 theme={theme}
@@ -220,7 +205,6 @@ export default function LayersPanel({
           <Section title="Monitoring" theme={theme}>
             <Row
               label="Gauge stations"
-              hint="River level monitoring points"
               on={gaugesVisible}
               onToggle={onToggleGauges}
               theme={theme}
@@ -237,11 +221,6 @@ export default function LayersPanel({
               <Row
                 key={layer.id}
                 label={layer.label}
-                hint={
-                  layer.feature_count != null
-                    ? `${Number(layer.feature_count).toLocaleString()} areas`
-                    : layer.description
-                }
                 on={Boolean(boundaryVisibility[layer.id])}
                 onToggle={() => onToggleBoundary?.(layer.id)}
                 theme={theme}
@@ -259,11 +238,6 @@ export default function LayersPanel({
               <Row
                 key={layer.id}
                 label={layer.label}
-                hint={
-                  layer.feature_count != null
-                    ? `${Number(layer.feature_count).toLocaleString()} features`
-                    : layer.description
-                }
                 on={Boolean(exposureVisibility[layer.id])}
                 onToggle={() => onToggleExposure?.(layer.id)}
                 theme={theme}

@@ -69,7 +69,7 @@ OVERLAY_METADATA = {
         "legend": {
             "type": "categories",
             "title": "Flood Susceptibility",
-            "subtitle": "Clipped to Nigeria boundary",
+            "subtitle": "JRC occurrence + HAND + distance to drainage + slope",
             "items": [
                 {"label": "Highly Susceptible", "color": "#800026", "range": "> 75"},
                 {"label": "High", "color": "#e31a1c", "range": "51-75"},

@@ -4,7 +4,7 @@ Google Earth Engine flood-risk ingest.
 Exports two Nigeria-wide rasters clipped to the actual country geometry:
   1. Inundation History (3 wet classes) — JRC GSW Landsat occurrence 1984–2021
   2. Classified flood susceptibility (1-4: Low -> Highly Susceptible)
-     based on JRC + SRTM
+     based on JRC occurrence + HAND + distance to drainage + slope
 
 Both are converted to COGs, uploaded to MinIO, and registered in
 `flood_risk_tiles` for serving through the API tile proxy.
@@ -32,6 +32,20 @@ MINIO_SECRET = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
 MINIO_BUCKET = "flood-risk-tiles"
 
 NIGERIA_BBOX = [2.7, 4.0, 14.7, 14.0]
+
+# ── Susceptibility factor model ───────────────────────────────────────────────
+# score = 0.40*JRC + 0.30*HAND + 0.20*distance-to-drainage + 0.10*slope
+SUS_W_JRC = 0.40
+SUS_W_HAND = 0.30
+SUS_W_DIST = 0.20
+SUS_W_SLOPE = 0.10
+# HAND above this (m) contributes zero susceptibility
+HAND_MAX_M = 30.0
+# Drainage cells: HAND-lite at or below this (m)
+DRAIN_HAND_M = 3.0
+# Distance beyond this (m) from drainage contributes zero susceptibility
+DIST_MAX_M = 5000.0
+SLOPE_MAX_DEG = 30.0
 
 DB_DSN = (
     f"host={os.getenv('DB_HOST', 'localhost')} "
@@ -127,14 +141,53 @@ def build_layers():
     )
 
     srtm = ee.Image("USGS/SRTMGL1_003").select("elevation").clip(nigeria)
-    elev_norm = srtm.unitScale(0, 500).subtract(1).abs()
     slope = ee.Terrain.slope(srtm)
-    slope_norm = slope.unitScale(0, 30).subtract(1).abs()
+
+    # HAND-lite: elevation above 1 km focal minimum (same proxy as inundation)
+    focal_min = srtm.focal_min(radius=1000, units="meters", kernelType="circle")
+    hand = srtm.subtract(focal_min).max(0).rename("hand")
+    hand_sus = (
+        ee.Image(1)
+        .subtract(hand.divide(HAND_MAX_M).clamp(0, 1))
+        .multiply(100)
+    )
+
+    # Drainage = permanent/seasonal water (JRC ≥ 5%) or valley floors (low HAND)
+    drainage = jrc_raw.gte(5).Or(hand.lte(DRAIN_HAND_M)).selfMask()
+    dist_m = (
+        drainage.fastDistanceTransform(1024)
+        .sqrt()
+        .multiply(ee.Image.pixelArea().sqrt())
+        .rename("dist_to_drainage")
+    )
+    dist_sus = (
+        ee.Image(1)
+        .subtract(dist_m.divide(DIST_MAX_M).clamp(0, 1))
+        .multiply(100)
+    )
+
+    slope_sus = (
+        ee.Image(1)
+        .subtract(slope.divide(SLOPE_MAX_DEG).clamp(0, 1))
+        .multiply(100)
+    )
+
+    log.info(
+        "Susceptibility factors: JRC %.0f%% + HAND %.0f%% (max %.0f m) "
+        "+ distance-to-drainage %.0f%% (max %.0f m) + slope %.0f%%",
+        SUS_W_JRC * 100,
+        SUS_W_HAND * 100,
+        HAND_MAX_M,
+        SUS_W_DIST * 100,
+        DIST_MAX_M,
+        SUS_W_SLOPE * 100,
+    )
 
     susceptibility = (
-        jrc_raw.multiply(0.5)
-        .add(elev_norm.multiply(100).multiply(0.3))
-        .add(slope_norm.multiply(100).multiply(0.2))
+        jrc_raw.multiply(SUS_W_JRC)
+        .add(hand_sus.multiply(SUS_W_HAND))
+        .add(dist_sus.multiply(SUS_W_DIST))
+        .add(slope_sus.multiply(SUS_W_SLOPE))
     ).rename("flood_susceptibility").clamp(0, 100).clip(nigeria)
 
     susceptibility_classes = (

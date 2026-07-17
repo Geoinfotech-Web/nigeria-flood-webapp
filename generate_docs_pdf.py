@@ -893,11 +893,12 @@ def build():
                             col_widths=[42*mm, CONTENT_W - 42*mm]))
 
     story.append(Spacer(1, 8))
-    story.append(Paragraph("GEE JRC + SRTM Composite Layer (Monthly)", S["h2"]))
+    story.append(Paragraph("GEE Flood Susceptibility Composite Layer (Monthly)", S["h2"]))
     gee_rows = [
-        ("JRC Global Surface Water", "50%", "Historical surface water occurrence", "JRC/GSW1_4/GlobalSurfaceWater"),
-        ("SRTM Elevation (inverse)", "30%", "Lower elevation = higher susceptibility", "USGS/SRTMGL1_003"),
-        ("SRTM Slope (inverse)",     "20%", "Flatter terrain = higher susceptibility", "Derived from SRTM DEM"),
+        ("JRC Global Surface Water",       "40%", "Historical surface water occurrence", "JRC/GSW1_4/GlobalSurfaceWater"),
+        ("HAND (inverse)",                 "30%", "Lower height above drainage = higher susceptibility (max 30 m)", "SRTM elevation − 1 km focal minimum"),
+        ("Distance to drainage (inverse)", "20%", "Nearer to water/valley floors = higher susceptibility (max 5 km)", "JRC ≥ 5% or HAND ≤ 3 m drainage mask"),
+        ("SRTM Slope (inverse)",           "10%", "Flatter terrain = higher susceptibility", "Derived from SRTM DEM"),
     ]
     story.append(make_table(["Component", "Weight", "Rationale", "GEE Dataset"], gee_rows, S,
                             col_widths=[44*mm, 16*mm, 56*mm, CONTENT_W - 116*mm]))
@@ -1027,7 +1028,7 @@ def build():
         ("River discharge (GloFAS)",    "OpenMeteo",          "flood-api.open-meteo.com",       "Daily",    "No"),
         ("Rainfall, temp, humidity,\nwind, pressure",
                                         "OpenMeteo",          "api.open-meteo.com",             "Hourly",   "No"),
-        ("Flood susceptibility\ncomposite (JRC+SRTM)",
+        ("Flood susceptibility\ncomposite (JRC+HAND+\ndrainage+slope)",
                                         "Google Earth Engine","earthengine.googleapis.com",      "Monthly",  "Service account"),
         ("Sentinel-1 SAR\nflood extent","Google Earth Engine","earthengine.googleapis.com",      "On demand","Service account"),
         ("Geocoding / place search",    "Nominatim (OSM)",    "nominatim.openstreetmap.org",    "On demand","No"),
@@ -1052,7 +1053,7 @@ def build():
         ("River discharge",             "GloFAS via OpenMeteo Flood API",    "Real — satellite-constrained hydrological model"),
         ("Rainfall / met variables",    "OpenMeteo Weather API",              "Real — NWP model with assimilated observations"),
         ("Flood extent (SAR)",          "Sentinel-1 via GEE",                "Real satellite imagery"),
-        ("Flood susceptibility",        "JRC GSW + SRTM via GEE",            "Real — historical satellite + elevation"),
+        ("Flood susceptibility",        "JRC GSW + SRTM HAND/drainage via GEE", "Real — historical satellite + terrain hydrology"),
         ("Initial 90-day history",      "backfill.py synthetic generator",   "Synthetic — bootstrap only, not used for production"),
         ("State-level risk polygons",   "synthetic_flood_risk.py",           "Modelled composite (not direct observation)"),
     ]
