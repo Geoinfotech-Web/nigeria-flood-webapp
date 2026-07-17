@@ -48,10 +48,28 @@ and geospatial layers, run these against the running stack (same
 | Script | What it does | Needs |
 |--------|--------------|-------|
 | `ingest/flood_risk/real_data.py` | Live weather/rainfall per station from Open-Meteo | network |
-| `ingest/flood_risk/gee_flood_risk.py` | Flood-risk raster (JRC Surface Water + SRTM) | GEE creds |
-| `ingest/flood_risk/sentinel1_flood.py` | Sentinel-1 SAR flood extent | GEE creds |
+| `ingest/flood_risk/gee_flood_risk.py` | Inundation History (JRC Landsat) + Flood Susceptibility (JRC + HAND + distance-to-drainage + slope) COGs | GEE creds |
+| `ingest/flood_risk/inundation_extent.py` | SAR+DEM inundation probability (Very High / High / Moderate) | GEE creds |
+| `ingest/flood_risk/urban_footprints.py` | Urban built-up footprints for flash-flood model | GEE creds |
+| `ingest/flood_risk/urban_flash_flood.py` | Short-range urban flash-flood alerts (Open-Meteo rainfall) | network |
+| `ingest/flood_risk/sentinel1_flood.py` | Sentinel-1 SAR flood extent (legacy/state summaries) | GEE creds |
 | `ingest/exposure/fetch_osm_exposure.py` | Roads / bridges / places exposure from OSM | network |
 | `ingest/expand_stations.py` | Top up stations on an **already-running** DB (init.sql already seeds all 26/29 on a fresh volume) | — |
+
+### Map layers (dashboard)
+
+| Layer | Meaning |
+|-------|---------|
+| Inundation probability | Current/near-term riverine extents (SAR + DEM floodplain) |
+| Urban flash flood | 24h rainfall over built-up areas (Likely / Highly likely) |
+| Inundation History | How often land was wet, JRC Landsat 1984–2021 (5–25% / 25–50% / >50%) |
+| Flood Susceptibility | Static predisposition: JRC 40% + HAND 30% + distance to drainage 20% + slope 10% |
+
+After overwriting a COG in MinIO, restart TiTiler so tiles do not serve a stale cache:
+
+```bash
+docker restart flood_titiler
+```
 
 ## Service URLs
 

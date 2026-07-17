@@ -1,13 +1,22 @@
 # Nigeria Flood Dashboard — Developer Handoff
 
-**Date:** March 2026
-**Status:** Local development complete. All services operational. Real data pipeline active.
+**Date:** July 2026  
+**Status:** Local development complete. All services operational. Real data pipeline active. Flood susceptibility upgraded to HAND + drainage distance.
 
 ---
 
 ## What This System Does
 
-A full-stack flood prediction and monitoring dashboard for Nigeria. It pulls live river discharge data from GloFAS (via OpenMeteo) and meteorological data from OpenMeteo for 26 gauge stations and 29 met stations distributed across all major Nigerian river basins. Machine learning models (XGBoost + LSTM) forecast flood probability at 6, 12, 24, 48, and 72 hour horizons. Satellite flood extent is derived from Sentinel-1 SAR and JRC permanent water data via Google Earth Engine. Everything is displayed on an interactive MapLibre map with real-time WebSocket updates.
+A full-stack flood prediction and monitoring dashboard for Nigeria. It pulls live river discharge data from GloFAS (via OpenMeteo) and meteorological data from OpenMeteo for 26 gauge stations and 29 met stations distributed across all major Nigerian river basins. Machine learning models (XGBoost + LSTM) forecast flood probability at 6, 12, 24, 48, and 72 hour horizons.
+
+Geospatial flood layers include:
+
+- **Inundation probability** — Sentinel-1 SAR change detection + DEM floodplain (Very High / High / Moderate)
+- **Inundation History** — JRC Global Surface Water (Landsat) occurrence classes (5–25% / 25–50% / >50%)
+- **Flood Susceptibility** — static predisposition score: **JRC 40% + HAND 30% + distance to drainage 20% + slope 10%**
+- **Urban flash flood** — short-range Open-Meteo rainfall over ESA WorldCover built-up footprints
+
+Everything is displayed on an interactive MapLibre map with real-time WebSocket updates, place outlook, exposure (roads/bridges/settlements/buildings), routing, and community incident reporting.
 
 ---
 
@@ -15,15 +24,17 @@ A full-stack flood prediction and monitoring dashboard for Nigeria. It pulls liv
 
 | Component | State | Notes |
 |---|---|---|
-| Docker Compose stack | Running | All 12 containers healthy |
+| Docker Compose stack | Running | All core containers healthy |
 | TimescaleDB | Populated | 90-day backfill + real data ingesting |
 | Gauge stations | 26 active | All major Nigerian river basins covered |
 | Met stations | 29 active | One catchment point per gauge + strategic cities |
-| Feature table | Populated | 57,464 rows as of last training run |
-| ML models | 7 registered | xgb_h6/12/24/48/72, lstm_h48, lstm_h72 |
-| GEE JRC+SRTM layer | Active | 9.8 MB COG in MinIO, serving via TiTiler |
-| Sentinel-1 SAR layer | Active | March 2026 run (dry season — 0 flooded states) |
-| Real data ingest | Configured | Runs hourly via APScheduler inside `flood_ingest` |
+| Feature table | Populated | Used for XGBoost / LSTM training |
+| ML models | Registered | xgb_h6/12/24/48/72; lstm_h48/h72 when gates pass |
+| Inundation History COG | Active | JRC Landsat classes @ ~250 m, MinIO → TiTiler |
+| Flood Susceptibility COG | Active | JRC + HAND + drainage distance + slope @ ~1 km |
+| SAR+DEM inundation | Active | Monthly via `inundation_extent.py` |
+| Urban flash flood | Active | Every 3 hours via APScheduler |
+| Real data ingest | Configured | Hourly via APScheduler inside `flood_ingest` |
 | Frontend | Live | http://localhost:5173 |
 
 ---
@@ -32,56 +43,75 @@ A full-stack flood prediction and monitoring dashboard for Nigeria. It pulls liv
 
 ```
 Nigeria Flood Dashboard/
-├── docker-compose.yml          — full stack definition (12 services)
-├── .env                        — GEE credentials + overrides (git-ignored)
-├── nfie-490816-516ef004b50f.json — GEE service account key (git-ignored)
+├── docker-compose.yml          — full stack definition
+├── .env                        — secrets + overrides (git-ignored)
+├── *.json                      — GEE service account key (git-ignored)
 │
 ├── infra/
 │   └── timescaledb/
-│       └── init.sql            — schema + seed data (5 original stations)
+│       ├── init.sql            — schema + station seed
+│       └── migrations/         — incremental SQL (e.g. urban flash)
 │
 ├── ingest/
-│   ├── backfill.py             — generates 90-day synthetic history
-│   ├── expand_stations.py      — inserts 21 gauge + 25 met stations (one-time)
+│   ├── main.py                 — APScheduler entrypoint
+│   ├── backfill.py             — 90-day synthetic history
+│   ├── expand_stations.py      — optional station top-up
 │   └── flood_risk/
-│       ├── real_data.py        — OpenMeteo + GloFAS ingest (DB-driven)
-│       ├── gee_flood_risk.py   — GEE JRC+SRTM monthly composite
-│       ├── sentinel1_flood.py  — Sentinel-1 SAR flood detection
+│       ├── real_data.py        — OpenMeteo + GloFAS ingest
+│       ├── gee_flood_risk.py   — Inundation History + susceptibility COGs
+│       ├── inundation_extent.py — SAR+DEM Very High / High / Moderate
+│       ├── urban_footprints.py — monthly urban clusters (GEE)
+│       ├── urban_flash_flood.py — 3-hourly flash-flood classifier
+│       ├── sentinel1_flood.py  — legacy SAR state summaries
 │       └── synthetic_flood_risk.py — state-level synthetic fallback
 │
 ├── flink/jobs/
-│   ├── flood_features.py       — feature engineering (standalone polling)
-│   └── backfill_features.py    — one-time backfill of flood_features table
+│   ├── flood_features.py
+│   └── backfill_features.py
 │
 ├── ml/
-│   └── train.py                — XGBoost + LSTM training, BentoML registration
+│   └── train.py
 │
 ├── api/
-│   ├── main.py                 — FastAPI app, startup, WebSocket broadcaster
+│   ├── main.py
 │   └── routers/
-│       ├── stations.py         — gauge station REST endpoints
-│       ├── flood_risk.py       — flood risk GeoJSON, tiles, tile proxy
+│       ├── flood_risk.py       — GeoJSON, tile list, TiTiler proxy
 │       └── ...
 │
 ├── frontend/
-│   ├── src/
-│   │   ├── App.jsx             — shell, header, layout
-│   │   └── components/
-│   │       ├── MapPanel.jsx    — MapLibre map, risk overlay, GEE tiles
-│   │       ├── Icons.jsx       — SVG icon library (no emoji)
-│   │       ├── StationList.jsx
-│   │       ├── PredictionPanel.jsx
-│   │       ├── GaugeChart.jsx
-│   │       ├── RainfallChart.jsx
-│   │       ├── AlertBanner.jsx
-│   │       ├── SearchBar.jsx
-│   │       ├── BasemapSwitcher.jsx
-│   │       ├── RiskLayerControl.jsx
-│   │       └── FloodRiskLegend.jsx
-│   └── vite.config.js          — usePolling: true (Docker on Windows)
+│   └── src/components/
+│       ├── MapPanel.jsx
+│       ├── LayersPanel.jsx     — layer toggles (labels only, no hints)
+│       ├── FloodRiskLegend.jsx
+│       └── ...
 │
-├── CONTEXT.md                  — full technical reference (read this first)
+├── CONTEXT.md                  — full technical reference
+├── README.md                   — local quick start
 └── Handoff.md                  — this file
+```
+
+---
+
+## Flood Susceptibility Model (current)
+
+Built in `ingest/flood_risk/gee_flood_risk.py` and exported as `gee_susceptibility_classes`:
+
+| Factor | Weight | Direction |
+|---|---|---|
+| JRC water occurrence | 40% | Higher occurrence → higher susceptibility |
+| HAND (height above drainage) | 30% | Lower HAND → higher (max useful range ~30 m) |
+| Distance to drainage | 20% | Nearer to water/valley floors → higher (max ~5 km) |
+| Slope | 10% | Flatter → higher |
+
+HAND-lite = SRTM elevation minus 1 km focal minimum. Drainage mask = JRC occurrence ≥ 5% **or** HAND ≤ 3 m. Classes remain Low / Moderate / High / Highly Susceptible at 0–25 / 26–50 / 51–75 / >75.
+
+**Inundation History** (same script): JRC-only classes Occasional 5–25%, Frequent 25–50%, Very frequent >50% — no Sentinel-1 blend.
+
+Re-export:
+
+```bash
+docker exec flood_ingest python -m flood_risk.gee_flood_risk --mode monthly
+docker restart flood_titiler   # required after overwriting COGs in MinIO
 ```
 
 ---
@@ -122,12 +152,21 @@ DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/real_data.py --once
 DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/synthetic_flood_risk.py
 ```
 
-### Run Sentinel-1 SAR flood detection (best in Aug–Oct wet season)
+### Re-export inundation history + susceptibility
 ```bash
-DB_HOST=localhost \
-  GEE_SERVICE_ACCOUNT_EMAIL=gee-144@nfie-490816.iam.gserviceaccount.com \
-  GEE_SERVICE_ACCOUNT_KEY=./nfie-490816-516ef004b50f.json \
-  .venv/Scripts/python ingest/flood_risk/sentinel1_flood.py
+docker exec flood_ingest python -m flood_risk.gee_flood_risk --mode monthly
+docker restart flood_titiler
+```
+
+### Run SAR+DEM inundation extents
+```bash
+docker exec flood_ingest python -m flood_risk.inundation_extent
+```
+
+### Refresh urban footprints / flash-flood alerts
+```bash
+docker exec flood_ingest python -m flood_risk.urban_footprints
+docker exec flood_ingest python -m flood_risk.urban_flash_flood
 ```
 
 ### Retrain ML models
@@ -136,23 +175,10 @@ docker-compose run --rm bentoml python train.py
 ```
 Takes ~10 minutes. Registers new model versions in BentoML if quality gates pass.
 
-### Check registered models
-```bash
-docker-compose exec flood_bentoml python -c "
-import bentoml
-for tag in ['xgb_h6','xgb_h12','xgb_h24','xgb_h48','xgb_h72','lstm_h48','lstm_h72']:
-    try:
-        m = bentoml.get(tag + ':latest')
-        print(f'{tag}: {m.tag}')
-    except:
-        print(f'{tag}: not registered')
-"
-```
-
 ### Rebuild frontend after code changes
 ```bash
 docker-compose up -d --build frontend
-# Or if Vite HMR is working (it should be with usePolling):
+# Or if Vite HMR is working (usePolling: true):
 # just save the file — changes reload automatically in browser
 ```
 
@@ -160,19 +186,14 @@ docker-compose up -d --build frontend
 
 ## Current Model Performance
 
-All models trained March 2026 on 57,464 feature rows from 26 gauge stations.
+All models last trained on feature rows from 26 gauge stations (see MLflow for latest metrics).
 
-| Model | AUC-ROC | F1 | Notes |
-|---|---|---|---|
-| `xgb_h6` | 0.9828 | 0.8073 | Excellent short-term accuracy |
-| `xgb_h12` | 0.9595 | 0.7481 | Strong |
-| `xgb_h24` | 0.9207 | 0.7291 | Strong |
-| `xgb_h48` | 0.9184 | 0.8110 | True ensemble with LSTM |
-| `lstm_h48` | 0.8013 | 0.6960 | Passes gate; ensemble active |
-| `xgb_h72` | 0.9373 | 0.8777 | Strong |
-| `lstm_h72` | 0.8398 | 0.7939 | Passes gate; ensemble active |
+| Model | Notes |
+|---|---|
+| `xgb_h6` … `xgb_h72` | Primary short- and medium-range models |
+| `lstm_h48`, `lstm_h72` | Used in ensemble when quality gates pass |
 
-LSTM for 6h, 12h, 24h did not meet the quality gate. XGBoost alone is used for those horizons. The training data is still predominantly synthetic (GloFAS modelled output, not in-situ sensors). As real data accumulates month-over-month, LSTM performance on shorter horizons should improve.
+LSTM for 6h, 12h, 24h often fails the F1 gate while training data remains largely synthetic. XGBoost alone is used for those horizons. As real GloFAS/OpenMeteo data accumulates, shorter-horizon LSTM should improve.
 
 ---
 
@@ -182,44 +203,44 @@ LSTM for 6h, 12h, 24h did not meet the quality gate. XGBoost alone is used for t
 |---|---|---|
 | River discharge | GloFAS via OpenMeteo Flood API | Real (satellite-constrained hydrological model) |
 | Rainfall, temperature, humidity | OpenMeteo Weather API | Real (NWP model, assimilated observations) |
-| Flood extent (SAR) | Sentinel-1 via Google Earth Engine | Real satellite imagery |
-| Flood susceptibility (JRC+SRTM) | GEE — historical satellite + elevation | Real |
+| Inundation probability | Sentinel-1 + DEM via GEE | Real satellite + terrain |
+| Inundation History | JRC GSW Landsat via GEE | Real historical satellite |
+| Flood susceptibility | JRC + SRTM HAND/drainage via GEE | Real historical satellite + terrain hydrology |
+| Urban flash flood | WorldCover + OpenMeteo rainfall | Real land cover + forecast rainfall |
 | Initial 90-day history | `backfill.py` synthetic generator | Synthetic — used only to bootstrap ML |
 | State-level risk polygons | `synthetic_flood_risk.py` | Modelled (not direct observation) |
 
-The 90-day synthetic backfill was necessary because the system has no historical in-situ sensor archive. It seeds the ML model with plausible seasonal patterns. Going forward, every new hour of real GloFAS/OpenMeteo data replaces synthetic data as the dominant signal.
+The 90-day synthetic backfill was necessary because the system has no historical in-situ sensor archive. Going forward, every new hour of real GloFAS/OpenMeteo data replaces synthetic data as the dominant signal.
 
 ---
 
 ## Known Issues and Limitations
 
-### LSTM short-horizon models not registered
-The 6h, 12h, 24h LSTM models failed the F1 gate in the last training run. This is expected with a dataset that is still largely synthetic. Re-run training after 3+ months of real data accumulation.
+### LSTM short-horizon models not always registered
+The 6h, 12h, 24h LSTM models may fail the F1 gate. Expected while the dataset is still largely synthetic.
 
-**Workaround:** XGBoost alone is sufficient for these horizons (AUC > 0.92).
+**Workaround:** XGBoost alone is sufficient for these horizons.
 
-### State risk polygons are bounding boxes
-The `flood_risk_areas` geometries are rectangular state bounding boxes, not actual state outlines. The map looks approximate.
+### State risk polygons may still be coarse
+`synthetic_flood_risk.py` fallback geometries can be rectangular. Prefer SAR/DEM inundation and susceptibility rasters for map truth.
 
-**Fix:** Download GADM Nigeria Level 1 boundaries (free, CC-BY) and replace geometries in `flood_risk_areas`. The `synthetic_flood_risk.py` script would need to use these polygons when upserting.
+**Optional fix:** GADM Nigeria Level 1 boundaries for synthetic state polygons.
 
 ### Rainfall not distance-weighted
 `rolling_rain_Xh_mm` sums rainfall from all 29 met stations equally, regardless of distance from the gauge.
 
-**Fix:** In `flink/jobs/flood_features.py`, compute per-station met weights using inverse-distance weighting from gauge coordinates.
+**Fix:** In `flink/jobs/flood_features.py`, use inverse-distance weighting from gauge coordinates.
 
 ### No in-situ sensor data
-All gauge and met data is from GloFAS and OpenMeteo model output — there are no physical sensors connected. NIHSA (Nigeria Hydrological Services Agency) and NiMet operate real gauges, but their APIs are not publicly accessible.
+All gauge and met data is from GloFAS and OpenMeteo — no physical sensors connected. NIHSA / NiMet APIs are not publicly accessible.
 
-**Fix path:** Contact NIHSA for data sharing agreement. Their data ingestion would slot into `real_data.py` alongside the existing OpenMeteo calls.
+### TiTiler stale tiles after COG overwrite
+Re-exporting a COG under the same MinIO key can leave TiTiler serving 500s or blank tiles for some XYZ cells.
 
-### SAR shows 0 flooded states in dry season
-Sentinel-1 correctly detected no active flooding in March (dry season). The SAR layer currently shows all states as Normal.
-
-**When to re-run:** August–October (peak wet season). Schedule `sentinel1_flood.py` monthly via cron or APScheduler.
+**Fix:** `docker restart flood_titiler` after each overwrite (or version the filename).
 
 ### Vite polling mode has ~300ms latency
-`usePolling: true` in vite.config.js adds a ~300ms delay between saving a file and seeing the HMR update in the browser. This is a Docker-on-Windows filesystem limitation, not a code issue.
+`usePolling: true` in vite.config.js is a Docker-on-Windows filesystem limitation, not a code issue.
 
 ---
 
@@ -250,29 +271,29 @@ docker-compose run --rm bentoml python train.py
 
 ## Recommended Next Steps (Priority Order)
 
-### 1. Replace synthetic state polygons with GADM boundaries
-**Effort:** 2 hours
-Download from gadm.org, load into PostGIS, update `synthetic_flood_risk.py` to use real geometry. High visual impact.
+### 1. Schedule / confirm monthly inundation + susceptibility re-export
+**Effort:** Low  
+Already wired in APScheduler (`gee_flood_risk`, `inundation_extent`). Confirm wet-season runs and always restart TiTiler after overwrite.
 
-### 2. Schedule Sentinel-1 monthly re-run
-**Effort:** 1 hour
-Add a cron entry or APScheduler job to run `sentinel1_flood.py` on the 1st of each month. Re-run in October to capture wet season data.
+### 2. Add distance-weighted rainfall feature
+**Effort:** ~3 hours  
+In `flink/jobs/flood_features.py`, precompute gauge-to-met distance weights for `rolling_rain_Xh_mm`.
 
-### 3. Add distance-weighted rainfall feature
-**Effort:** 3 hours
-In `flink/jobs/flood_features.py`, precompute gauge-to-met-station distance matrix at startup, use it to weight contributions to `rolling_rain_Xh_mm`. Will improve ML accuracy for inland stations far from coastal met stations.
+### 3. Accumulate real data and retrain quarterly
+**Effort:** Ongoing  
+`docker-compose run --rm bentoml python train.py` every ~3 months.
 
-### 4. Accumulate real data and retrain quarterly
-**Effort:** Ongoing
-Every 3 months, run `docker-compose run --rm bentoml python train.py`. As real GloFAS data builds up and synthetic data becomes a smaller fraction, LSTM models will start passing the quality gate for shorter horizons.
+### 4. Optional: full hydrologic HAND / flow-accumulation drainage
+**Effort:** Medium  
+Current HAND-lite (focal minimum) is good enough for v1. Upgrade drainage mask if valley networks look too coarse.
 
-### 5. Add NIHSA real gauge integration
-**Effort:** Weeks (depends on data agreement)
-NIHSA operates physical gauges on Niger and Benue. Even a few real stations would dramatically improve forecast accuracy for the highest-risk corridor. Data would ingest via a new function in `real_data.py` alongside the existing OpenMeteo calls.
+### 5. NIHSA real gauge integration
+**Effort:** Weeks (data agreement)  
+Slot into `real_data.py` alongside OpenMeteo.
 
 ### 6. Production deployment
-**Effort:** 1–2 weeks
-See `CONTEXT.md` production migration path. Primary changes: move TimescaleDB to Cloud SQL, MinIO to GCS, FastAPI + BentoML to Cloud Run, frontend to Firebase Hosting.
+**Effort:** 1–2 weeks  
+See `CONTEXT.md`. Primary changes: Cloud SQL, GCS, Cloud Run, Firebase Hosting.
 
 ---
 
@@ -291,6 +312,7 @@ The Google Earth Engine service account is registered to the `nfie-490816` GCP p
 | Resource | Location |
 |---|---|
 | Full technical reference | `CONTEXT.md` |
+| Local quick start | `README.md` |
 | API documentation | http://localhost:8000/docs |
 | MLflow experiments | http://localhost:5000 |
 | MinIO bucket browser | http://localhost:9001 (minioadmin / minioadmin) |
