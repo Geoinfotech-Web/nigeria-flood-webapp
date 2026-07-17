@@ -21,12 +21,18 @@ function timeAgo(value) {
   return `${Math.floor(minutes / 1440)}d ago`
 }
 
-export default function FloodIncidentReporter({ theme, open: controlledOpen, onOpenChange, showTrigger = true }) {
+export default function FloodIncidentReporter({
+  theme,
+  open: controlledOpen,
+  onOpenChange,
+  showTrigger = true,
+  initialTab = null,
+}) {
   const dark = theme === 'dark'
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen ?? internalOpen
   const setOpen = onOpenChange ?? setInternalOpen
-  const [tab, setTab] = useState('report')
+  const [tab, setTab] = useState(initialTab || 'report')
   const [form, setForm] = useState(EMPTY_FORM)
   const [media, setMedia] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -35,6 +41,10 @@ export default function FloodIncidentReporter({ theme, open: controlledOpen, onO
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState(null)
+
+  useEffect(() => {
+    if (open && initialTab) setTab(initialTab)
+  }, [open, initialTab])
 
   const loadReports = useCallback(async () => {
     try {

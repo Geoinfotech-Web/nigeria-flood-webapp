@@ -12,6 +12,7 @@ REST:
   GET  /stations/{id}/history         — hourly aggregated history
   GET  /alerts                        — recent alert log
   GET  /rainfall/daily                — 7-day daily rainfall per met station
+  GET  /rainfall/by-state             — state rainfall ranking via nearest met to gauges
   GET  /map/risk                      — GeoJSON FeatureCollection with risk tiers
   POST /auth/token                    — JWT login
 

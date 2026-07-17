@@ -56,7 +56,9 @@ export default function PublicHeader({
                   dark ? 'text-gray-400' : 'text-slate-500',
                 )}
               >
-                Public early warning · 72-hour forecasts · {stationCount} gauges
+                {mode === 'expert'
+                  ? `Gauge console · forecasts · network triage · ${stationCount} gauges`
+                  : `Public early warning · 72-hour forecasts · ${stationCount} gauges`}
               </p>
             </div>
           </div>

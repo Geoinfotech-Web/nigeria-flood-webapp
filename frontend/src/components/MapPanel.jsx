@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
-import ImpactSummaryPanel from './ImpactSummaryPanel'
 import LayersPanel from './LayersPanel'
 import { IconHome } from './Icons'
 import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
@@ -428,8 +427,6 @@ export default function MapPanel({
   const [tileLayers,  setTileLayers]  = useState([])
   /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
   const [tileVisibility, setTileVisibility] = useState({})
-  const [impactSummary, setImpactSummary] = useState(null)
-  const [selectedRiskArea, setSelectedRiskArea] = useState(null)
   const [exposureMeta, setExposureMeta] = useState([])
   const [exposureData, setExposureData] = useState({
     roads: null,
@@ -577,30 +574,6 @@ export default function MapPanel({
         .catch(console.error)
     })
   }, [boundaryVisible, boundaryData])
-
-  useEffect(() => {
-    const loadImpactSummary = () => {
-      const params = new URLSearchParams()
-      if (selectedRiskArea?.name && selectedRiskArea?.admin_level) {
-        params.set('area_name', selectedRiskArea.name)
-        params.set('admin_level', selectedRiskArea.admin_level)
-      } else if (selected) {
-        params.set('station_id', String(selected))
-      } else {
-        setImpactSummary(null)
-        return Promise.resolve()
-      }
-
-      return fetch(`${API}/flood-risk/impact-summary?${params.toString()}`)
-        .then(r => r.json())
-        .then(setImpactSummary)
-        .catch(console.error)
-    }
-
-    loadImpactSummary()
-    const id = setInterval(loadImpactSummary, 300_000)
-    return () => clearInterval(id)
-  }, [selected, selectedRiskArea])
 
   useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
@@ -788,12 +761,6 @@ export default function MapPanel({
       // Click on risk area → popup
       map.on('click', 'flood-risk-fill', e => {
         const p = e.features[0].properties
-        setSelectedRiskArea({
-          name: p.name,
-          admin_level: p.admin_level,
-          risk_tier: p.risk_tier,
-          state: p.state,
-        })
         onSelect(null)
         const tierColor = RISK_COLOR[p.risk_tier] || '#3b82f6'
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
@@ -1130,7 +1097,6 @@ export default function MapPanel({
         "></div>
       `
       el.addEventListener('click', () => {
-        setSelectedRiskArea(null)
         onSelect(s.id)
       })
       el.addEventListener('mouseenter', () => { el.firstElementChild.style.transform = 'scale(1.4)' })
@@ -1480,13 +1446,6 @@ export default function MapPanel({
           theme={theme}
         />
       </div>
-
-      {/* Impact summary — expert only */}
-      {!publicMode && impactSummary && (
-        <div className="absolute bottom-3 left-64 right-3 z-10 hidden md:block">
-          <ImpactSummaryPanel summary={impactSummary} theme={theme} />
-        </div>
-      )}
     </div>
   )
 }

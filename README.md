@@ -56,6 +56,15 @@ and geospatial layers, run these against the running stack (same
 | `ingest/exposure/fetch_osm_exposure.py` | Roads / bridges / places exposure from OSM | network |
 | `ingest/expand_stations.py` | Top up stations on an **already-running** DB (init.sql already seeds all 26/29 on a fresh volume) | — |
 
+## Map modes
+
+| Mode | Audience | What you get |
+|------|----------|--------------|
+| **Public** | Communities & responders | Place search, early-warning outlook, nearby towns/roads/buildings at risk |
+| **Expert** | Hydrologists & ops | Gauge triage (search/sort/filter), network risk overview, stage vs bankfull, multi-horizon forecasts, hydrographs |
+
+Toggle Public / Expert in the header. Expert never starts blank — the right rail shows a network overview until a gauge is selected.
+
 ### Map layers (dashboard)
 
 | Layer | Meaning |

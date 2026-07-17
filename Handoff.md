@@ -18,6 +18,8 @@ Geospatial flood layers include:
 
 Everything is displayed on an interactive MapLibre map with real-time WebSocket updates, place outlook, exposure (roads/bridges/settlements/buildings), routing, and community incident reporting.
 
+**Public mode** is place-centric early warning (search a town, see outlook and nearby exposure). **Expert mode** is a hydrologist console: network risk overview, gauge triage (search/sort/filter by risk and river), stage vs bankfull, multi-horizon forecasts, and hydrographs.
+
 ---
 
 ## System State Summary

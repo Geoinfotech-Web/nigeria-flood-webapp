@@ -13,14 +13,17 @@ import base64
 from collections import Counter
 from datetime import datetime, timezone
 from functools import lru_cache
+from math import radians, cos, sin, asin, sqrt
 from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Query, Request, HTTPException
 from fastapi.responses import Response
-from shapely.geometry import shape
+from shapely.geometry import shape, LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 from shapely.prepared import prep
+from shapely.strtree import STRtree
+from shapely.validation import make_valid
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -36,7 +39,18 @@ EXPOSURE_FILES = {
     "bridges": DATA_DIR / "exposure_bridges.geojson",
     "places": DATA_DIR / "exposure_places.geojson",
 }
-DEFAULT_IMPACT_TIERS = ("Warning", "Emergency", "Moderate", "High", "Very High")
+DEFAULT_IMPACT_TIERS = (
+    "Moderate",
+    "High",
+    "Very High",
+    "Likely",
+    "Highly Likely",
+    "Warning",
+    "Emergency",
+)
+# Expert impact is driven by inundation probability + urban flash flood extents
+# (not synthetic state boxes or gauge-only Watch tiers).
+IMPACT_SOURCES = ("sar_dem_inundation", "urban_flash_flood")
 
 OVERLAY_METADATA = {
     "jrc_occurrence": {
@@ -110,11 +124,88 @@ def _load_exposure_geometries(layer_name: str) -> tuple[tuple[object, dict], ...
 
 
 def _tier_cache_key(tiers: tuple[str, ...]) -> str:
-    return "impact-summary:" + ",".join(sorted(tiers))
+    # v3: inundation + urban flash sources; settlement-derived states
+    return "impact-summary:v3:" + ",".join(sorted(tiers))
 
 
 def _serialise_counter(counter: Counter) -> dict[str, int]:
     return {key: counter[key] for key in sorted(counter)}
+
+
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Great-circle distance in km between two WGS84 points."""
+    r = 6371.0088
+    dlon = radians(lon2 - lon1)
+    dlat = radians(lat2 - lat1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * r * asin(sqrt(min(1.0, a)))
+
+
+def _geodesic_length_km(geometry) -> float:
+    """Sum geodesic length of line geometries (ignores points/polygons)."""
+    if geometry is None or geometry.is_empty:
+        return 0.0
+    if isinstance(geometry, LineString):
+        coords = list(geometry.coords)
+        total = 0.0
+        for i in range(1, len(coords)):
+            lon1, lat1 = coords[i - 1][0], coords[i - 1][1]
+            lon2, lat2 = coords[i][0], coords[i][1]
+            total += _haversine_km(lon1, lat1, lon2, lat2)
+        return total
+    if isinstance(geometry, MultiLineString):
+        return sum(_geodesic_length_km(part) for part in geometry.geoms)
+    if isinstance(geometry, GeometryCollection):
+        return sum(_geodesic_length_km(part) for part in geometry.geoms)
+    # Polygon/MultiPolygon etc. — use exterior ring length as a fallback for area edges
+    try:
+        boundary = geometry.boundary
+        return _geodesic_length_km(boundary)
+    except Exception:
+        return 0.0
+
+
+def _safe_geom(geometry):
+    """Return a valid geometry or None (skips TopologyException sources)."""
+    if geometry is None or geometry.is_empty:
+        return None
+    try:
+        if not geometry.is_valid:
+            geometry = make_valid(geometry)
+        if geometry.is_empty:
+            return None
+        # Tiny buffer collapses self-intersections that make_valid leaves behind.
+        if not geometry.is_valid:
+            geometry = geometry.buffer(0)
+        return geometry if not geometry.is_empty else None
+    except Exception:
+        try:
+            fixed = geometry.buffer(0)
+            return fixed if fixed and not fixed.is_empty else None
+        except Exception:
+            return None
+
+
+def _safe_union(geometries):
+    """unary_union that tolerates invalid flood polygons."""
+    cleaned = []
+    for g in geometries:
+        fixed = _safe_geom(g)
+        if fixed is not None:
+            cleaned.append(fixed)
+    if not cleaned:
+        return None
+    try:
+        return unary_union(cleaned)
+    except Exception as exc:
+        log.warning("unary_union failed (%s); falling back to pairwise merge", exc)
+        merged = cleaned[0]
+        for g in cleaned[1:]:
+            try:
+                merged = merged.union(g)
+            except Exception:
+                continue
+        return merged
 
 
 def _severity_rank(tier: str) -> int:
@@ -391,6 +482,59 @@ async def risk_summary(request: Request):
     return {r["risk_tier"]: r["count"] for r in rows}
 
 
+@router.get("/urban-flash-summary")
+async def urban_flash_summary(request: Request):
+    """
+    Lightweight counts + top urban flash flood zones (Likely / Highly Likely).
+    Used by Expert KPI cards so they stay in sync with the map layer even when
+    the heavier impact-summary intersection is slow or failing.
+    """
+    cache_key = "urban-flash-summary:v1"
+    cached = await request.app.state.redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    async with request.app.state.db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (name, admin_level, risk_tier)
+                name, admin_level, state, risk_tier, risk_score
+            FROM flood_risk_areas
+            WHERE source = 'urban_flash_flood'
+              AND risk_tier = ANY($1::text[])
+            ORDER BY name, admin_level, risk_tier, valid_from DESC, risk_score DESC
+            """,
+            ["Likely", "Highly Likely"],
+        )
+
+    areas = [
+        {
+            "name": r["name"] or "Urban flash zone",
+            "admin_level": r["admin_level"],
+            "state": r["state"],
+            "risk_tier": r["risk_tier"],
+            "risk_score": float(r["risk_score"] or 0),
+        }
+        for r in rows
+    ]
+    areas.sort(
+        key=lambda a: (
+            -_severity_rank(a["risk_tier"]),
+            -a["risk_score"],
+            a["name"],
+        )
+    )
+    payload = {
+        "likely": sum(1 for a in areas if a["risk_tier"] == "Likely"),
+        "highly_likely": sum(1 for a in areas if a["risk_tier"] == "Highly Likely"),
+        "total": len(areas),
+        "top_areas": areas[:8],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
+    return payload
+
+
 @router.get("/impact-summary")
 async def impact_summary(
     request: Request,
@@ -407,6 +551,7 @@ async def impact_summary(
         return json.loads(cached)
 
     async def _fetch_rows(conn, selected_tiers: tuple[str, ...], geometry_scope: str = "all"):
+        sources = list(IMPACT_SOURCES)
         if geometry_scope == "station_buffer":
             return await conn.fetch(
                 """
@@ -415,16 +560,18 @@ async def impact_summary(
                     FROM gauge_stations
                     WHERE id = $2
                 )
-                SELECT DISTINCT ON (fra.name, fra.admin_level)
+                SELECT DISTINCT ON (fra.name, fra.admin_level, fra.source, fra.risk_tier)
                     fra.name, fra.admin_level, fra.state, fra.risk_tier, fra.risk_score,
-                    ST_AsGeoJSON(fra.geom)::text AS geometry
+                    fra.source, ST_AsGeoJSON(fra.geom)::text AS geometry
                 FROM flood_risk_areas fra
                 JOIN station s ON TRUE
                 WHERE fra.risk_tier = ANY($1::text[])
+                  AND fra.source = ANY($3::text[])
                   AND ST_DWithin(fra.geom::geography, s.geom::geography, 60000)
-                ORDER BY fra.name, fra.admin_level, fra.valid_from DESC, fra.risk_score DESC
+                ORDER BY fra.name, fra.admin_level, fra.source, fra.risk_tier,
+                         fra.valid_from DESC, fra.risk_score DESC
                 """,
-                list(selected_tiers), station_id,
+                list(selected_tiers), station_id, sources,
             )
         if geometry_scope == "station_state":
             return await conn.fetch(
@@ -434,41 +581,45 @@ async def impact_summary(
                     FROM gauge_stations
                     WHERE id = $2
                 )
-                SELECT DISTINCT ON (fra.name, fra.admin_level)
+                SELECT DISTINCT ON (fra.name, fra.admin_level, fra.source, fra.risk_tier)
                     fra.name, fra.admin_level, fra.state, fra.risk_tier, fra.risk_score,
-                    ST_AsGeoJSON(fra.geom)::text AS geometry
+                    fra.source, ST_AsGeoJSON(fra.geom)::text AS geometry
                 FROM flood_risk_areas fra
                 JOIN station s ON TRUE
                 WHERE fra.risk_tier = ANY($1::text[])
+                  AND fra.source = ANY($3::text[])
                   AND fra.state = s.state
-                ORDER BY fra.name, fra.admin_level, fra.valid_from DESC, fra.risk_score DESC
+                ORDER BY fra.name, fra.admin_level, fra.source, fra.risk_tier,
+                         fra.valid_from DESC, fra.risk_score DESC
                 """,
-                list(selected_tiers), station_id,
+                list(selected_tiers), station_id, sources,
             )
         if geometry_scope == "area":
             return await conn.fetch(
                 """
-                SELECT DISTINCT ON (name, admin_level)
+                SELECT DISTINCT ON (name, admin_level, source, risk_tier)
                     name, admin_level, state, risk_tier, risk_score,
-                    ST_AsGeoJSON(geom)::text AS geometry
+                    source, ST_AsGeoJSON(geom)::text AS geometry
                 FROM flood_risk_areas
                 WHERE risk_tier = ANY($1::text[])
+                  AND source = ANY($4::text[])
                   AND name = $2
                   AND admin_level = $3
-                ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+                ORDER BY name, admin_level, source, risk_tier, valid_from DESC, risk_score DESC
                 """,
-                list(selected_tiers), area_name, admin_level,
+                list(selected_tiers), area_name, admin_level, sources,
             )
         return await conn.fetch(
             """
-            SELECT DISTINCT ON (name, admin_level)
+            SELECT DISTINCT ON (name, admin_level, source, risk_tier)
                 name, admin_level, state, risk_tier, risk_score,
-                ST_AsGeoJSON(geom)::text AS geometry
+                source, ST_AsGeoJSON(geom)::text AS geometry
             FROM flood_risk_areas
             WHERE risk_tier = ANY($1::text[])
-            ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+              AND source = ANY($2::text[])
+            ORDER BY name, admin_level, source, risk_tier, valid_from DESC, risk_score DESC
             """,
-            list(selected_tiers),
+            list(selected_tiers), sources,
         )
 
     async with request.app.state.db.acquire() as conn:
@@ -509,35 +660,23 @@ async def impact_summary(
                 """
                 SELECT risk_tier, COUNT(*) AS count
                 FROM (
-                    SELECT DISTINCT ON (name, admin_level) risk_tier
+                    SELECT DISTINCT ON (name, admin_level, source, risk_tier) risk_tier
                     FROM flood_risk_areas
-                    ORDER BY name, admin_level, valid_from DESC, risk_score DESC
+                    WHERE source = ANY($1::text[])
+                    ORDER BY name, admin_level, source, risk_tier, valid_from DESC, risk_score DESC
                 ) t
                 GROUP BY risk_tier
-                """
+                """,
+                list(IMPACT_SOURCES),
             )
             available_zone_counts = {row["risk_tier"]: row["count"] for row in available_rows}
+            # Station scope only: broaden to the station's state if the buffer is empty.
             if station_id:
                 state_rows = await _fetch_rows(conn, requested_tiers, "station_state")
                 if state_rows:
                     rows = state_rows
                     geometry_scope = "station_state"
-                    note = "No warning or emergency zones were found near this station, so this summary is using the active risk areas in the station's state."
-            if available_zone_counts.get("Watch"):
-                effective_tiers = ("Watch",)
-                if station_id and geometry_scope == "station_state":
-                    rows = await _fetch_rows(conn, effective_tiers, "station_state")
-                    note = "No warning or emergency zones are active for this station, so this summary is using Watch zones in the station's state."
-                elif station_id:
-                    rows = await _fetch_rows(conn, effective_tiers, "station_buffer")
-                    geometry_scope = "station_buffer"
-                    note = "No warning or emergency zones are active near this station, so this summary is using Watch zones around the station."
-                elif area_name and admin_level:
-                    rows = await _fetch_rows(conn, effective_tiers, "area")
-                    note = "No warning or emergency tiers are active for this selected area, so this summary is using its Watch zone."
-                else:
-                    rows = await _fetch_rows(conn, effective_tiers)
-                    note = "No warning or emergency zones are active right now, so this summary is using Watch zones."
+                    note = "No inundation or urban-flash zones were found near this station, so this summary uses zones in the station's state."
 
     if not rows:
         payload = {
@@ -548,41 +687,109 @@ async def impact_summary(
             "note": note,
             "available_zones": available_zone_counts,
             "zones": {},
-            "roads": {"total": 0, "by_class": {}, "by_tier": {}},
+            "states": [],
+            "sources": list(IMPACT_SOURCES),
+            "roads": {"total": 0, "total_length_km": 0.0, "by_class": {}, "by_tier": {}},
             "bridges": {"total": 0, "by_class": {}, "by_tier": {}},
-            "settlements": {"total": 0, "by_class": {}, "by_tier": {}, "top_places": []},
+            "settlements": {
+                "total": 0,
+                "total_population": 0,
+                "by_class": {},
+                "by_tier": {},
+                "top_places": [],
+            },
+            "urban_flash": {
+                "likely": 0,
+                "highly_likely": 0,
+                "top_areas": [],
+            },
         }
         await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
         return payload
 
     tier_geometries: dict[str, list] = {tier: [] for tier in effective_tiers}
+    zone_features: list[dict] = []
     zone_counts: Counter = Counter()
+    urban_flash_areas: list[dict] = []
     for row in rows:
         tier = row["risk_tier"]
         geometry = row["geometry"]
         if isinstance(geometry, str):
             geometry = json.loads(geometry)
-        tier_geometries.setdefault(tier, []).append(shape(geometry))
+        geom = _safe_geom(shape(geometry))
+        if geom is None:
+            continue
+        # Simplify for spatial index — large SAR polygons otherwise dominate runtime.
+        try:
+            simple = geom.simplify(0.01, preserve_topology=False)
+            if simple is None or simple.is_empty:
+                simple = geom
+        except Exception:
+            simple = geom
+        tier_geometries.setdefault(tier, []).append(simple)
         zone_counts[tier] += 1
+        zone_features.append({
+            "geom": simple,
+            "state": row.get("state"),
+            "tier": tier,
+            "source": row.get("source"),
+            "name": row.get("name"),
+            "admin_level": row.get("admin_level"),
+            "risk_score": float(row["risk_score"] or 0),
+        })
+        if row.get("source") == "urban_flash_flood" and tier in ("Likely", "Highly Likely"):
+            urban_flash_areas.append({
+                "name": row.get("name") or "Urban flash zone",
+                "state": row.get("state"),
+                "risk_tier": tier,
+                "risk_score": float(row["risk_score"] or 0),
+                "admin_level": row.get("admin_level"),
+            })
 
-    prepared_by_tier = {
-        tier: prep(unary_union(geometries))
-        for tier, geometries in tier_geometries.items()
-        if geometries
-    }
+    # Avoid unary_union of large SAR polygons (slow + TopologyException).
+    # Index simplified zone geoms once; look up intersecting zones per exposure feature.
+    zone_geoms = [z["geom"] for z in zone_features]
+    zone_tree = STRtree(zone_geoms) if zone_geoms else None
+
+    def intersecting_zone_indexes(geometry):
+        if zone_tree is None:
+            return []
+        try:
+            hits = zone_tree.query(geometry, predicate="intersects")
+            return [int(i) for i in hits]
+        except TypeError:
+            # Shapely <2 predicate kw unsupported — bbox filter then exact test
+            try:
+                candidates = zone_tree.query(geometry)
+            except Exception:
+                return []
+            out = []
+            for item in candidates:
+                idx = int(item) if not hasattr(item, "geom_type") else zone_geoms.index(item)
+                try:
+                    if zone_geoms[idx].intersects(geometry):
+                        out.append(idx)
+                except Exception:
+                    continue
+            return out
+        except Exception:
+            return []
 
     def summarise_layer(layer_name: str, class_key: str = "class") -> dict:
         total = 0
+        total_length_km = 0.0
+        total_population = 0
         by_class = Counter()
-        by_tier = {tier: Counter() for tier in prepared_by_tier}
+        by_tier: dict[str, Counter] = {tier: Counter() for tier in tier_geometries}
         matched_places = []
+        settlement_states: set[str] = set()
 
         for geometry, properties in _load_exposure_geometries(layer_name):
-            matched_tiers = [
-                tier
-                for tier, prepared_geom in prepared_by_tier.items()
-                if prepared_geom.intersects(geometry)
-            ]
+            hit_indexes = intersecting_zone_indexes(geometry)
+            if not hit_indexes:
+                continue
+
+            matched_tiers = list({zone_features[i]["tier"] for i in hit_indexes})
             if not matched_tiers:
                 continue
 
@@ -591,7 +798,14 @@ async def impact_summary(
             by_class[label] += 1
 
             for tier in matched_tiers:
-                by_tier[tier][label] += 1
+                by_tier.setdefault(tier, Counter())[label] += 1
+
+            if layer_name == "roads":
+                # Fast length estimate in km (WGS84 degrees × ~111); avoids per-vertex haversine.
+                try:
+                    total_length_km += float(geometry.length) * 111.0
+                except Exception:
+                    pass
 
             if layer_name == "places":
                 highest_tier = max(matched_tiers, key=_severity_rank)
@@ -600,11 +814,22 @@ async def impact_summary(
                     population = int(population_raw) if population_raw is not None else None
                 except (TypeError, ValueError):
                     population = None
+                if population:
+                    total_population += population
+
+                place_states = {
+                    zone_features[i]["state"]
+                    for i in hit_indexes
+                    if zone_features[i].get("state")
+                }
+                settlement_states.update(place_states)
+
                 matched_places.append({
                     "name": properties.get("name", "Unnamed place"),
                     "class": properties.get("class", "Settlement"),
                     "population": population,
                     "risk_tier": highest_tier,
+                    "states": sorted(place_states),
                 })
 
         result = {
@@ -612,6 +837,8 @@ async def impact_summary(
             "by_class": _serialise_counter(by_class),
             "by_tier": {tier: _serialise_counter(counter) for tier, counter in by_tier.items()},
         }
+        if layer_name == "roads":
+            result["total_length_km"] = round(total_length_km, 1)
         if layer_name == "places":
             matched_places.sort(
                 key=lambda place: (
@@ -621,7 +848,28 @@ async def impact_summary(
                 )
             )
             result["top_places"] = matched_places[:5]
+            result["total_population"] = total_population
+            result["states"] = sorted(settlement_states)
         return result
+
+    settlements = summarise_layer("places")
+    # Prefer states that actually contain exposed towns/villages; fall back to zone states.
+    affected_states = settlements.get("states") or sorted(
+        {z["state"] for z in zone_features if z.get("state")}
+    )
+
+    urban_flash_areas.sort(
+        key=lambda a: (
+            -_severity_rank(a["risk_tier"]),
+            -a["risk_score"],
+            a["name"],
+        )
+    )
+    urban_flash = {
+        "likely": sum(1 for a in urban_flash_areas if a["risk_tier"] == "Likely"),
+        "highly_likely": sum(1 for a in urban_flash_areas if a["risk_tier"] == "Highly Likely"),
+        "top_areas": urban_flash_areas[:8],
+    }
 
     payload = {
         "requested_tiers": list(requested_tiers),
@@ -631,9 +879,12 @@ async def impact_summary(
         "note": note,
         "available_zones": available_zone_counts,
         "zones": _serialise_counter(zone_counts),
+        "states": affected_states,
+        "sources": list(IMPACT_SOURCES),
         "roads": summarise_layer("roads"),
         "bridges": summarise_layer("bridges"),
-        "settlements": summarise_layer("places"),
+        "settlements": settlements,
+        "urban_flash": urban_flash,
     }
     await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
     return payload
