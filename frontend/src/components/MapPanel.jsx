@@ -164,10 +164,12 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
   const lineId = `admin-${layerKey}-line`
   const labelId = `admin-${layerKey}-label`
   const isState = layerKey === 'states'
-  const lineColor = isState ? '#0f766e' : '#64748b'
-  const fillColor = isState ? '#14b8a6' : '#94a3b8'
-  const minzoom = isState ? 4 : 7
-  const labelMinzoom = isState ? 5 : 9
+  const isBasin = layerKey === 'basins'
+  const lineColor = isBasin ? '#0369a1' : isState ? '#0f766e' : '#64748b'
+  const fillColor = isBasin ? '#0ea5e9' : isState ? '#14b8a6' : '#94a3b8'
+  const minzoom = isBasin ? 4 : isState ? 4 : 7
+  const labelMinzoom = isBasin ? 7 : isState ? 5 : 9
+  const levelLabel = isBasin ? 'River basin' : isState ? 'State' : 'LGA'
 
   if (!map.getLayer(fillId)) {
     map.addLayer({
@@ -177,7 +179,7 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
       minzoom,
       paint: {
         'fill-color': fillColor,
-        'fill-opacity': 0.06,
+        'fill-opacity': isBasin ? 0.05 : 0.06,
       },
     })
   }
@@ -189,14 +191,16 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
       minzoom,
       paint: {
         'line-color': lineColor,
-        'line-width': isState
-          ? ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.2, 12, 2.8]
-          : ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.2, 13, 1.8],
-        'line-opacity': 0.85,
+        'line-width': isBasin
+          ? ['interpolate', ['linear'], ['zoom'], 4, 0.7, 8, 1.4, 12, 2]
+          : isState
+            ? ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.2, 12, 2.8]
+            : ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.2, 13, 1.8],
+        'line-opacity': isBasin ? 0.75 : 0.85,
       },
     })
   }
-  if (!map.getLayer(labelId)) {
+  if (!isBasin && !map.getLayer(labelId)) {
     map.addLayer({
       id: labelId,
       type: 'symbol',
@@ -225,6 +229,9 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
     map._adminPopupBound[layerKey] = true
     map.on('click', fillId, (e) => {
       const props = e.features?.[0]?.properties || {}
+      const areaBit = props.area_km2
+        ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Area</span><span>${Number(props.area_km2).toLocaleString()} km²</span></div>`
+        : ''
       new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
         .setLngLat(e.lngLat)
         .setHTML(`
@@ -232,14 +239,48 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
             <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Boundary'}</div>
             <div style="display:flex;justify-content:space-between;margin-bottom:2px">
               <span style="color:#6b7280">Level</span>
-              <span>${isState ? 'State' : 'LGA'}</span>
+              <span>${levelLabel}</span>
             </div>
-            ${props.state && !isState ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
+            ${props.state && !isState && !isBasin ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
+            ${areaBit}
           </div>
         `)
         .addTo(map)
     })
     registerPointerCursor(map, fillId)
+  }
+}
+
+function ensureSelectedBasinLayers(map) {
+  const sourceId = 'basin-selected'
+  if (!map.getSource(sourceId)) {
+    map.addSource(sourceId, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    })
+  }
+  if (!map.getLayer('basin-selected-fill')) {
+    map.addLayer({
+      id: 'basin-selected-fill',
+      type: 'fill',
+      source: sourceId,
+      paint: {
+        'fill-color': '#0284c7',
+        'fill-opacity': 0.14,
+      },
+    })
+  }
+  if (!map.getLayer('basin-selected-line')) {
+    map.addLayer({
+      id: 'basin-selected-line',
+      type: 'line',
+      source: sourceId,
+      paint: {
+        'line-color': '#0369a1',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.8, 8, 2.8, 12, 3.6],
+        'line-opacity': 0.95,
+      },
+    })
   }
 }
 
@@ -441,8 +482,8 @@ export default function MapPanel({
     buildings: false,
   })
   const [boundaryMeta, setBoundaryMeta] = useState([])
-  const [boundaryData, setBoundaryData] = useState({ states: null, lgas: null })
-  const [boundaryVisible, setBoundaryVisible] = useState({ states: false, lgas: false })
+  const [boundaryData, setBoundaryData] = useState({ states: null, lgas: null, basins: null })
+  const [boundaryVisible, setBoundaryVisible] = useState({ states: false, lgas: false, basins: false })
   const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
   const buildingsFetchRef = useRef(0)
   const resetToHomeView = useCallback(() => {
@@ -574,6 +615,22 @@ export default function MapPanel({
         .catch(console.error)
     })
   }, [boundaryVisible, boundaryData])
+
+  // Prefetch basins when a gauge with basin_id is selected (highlight even if layer off)
+  useEffect(() => {
+    if (!selected || boundaryData.basins) return
+    const station = stations.find((st) => st.id === selected)
+    if (!station?.basin_id) return
+    fetch(`${API}/boundaries/basins`)
+      .then((r) => r.json())
+      .then((data) => {
+        setBoundaryData((current) => {
+          if (current.basins) return current
+          return { ...current, basins: data }
+        })
+      })
+      .catch(console.error)
+  }, [selected, stations, boundaryData.basins])
 
   useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
@@ -1037,12 +1094,12 @@ export default function MapPanel({
     }
   }, [mapReady, exposureData, exposureVisible])
 
-  // ── Admin boundaries (states / LGAs) ───────────────────────────────────────
+  // ── Admin / basin boundaries ───────────────────────────────────────────────
   useEffect(() => {
     if (!mapReady) return
     const map = mapObj.current
 
-    ;['states', 'lgas'].forEach((layerKey) => {
+    ;['states', 'lgas', 'basins'].forEach((layerKey) => {
       const data = boundaryData[layerKey]
       const sourceId = `admin-${layerKey}`
       if (!data) return
@@ -1064,6 +1121,35 @@ export default function MapPanel({
       )
     })
   }, [mapReady, boundaryData, boundaryVisible])
+
+  // ── Highlight selected gauge's HydroBASINS catchment ───────────────────────
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+    ensureSelectedBasinLayers(map)
+    const source = map.getSource('basin-selected')
+    if (!source) return
+
+    const empty = { type: 'FeatureCollection', features: [] }
+    if (!selected || !boundaryData.basins) {
+      source.setData(empty)
+      return
+    }
+    const station = stations.find((st) => st.id === selected)
+    const basinId = station?.basin_id
+    if (!basinId) {
+      source.setData(empty)
+      return
+    }
+    const match = (boundaryData.basins.features || []).find(
+      (f) => Number(f.properties?.basin_id) === Number(basinId),
+    )
+    source.setData(
+      match
+        ? { type: 'FeatureCollection', features: [match] }
+        : empty,
+    )
+  }, [mapReady, selected, stations, boundaryData.basins])
 
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {

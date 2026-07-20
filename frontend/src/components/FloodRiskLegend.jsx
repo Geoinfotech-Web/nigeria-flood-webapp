@@ -48,6 +48,7 @@ const EXPOSURE_SYMBOLS = {
 const BOUNDARY_SYMBOLS = {
   states: [{ label: 'State', color: '#0f766e', type: 'line' }],
   lgas: [{ label: 'LGA', color: '#64748b', type: 'line' }],
+  basins: [{ label: 'River basins (HydroBASINS L7)', color: '#0369a1', type: 'line' }],
 }
 
 function SectionTitle({ children, theme }) {
@@ -234,7 +235,13 @@ export default function FloodRiskLegend({
           {visibleBoundaryIds.map((layerId) => (
             <div key={`boundary-${layerId}`} className="space-y-1">
               <SectionTitle theme={theme}>
-                {layerId === 'states' ? 'States' : layerId === 'lgas' ? 'LGAs' : layerId}
+                {layerId === 'states'
+                  ? 'States'
+                  : layerId === 'lgas'
+                    ? 'LGAs'
+                    : layerId === 'basins'
+                      ? 'River basins'
+                      : layerId}
               </SectionTitle>
               {(BOUNDARY_SYMBOLS[layerId] || []).map((symbol) => (
                 <div key={`${layerId}-${symbol.label}`} className="flex items-center gap-2">

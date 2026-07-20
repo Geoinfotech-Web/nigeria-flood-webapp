@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS gauge_stations (
     lat         DOUBLE PRECISION NOT NULL,
     lon         DOUBLE PRECISION NOT NULL,
     bank_full_m DOUBLE PRECISION NOT NULL,  -- bank-full water level (m)
+    basin_id    BIGINT,                    -- HydroBASINS HYBAS_ID (Level 7)
     geom        GEOMETRY(Point, 4326)
 );
 

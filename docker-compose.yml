@@ -181,6 +181,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ingest:/app
+      - ./api/data:/api_data
       - ${GEE_SERVICE_ACCOUNT_KEY:-./ggis-africa-0926ddaa6e72.json}:/run/secrets/gee-service-account.json:ro
 
   # ─────────────────────────────────────────────

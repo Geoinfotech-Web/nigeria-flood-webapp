@@ -228,10 +228,14 @@ The 6h, 12h, 24h LSTM models may fail the F1 gate. Expected while the dataset is
 
 **Optional fix:** GADM Nigeria Level 1 boundaries for synthetic state polygons.
 
-### Rainfall not distance-weighted
-`rolling_rain_Xh_mm` sums rainfall from all 29 met stations equally, regardless of distance from the gauge.
+### Rainfall is distance-weighted (IDW)
+`rolling_rain_Xh_mm` uses inverse-distance weighting over the **k=5 nearest met stations within 250 km** (not a national sum). Magnitudes are much smaller than the old all-station sum — `soil_moisture_idx` still uses `/ 80` as a soft saturation proxy.
 
-**Fix:** In `flink/jobs/flood_features.py`, use inverse-distance weighting from gauge coordinates.
+Implemented in `flink/jobs/idw_rainfall.py`, used by `flood_features.py` and `backfill_features.py`. Refresh existing rows with:
+`python backfill_features.py --replace-rain` then retrain.
+
+### HydroBASINS river-basin map layer
+`api/data/basins.geojson` (HydroBASINS L7, clipped to Nigeria) is served via `/boundaries/basins`. Gauges store `basin_id`; selecting a station highlights its catchment on the map (LayersPanel toggle **River basins**). Regenerate with `python ingest/boundaries/fetch_hydrobasins.py`; reassign with `python ingest/boundaries/assign_gauge_basins.py`.
 
 ### No in-situ sensor data
 All gauge and met data is from GloFAS and OpenMeteo — no physical sensors connected. NIHSA / NiMet APIs are not publicly accessible.
@@ -250,7 +254,7 @@ Re-exporting a COG under the same MinIO key can leave TiTiler serving 500s or bl
 
 1. Insert the station into the `gauge_stations` table:
 ```sql
-INSERT INTO gauge_stations (code, name, river, state, lat, lon, bank_full_m, geom)
+INSERT INTO gauge_stations (code, name, river, state, lat, lon, bank_full_m, basin_id, geom)
 VALUES ('MY_CODE', 'My Station', 'River Name', 'State', 7.5, 5.2, 8.0,
         ST_SetSRID(ST_MakePoint(5.2, 7.5), 4326));
 ```
@@ -277,9 +281,9 @@ docker-compose run --rm bentoml python train.py
 **Effort:** Low  
 Already wired in APScheduler (`gee_flood_risk`, `inundation_extent`). Confirm wet-season runs and always restart TiTiler after overwrite.
 
-### 2. Add distance-weighted rainfall feature
-**Effort:** ~3 hours  
-In `flink/jobs/flood_features.py`, precompute gauge-to-met distance weights for `rolling_rain_Xh_mm`.
+### 2. Constrain IDW rain to mets inside the selected basin (optional)
+**Effort:** Low–medium  
+Natural follow-up: weight only met stations whose points fall in the gauge’s HydroBASINS polygon (or use true MERIT catchments).
 
 ### 3. Accumulate real data and retrain quarterly
 **Effort:** Ongoing  

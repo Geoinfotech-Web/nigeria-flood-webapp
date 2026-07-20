@@ -436,7 +436,7 @@ export default function StationConsole({
               )}
             >
               <p className={clsx('text-[9px] uppercase tracking-wide', dark ? 'text-cyan-400/80' : 'text-cyan-700')}>
-                Rainfall last 24h (nearest met)
+                Rainfall last 24h (nearest met · model uses catchment-weighted IDW)
               </p>
               <p
                 className={clsx(

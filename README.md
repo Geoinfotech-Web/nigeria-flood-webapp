@@ -73,6 +73,7 @@ Toggle Public / Expert in the header. Expert never starts blank — the right ra
 | Urban flash flood | 24h rainfall over built-up areas (Likely / Highly likely) |
 | Inundation History | How often land was wet, JRC Landsat 1984–2021 (5–25% / 25–50% / >50%) |
 | Flood Susceptibility | Static predisposition: JRC 40% + HAND 30% + distance to drainage 20% + slope 10% |
+| River basins | HydroBASINS Level 7 watersheds; selecting a gauge highlights its catchment |
 
 After overwriting a COG in MinIO, restart TiTiler so tiles do not serve a stale cache:
 

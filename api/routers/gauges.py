@@ -11,7 +11,7 @@ router = APIRouter()
 async def list_stations(request: Request):
     async with request.app.state.db.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, code, name, river, state, lat, lon, bank_full_m
+            SELECT id, code, name, river, state, lat, lon, bank_full_m, basin_id
             FROM gauge_stations
             ORDER BY name ASC
         """)

@@ -768,8 +768,8 @@ def build():
         ("flow_rate_m3s",         "Raw gauge reading (m³/s)"),
         ("level_change_1h",       "level_now − level_1h_ago"),
         ("level_change_3h",       "level_now − level_3h_ago"),
-        ("rolling_rain_3h_mm",    "Sum of all met station rainfall in last 3 hours"),
-        ("rolling_rain_24h_mm",   "Sum of all met station rainfall in last 24 hours"),
+        ("rolling_rain_3h_mm",    "IDW rainfall near gauge (k=5 mets ≤250 km) over last 3 hours"),
+        ("rolling_rain_24h_mm",   "IDW rainfall near gauge (k=5 mets ≤250 km) over last 24 hours"),
         ("soil_moisture_idx",     "min(1.0, rain_24h ÷ 80)  — catchment saturation proxy"),
         ("days_since_last_peak",  "Days since water level last exceeded 85 % of bank-full"),
         ("level_pct_bank",        "water_level_m ÷ bank_full_m"),
@@ -1193,10 +1193,13 @@ def build():
          "official GADM Nigeria Level 1 boundaries (free, CC-BY from gadm.org) for "
          "production. High visual impact, ~2 hours effort.",
          C_AMBER),
-        ("Rainfall not distance-weighted",
-         "rolling_rain_Xh_mm aggregates all 29 met stations equally regardless of distance "
-         "to the gauge. A production system should use inverse-distance weighting. "
-         "~3 hours to implement in flink/jobs/flood_features.py.",
+        ("Rainfall IDW (shipped)",
+         "rolling_rain_Xh_mm uses inverse-distance weighting (k=5, ≤250 km) per gauge. "
+         "Magnitudes are smaller than the former national sum — refresh features then retrain.",
+         HexColor("#94a3b8")),
+        ("HydroBASINS L7 map layer (shipped)",
+         "River-basin polygons via /boundaries/basins; gauges expose basin_id; map highlights "
+         "the selected station catchment (Flood Hub–style).",
          HexColor("#94a3b8")),
         ("No in-situ sensor data",
          "All gauge and met data comes from GloFAS and OpenMeteo model output — no physical "
@@ -1238,8 +1241,8 @@ def build():
          "~2 h", C_RED),
         ("Priority 2", "Schedule Sentinel-1 monthly re-run (Aug–Oct wet season)",
          "~1 h", C_AMBER),
-        ("Priority 3", "Implement distance-weighted rainfall feature in flood_features.py",
-         "~3 h", C_AMBER),
+        ("Priority 3", "Constrain IDW rain to mets inside HydroBASINS (optional)",
+         "~2–4 h", C_AMBER),
         ("Priority 4", "Accumulate real data and retrain quarterly",
          "Ongoing", C_GREEN),
         ("Priority 5", "NIHSA real gauge sensor integration",

@@ -14,6 +14,7 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 LAYER_FILES = {
     "states": DATA_DIR / "admin_states.geojson",
     "lgas": DATA_DIR / "admin_lgas.geojson",
+    "basins": DATA_DIR / "basins.geojson",
 }
 LAYER_META = {
     "states": {
@@ -25,6 +26,11 @@ LAYER_META = {
         "label": "LGA boundaries",
         "description": "Local Government Area boundaries (geoBoundaries).",
         "admin_level": "lga",
+    },
+    "basins": {
+        "label": "River basins",
+        "description": "HydroBASINS Level 7 watersheds clipped to Nigeria (Flood Hub–style catchments).",
+        "admin_level": "basin",
     },
 }
 
@@ -55,7 +61,12 @@ async def boundaries_manifest():
             "id": layer_id,
             "available": available,
             "feature_count": count,
-            "attribution": meta_extra.get("attribution") or "geoBoundaries (CC BY 4.0)",
+            "attribution": meta_extra.get("attribution")
+            or (
+                "HydroSHEDS / WWF (CC BY 4.0)"
+                if layer_id == "basins"
+                else "geoBoundaries (CC BY 4.0)"
+            ),
             **LAYER_META[layer_id],
         })
     return manifest

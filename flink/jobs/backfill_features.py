@@ -2,16 +2,27 @@
 Feature backfill — computes flood_features for every 30-min interval
 in the historical gauge_readings data.
 
+Uses inverse-distance-weighted rainfall (k=5, ≤250 km) per gauge.
+
 Run once after backfill.py has populated gauge_readings / met_readings:
   python backfill_features.py
+
+To refresh rain columns after switching to IDW (recompute all rows):
+  python backfill_features.py --replace-rain
 """
 
 import os
+import sys
 import logging
+import argparse
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import execute_values
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from idw_rainfall import build_gauge_met_weights, weighted_rainfall_mm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [feat-backfill] %(message)s")
 log = logging.getLogger(__name__)
@@ -39,7 +50,7 @@ def get_time_range(conn):
         return cur.fetchone()
 
 
-def compute_feature_row(conn, station_id, bank_full, ts):
+def compute_feature_row(conn, station_id, bank_full, ts, weight_map):
     with conn.cursor() as cur:
         # Latest reading at or before ts
         cur.execute("""
@@ -68,17 +79,12 @@ def compute_feature_row(conn, station_id, bank_full, ts):
         r = cur.fetchone()
         level_3h = r[0] if r else level
 
-        cur.execute("""
-            SELECT COALESCE(SUM(rainfall_mm),0) FROM met_readings
-            WHERE time >= %s AND time <= %s
-        """, (ts - timedelta(hours=3), ts))
-        rain_3h = float(cur.fetchone()[0])
-
-        cur.execute("""
-            SELECT COALESCE(SUM(rainfall_mm),0) FROM met_readings
-            WHERE time >= %s AND time <= %s
-        """, (ts - timedelta(hours=24), ts))
-        rain_24h = float(cur.fetchone()[0])
+        rain_3h = weighted_rainfall_mm(
+            conn, station_id, ts - timedelta(hours=3), ts, weight_map,
+        )
+        rain_24h = weighted_rainfall_mm(
+            conn, station_id, ts - timedelta(hours=24), ts, weight_map,
+        )
 
         cur.execute("""
             SELECT time FROM gauge_readings
@@ -109,8 +115,70 @@ COLS = [
 ]
 
 
+def replace_rain_columns(conn, weight_map):
+    """Recompute rolling_rain_* and soil_moisture_idx for existing feature rows."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT station_id FROM flood_features ORDER BY 1")
+        station_ids = [r[0] for r in cur.fetchall()]
+
+    for sid in station_ids:
+        log.info("Refreshing IDW rain for station_id=%s …", sid)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT time FROM flood_features WHERE station_id=%s ORDER BY time",
+                (sid,),
+            )
+            times = [r[0] for r in cur.fetchall()]
+
+        updated = 0
+        for ts in times:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            rain_3h = weighted_rainfall_mm(
+                conn, sid, ts - timedelta(hours=3), ts, weight_map,
+            )
+            rain_24h = weighted_rainfall_mm(
+                conn, sid, ts - timedelta(hours=24), ts, weight_map,
+            )
+            soil = min(1.0, rain_24h / 80.0)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE flood_features
+                    SET rolling_rain_3h_mm = %s,
+                        rolling_rain_24h_mm = %s,
+                        soil_moisture_idx = %s
+                    WHERE station_id = %s AND time = %s
+                    """,
+                    (round(rain_3h, 2), round(rain_24h, 2), round(soil, 4), sid, ts),
+                )
+            updated += 1
+            if updated % 500 == 0:
+                conn.commit()
+                log.info("  … %d rows", updated)
+        conn.commit()
+        log.info("  station_id=%s: %d rows updated", sid, updated)
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--replace-rain",
+        action="store_true",
+        help="Only refresh rolling_rain_* / soil_moisture on existing flood_features rows",
+    )
+    args = parser.parse_args()
+
     conn = psycopg2.connect(DB_DSN)
+    weight_map = build_gauge_met_weights(conn)
+    log.info("IDW weights ready for %d gauges", len(weight_map))
+
+    if args.replace_rain:
+        replace_rain_columns(conn, weight_map)
+        conn.close()
+        log.info("IDW rain refresh complete.")
+        return
+
     stations = fetch_stations(conn)
     t_min, t_max = get_time_range(conn)
     if not t_min:
@@ -128,7 +196,7 @@ def main():
         batch = []
         total = 0
         while ts <= t_max:
-            row = compute_feature_row(conn, sid, bank_full, ts)
+            row = compute_feature_row(conn, sid, bank_full, ts, weight_map)
             if row:
                 batch.append(row)
             if len(batch) >= BATCH:
