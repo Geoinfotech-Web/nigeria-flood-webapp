@@ -929,6 +929,7 @@ async def _load_prepared_flood_zones(
                    ST_AsGeoJSON(geom)::json AS geometry
             FROM flood_risk_areas
             WHERE risk_tier = ANY($1::text[])
+              AND source IN ('sar_dem_inundation', 'urban_flash_flood')
               AND geom && ST_MakeEnvelope($2, $3, $4, $5, 4326)
             ORDER BY
               CASE risk_tier
@@ -945,21 +946,6 @@ async def _load_prepared_flood_zones(
             east,
             north,
         )
-
-    if not rows:
-        # Fallback: any elevated zones in Nigeria for those tiers (synthetic state boxes)
-        async with request.app.state.db.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT DISTINCT ON (name, admin_level)
-                       name, state, risk_tier, risk_score,
-                       ST_AsGeoJSON(geom)::json AS geometry
-                FROM flood_risk_areas
-                WHERE risk_tier = ANY($1::text[])
-                ORDER BY name, admin_level, valid_from DESC, risk_score DESC
-                """,
-                tiers,
-            )
 
     by_tier: dict[str, list] = {t: [] for t in tiers}
     zones_meta = []
@@ -996,19 +982,11 @@ async def _classify_features_against_zones(
     radius_km: float,
 ) -> tuple[list[dict], dict, list, str | None]:
     """Annotate building features with zone_tier / exposed."""
-    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    tier_rank = {"Moderate": 1, "Likely": 2, "High": 3, "Highly Likely": 4, "Very High": 5}
     prepared, zones_meta = await _load_prepared_flood_zones(
         request, tiers, lat, lon, radius_km
     )
     note = None
-    if not prepared and "Watch" not in tiers:
-        prepared, zones_meta = await _load_prepared_flood_zones(
-            request, ["Watch", "Warning", "Emergency"], lat, lon, max(radius_km, 5)
-        )
-        if prepared:
-            note = "Counts include Watch zones (no Warning/Emergency coverage here)."
-            tiers = list(prepared.keys())
-
     by_class: dict[str, int] = {}
     by_zone_tier: dict[str, int] = {t: 0 for t in tiers}
     listed = []
@@ -1111,8 +1089,8 @@ async def buildings_layer(
         description="Annotate each building with flood-zone + susceptibility classes",
     ),
     min_tier: str = Query(
-        "Watch",
-        description="Minimum flood-zone tier when with_zones=true",
+        "Moderate",
+        description="Minimum riverine flood-zone tier when with_zones=true: Moderate, High, or Very High",
     ),
     list_limit: int = Query(60, ge=10, le=150),
 ):
@@ -1123,9 +1101,9 @@ async def buildings_layer(
     if not with_zones:
         return collection
 
-    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    tier_rank = {"Moderate": 1, "Likely": 2, "High": 3, "Highly Likely": 4, "Very High": 5}
     min_rank = tier_rank.get(min_tier, 1)
-    tiers = [t for t, r in tier_rank.items() if r >= min_rank and t != "Normal"]
+    tiers = [t for t, r in tier_rank.items() if r >= min_rank]
     center_lat = (south + north) / 2
     center_lon = (west + east) / 2
     radius_km = max(
@@ -1172,7 +1150,7 @@ async def buildings_layer(
         "scope": "map_viewport",
         "note": note
         or (
-            "Buildings in the current map view. Zone = Watch/Warning/Emergency polygons. "
+            "Buildings in the current map view. Zones use SAR+DEM inundation and urban flash-flood polygons. "
             "Susceptibility = Low → Highly Susceptible from the flood susceptibility layer."
         ),
     }
@@ -1188,19 +1166,19 @@ async def nearby_buildings(
     limit: int = Query(1200, ge=50, le=3000),
     list_limit: int = Query(40, ge=10, le=100),
     min_tier: str = Query(
-        "Watch",
-        description="Minimum flood-zone tier to count as exposed: Watch, Warning, or Emergency",
+        "Moderate",
+        description="Minimum riverine flood-zone tier to count as exposed: Moderate, High, or Very High",
     ),
 ):
     """
     List OSM buildings near a searched/user location with flood-zone exposure
     and flood susceptibility class (Low → Highly Susceptible).
     """
-    tier_rank = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+    tier_rank = {"Moderate": 1, "Likely": 2, "High": 3, "Highly Likely": 4, "Very High": 5}
     min_rank = tier_rank.get(min_tier, 1)
-    tiers = [t for t, r in tier_rank.items() if r >= min_rank and t != "Normal"]
+    tiers = [t for t, r in tier_rank.items() if r >= min_rank]
     if not tiers:
-        tiers = ["Watch", "Warning", "Emergency"]
+        tiers = ["Moderate", "High", "Very High", "Likely", "Highly Likely"]
 
     cache_key = (
         f"nearby-buildings:v4:{round(lat, 3)}:{round(lon, 3)}:"

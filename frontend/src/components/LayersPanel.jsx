@@ -83,6 +83,8 @@ export default function LayersPanel({
   // Gauges
   gaugesVisible,
   onToggleGauges,
+  newsVisible = false,
+  onToggleNews,
   // Exposure
   exposureLayers = [],
   exposureVisibility = {},
@@ -207,6 +209,12 @@ export default function LayersPanel({
               label="Gauge stations"
               on={gaugesVisible}
               onToggle={onToggleGauges}
+              theme={theme}
+            />
+            <Row
+              label="Flood news reports"
+              on={newsVisible}
+              onToggle={onToggleNews}
               theme={theme}
             />
           </Section>

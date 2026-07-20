@@ -4,7 +4,6 @@ Ingest container entrypoint — APScheduler
 Runs all data ingest jobs on a fixed schedule:
 
   Every hour       real_data.py           — OpenMeteo + GloFAS gauge/met readings
-  Every hour       synthetic_flood_risk.py — state-level risk scores (seasonal)
   Every 3 hours    urban_flash_flood.py   — short-range urban flash-flood alerts
   Monthly (1st)    gee_flood_risk.py      — JRC+SRTM flood susceptibility COG
   Monthly (1st)    inundation_extent.py   — SAR+DEM Very High / High / Moderate extents
@@ -43,16 +42,6 @@ def job_real_data():
         run_once()
     except Exception as exc:
         log.error("job_real_data failed: %s", exc)
-
-
-def job_synthetic_risk():
-    """Recompute state-level flood risk scores (seasonal model)."""
-    log.info("── job_synthetic_risk starting")
-    try:
-        from flood_risk.synthetic_flood_risk import run as run_risk
-        run_risk()
-    except Exception as exc:
-        log.error("job_synthetic_risk failed: %s", exc)
 
 
 def job_urban_flash():
@@ -145,9 +134,8 @@ if __name__ == "__main__":
     # Run simulators in background threads
     _start_simulators()
 
-    # Run real data, risk scores, and urban flash immediately on startup
+    # Run live observations and urban flash classification immediately on startup.
     job_real_data()
-    job_synthetic_risk()
     job_urban_flash()
 
     scheduler = BlockingScheduler(timezone="UTC")
@@ -164,16 +152,6 @@ if __name__ == "__main__":
         max_instances=1,
         misfire_grace_time=300,
     )
-    scheduler.add_job(
-        job_synthetic_risk,
-        trigger="cron",
-        minute=20,          # xx:20 every hour (after real data has landed)
-        id="synthetic_risk",
-        name="State-level flood risk scores",
-        max_instances=1,
-        misfire_grace_time=300,
-    )
-
     # ── Every 3 hours — urban flash flood ─────────────────────────────────────
     scheduler.add_job(
         job_urban_flash,
@@ -217,7 +195,6 @@ if __name__ == "__main__":
 
     log.info(
         "Scheduler started — jobs: real_data (hourly :05), "
-        "synthetic_risk (hourly :20, skipped when inundation present), "
         "urban_flash (every 3h :35), "
         "gee_composite (monthly 1st 02:00 UTC), "
         "sentinel1_sar / inundation (monthly 1st 03:30 UTC), "

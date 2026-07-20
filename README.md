@@ -41,8 +41,9 @@ open http://localhost:5173
 
 ## Real data & enrichment (optional)
 
-The stack runs on synthetic data out of the box. To pull real observations
-and geospatial layers, run these against the running stack (same
+The geospatial flood map uses SAR+DEM inundation, urban flash-flood,
+inundation-history, and susceptibility products; it does not fall back to
+synthetic state polygons. To refresh these products, run the following against the running stack (same
 `docker-compose run --rm ingest python <script>` pattern):
 
 | Script | What it does | Needs |

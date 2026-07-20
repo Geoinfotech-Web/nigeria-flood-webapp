@@ -584,7 +584,7 @@ export default function PlaceBriefPanel({
                 </p>
                 <p className="mt-1 text-[13px] font-semibold">
                   <span className="tabular-nums text-xl">{buildingsExposed}</span>
-                  {' '}of {buildingsTotal || '—'} in Watch / Warning / Emergency zones
+                  {' '}of {buildingsTotal || '—'} in mapped inundation / urban-flash zones
                 </p>
                 {buildingSummary?.by_zone_tier && (
                   <p
