@@ -8,6 +8,7 @@ import ExpertAnalyticsRow from './components/ExpertAnalyticsRow'
 import StationConsole from './components/StationConsole'
 import PublicHeader from './components/PublicHeader'
 import PlaceBriefPanel from './components/PlaceBriefPanel'
+import PublicGaugePanel from './components/PublicGaugePanel'
 import NationalAlertsStrip from './components/NationalAlertsStrip'
 import DisclaimerBar from './components/DisclaimerBar'
 import FloodIncidentReporter from './components/FloodIncidentReporter'
@@ -67,6 +68,7 @@ export default function App() {
   const [basemap, setBasemap] = useState('streets')
   const [mode, setMode] = useState('public')
   const [selected, setSelected] = useState(null)
+  const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
   const [highlightedRoad, setHighlightedRoad] = useState(null)
   const [reportOpen, setReportOpen] = useState(false)
@@ -194,14 +196,25 @@ export default function App() {
     }
   }, [mode])
 
-  const clearSelectedStation = () => setSelected(null)
+  const clearSelectedStation = () => {
+    setSelected(null)
+    setShowSelectedBasin(false)
+  }
   const handleSelectStation = (stationId) => {
-    setSelected((current) => (current === stationId ? null : stationId))
+    setSelected((current) => {
+      if (current === stationId) {
+        setShowSelectedBasin(false)
+        return null
+      }
+      setShowSelectedBasin(false)
+      return stationId
+    })
   }
 
   const clearPlace = () => {
     setPlace(null)
     setSelected(null)
+    setShowSelectedBasin(false)
     setHighlightedRoad(null)
     setBuildingsTabActive(false)
     setViewportBuildings(null)
@@ -210,6 +223,7 @@ export default function App() {
   const handleAlertStation = (stationName) => {
     const match = sortedStations.find((s) => s.name === stationName)
     if (match) {
+      setShowSelectedBasin(false)
       setSelected(match.id)
       setPlace({
         name: match.name,
@@ -267,7 +281,7 @@ export default function App() {
           <aside
             className={clsx(
               'z-20 order-2 w-full shrink-0 md:order-1 md:w-[22rem] lg:w-[24rem]',
-              navigation || place
+              navigation || place || selectedStation
                 ? 'max-h-[48vh] md:max-h-none md:h-full'
                 : 'hidden md:flex md:max-h-none md:h-full',
             )}
@@ -280,6 +294,18 @@ export default function App() {
                   liveReadings={liveReadings}
                   theme={theme}
                   onClose={() => setNavigation(null)}
+                />
+              </div>
+            ) : selectedStation ? (
+              <div className="h-full p-0 md:p-3 md:pr-0">
+                <PublicGaugePanel
+                  station={selectedStation}
+                  stationId={selected}
+                  liveReading={liveReadings[selected]}
+                  theme={theme}
+                  basinVisible={showSelectedBasin}
+                  onToggleBasin={setShowSelectedBasin}
+                  onClose={clearSelectedStation}
                 />
               </div>
             ) : place ? (
@@ -402,6 +428,7 @@ export default function App() {
               onBuildingsViewportChange={handleBuildingsViewportChange}
               showSearch={false}
               navigation={navigation}
+              highlightSelectedBasin={showSelectedBasin}
             />
           </main>
         </div>
@@ -521,6 +548,7 @@ export default function App() {
                 onPlaceSelect={handlePlaceSelect}
                 showSearch={false}
                 navigation={navigation}
+                highlightSelectedBasin={Boolean(selected)}
               />
             </main>
 

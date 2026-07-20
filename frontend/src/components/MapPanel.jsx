@@ -452,6 +452,7 @@ export default function MapPanel({
   onPlaceSelect,
   showSearch = true,
   navigation = null,
+  highlightSelectedBasin = false,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -616,9 +617,9 @@ export default function MapPanel({
     })
   }, [boundaryVisible, boundaryData])
 
-  // Prefetch basins when a gauge with basin_id is selected (highlight even if layer off)
+  // Prefetch basins when highlight is requested for the selected gauge
   useEffect(() => {
-    if (!selected || boundaryData.basins) return
+    if (!highlightSelectedBasin || !selected || boundaryData.basins) return
     const station = stations.find((st) => st.id === selected)
     if (!station?.basin_id) return
     fetch(`${API}/boundaries/basins`)
@@ -630,7 +631,7 @@ export default function MapPanel({
         })
       })
       .catch(console.error)
-  }, [selected, stations, boundaryData.basins])
+  }, [highlightSelectedBasin, selected, stations, boundaryData.basins])
 
   useEffect(() => {
     Object.entries(exposureVisible).forEach(([layerId, visible]) => {
@@ -1131,7 +1132,7 @@ export default function MapPanel({
     if (!source) return
 
     const empty = { type: 'FeatureCollection', features: [] }
-    if (!selected || !boundaryData.basins) {
+    if (!highlightSelectedBasin || !selected || !boundaryData.basins) {
       source.setData(empty)
       return
     }
@@ -1149,7 +1150,7 @@ export default function MapPanel({
         ? { type: 'FeatureCollection', features: [match] }
         : empty,
     )
-  }, [mapReady, selected, stations, boundaryData.basins])
+  }, [mapReady, highlightSelectedBasin, selected, stations, boundaryData.basins])
 
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {

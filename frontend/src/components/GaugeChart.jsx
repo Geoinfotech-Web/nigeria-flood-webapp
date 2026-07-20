@@ -115,15 +115,17 @@ export default function GaugeChart({
 
   return (
     <div>
-      <h3
-        className={
-          theme === 'dark'
-            ? 'mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400'
-            : 'mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500'
-        }
-      >
-        {heading}
-      </h3>
+      {heading?.trim() ? (
+        <h3
+          className={
+            theme === 'dark'
+              ? 'mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400'
+              : 'mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500'
+          }
+        >
+          {heading}
+        </h3>
+      ) : null}
       <ReactECharts option={option} style={{ height }} />
     </div>
   )
