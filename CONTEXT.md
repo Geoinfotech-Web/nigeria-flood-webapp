@@ -25,7 +25,7 @@ A real-time flood prediction and risk monitoring dashboard for Nigeria. It inges
 │  real_data.py        — OpenMeteo + GloFAS hourly pull (DB-driven)   │
 │  backfill.py         — 90-day synthetic history seed                │
 │  expand_stations.py  — one-time station expansion (26g / 29m)       │
-│  gee_flood_risk.py   — monthly GEE JRC+SRTM export → MinIO COG     │
+│  gee_flood_risk.py   — monthly inundation + susceptibility COGs    │
 │  sentinel1_flood.py  — SAR change-detection → flood extent COG      │
 │  synthetic_flood_risk.py — state-level risk fallback                │
 └──────────────────────────────┬──────────────────────────────────────┘
@@ -276,17 +276,34 @@ score = (base_exposure × seasonal_factor × 0.55)
 - **`river_proximity_boost`**: ×1.12 multiplier for states bordering a major river
 - **`live_gauge_modifier`**: `avg(level_pct_bank × 0.7 + rain_24h/100 × 0.3)` across all 26 gauge stations, reflecting real-time conditions
 
-### GEE JRC+SRTM Composite Layer (Monthly)
+### GEE Flood Layers (Monthly)
 
-Computed by `ingest/flood_risk/gee_flood_risk.py`:
+Computed by `ingest/flood_risk/gee_flood_risk.py`. Exports two Nigeria-wide rasters:
 
-| Component | Weight | Data |
+1. **Inundation History** — JRC GSW Landsat water occurrence (1984–2021), wet-class map
+2. **Flood Susceptibility** — structural predisposition classes (1–4: Low → Highly Susceptible)
+
+#### Susceptibility score (current model)
+
+```
+score = 0.40·JRC + 0.30·HAND_lite + 0.20·dist_to_drainage + 0.10·slope
+```
+
+| Component | Weight | Data / method |
 |---|---|---|
-| JRC Global Surface Water — historical occurrence | 50% | `JRC/GSW1_4/GlobalSurfaceWater` |
-| SRTM elevation inverse — lower = more susceptible | 30% | `USGS/SRTMGL1_003` |
-| SRTM slope inverse — flatter = more susceptible | 20% | Derived from SRTM |
+| JRC Global Surface Water — historical occurrence | 40% | `JRC/GSW1_4/GlobalSurfaceWater` |
+| HAND-lite (height above local drainage proxy) | 30% | SRTM elevation minus 1 km focal minimum; inverse capped at 30 m |
+| Distance to drainage | 20% | Distance transform to drainage mask (JRC occurrence ≥ 5% **or** HAND-lite ≤ 3 m); inverse capped at 5 km |
+| SRTM slope inverse — flatter = more susceptible | 10% | `ee.Terrain.slope` from `USGS/SRTMGL1_003`; inverse capped at 30° |
 
-Output: Cloud Optimised GeoTIFF at 1 km resolution (~9.8 MB), uploaded to MinIO (`flood-risk-tiles` bucket), served as XYZ map tiles via TiTiler through the API proxy.
+Notes:
+
+- **Elevation** is an input to HAND-lite only; it is **not** a direct weighted factor.
+- HAND-lite is a focal-minimum proxy, **not** classical hydrologic HAND from flow accumulation (flow accumulation is not used in v1).
+- Continuous score (0–100) is classified: 1 Low (0–25), 2 Moderate (26–50), 3 High (51–75), 4 Highly Susceptible (>75).
+- Source key in `flood_risk_tiles`: `gee_susceptibility_classes`.
+
+Output: Cloud Optimised GeoTIFFs at ~1 km resolution, uploaded to MinIO (`flood-risk-tiles` bucket), served as XYZ map tiles via TiTiler through the API proxy. Exposure endpoints sample the susceptibility COG at points (settlements, roads, buildings, site assessment).
 
 ### Sentinel-1 SAR Flood Detection (On Demand / Monthly)
 
@@ -382,7 +399,7 @@ GET /flood-risk/tiles/{z}/{x}/{y}.png?url=<encoded-cog-url>
 |---|---|---|---|---|
 | River discharge (GloFAS) | OpenMeteo | `flood-api.open-meteo.com` | Daily | No |
 | Rainfall, temperature, humidity, wind, pressure | OpenMeteo | `api.open-meteo.com` | Hourly | No |
-| Flood susceptibility composite | Google Earth Engine | `earthengine.googleapis.com` | Monthly | Service account |
+| Flood susceptibility (JRC 40% + HAND-lite 30% + dist-to-drainage 20% + slope 10%) | Google Earth Engine | `earthengine.googleapis.com` | Monthly | Service account |
 | Sentinel-1 SAR flood extent | Google Earth Engine | `earthengine.googleapis.com` | On demand | Service account |
 | Geocoding / place search | Google Places (classic Text/Nearby) + optional Geocoding; Nominatim fallback | `maps.googleapis.com` | On demand | `GOOGLE_MAPS_API_KEY` |
 | Google basemap | Map Tiles API session → MapLibre raster style | `tile.googleapis.com` | On demand | `GOOGLE_MAPS_API_KEY` |
@@ -438,7 +455,7 @@ DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/real_data.py --once
 # 8. Generate flood risk map (state-level)
 DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/synthetic_flood_risk.py
 
-# 9. Run GEE JRC+SRTM composite (monthly)
+# 9. Run GEE inundation + susceptibility composite (monthly)
 DB_HOST=localhost \
   GEE_SERVICE_ACCOUNT_EMAIL=gee-144@nfie-490816.iam.gserviceaccount.com \
   GEE_SERVICE_ACCOUNT_KEY=./nfie-490816-516ef004b50f.json \
