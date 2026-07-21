@@ -55,7 +55,8 @@ async def flood_aware_route(
             SELECT DISTINCT fra.name, fra.state, fra.risk_tier, fra.risk_score,
                    ROUND(ST_Distance(fra.geom::geography, ST_SetSRID(ST_Point($2, $3), 4326)::geography))::int AS current_distance_m
             FROM flood_risk_areas fra, route
-            WHERE risk_tier IN ('Warning', 'Emergency')
+            WHERE fra.source IN ('sar_dem_inundation', 'urban_flash_flood')
+              AND fra.risk_tier IN ('High', 'Very High', 'Highly Likely')
               AND ST_DWithin(fra.geom::geography, route.geom::geography, 500)
             ORDER BY risk_score DESC
             LIMIT 20
@@ -144,7 +145,8 @@ async def _settlement_flood_conditions(conn, settlements: list[dict]) -> dict:
                      ST_SetSRID(ST_Point(p.lon, p.lat), 4326)::geography
                    ))::int AS distance_m
             FROM flood_risk_areas fra
-            WHERE ST_DWithin(
+            WHERE fra.source IN ('sar_dem_inundation', 'urban_flash_flood')
+              AND ST_DWithin(
               fra.geom::geography,
               ST_SetSRID(ST_Point(p.lon, p.lat), 4326)::geography,
               25000

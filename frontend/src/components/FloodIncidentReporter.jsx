@@ -99,7 +99,15 @@ export default function FloodIncidentReporter({
     event.preventDefault()
     setSubmitting(true); setNotice(null)
     try {
-      const payload = { ...form, location_name: form.location_name.trim(), description: form.description.trim(), water_depth_cm: form.water_depth_cm === '' ? null : Number(form.water_depth_cm) }
+      let coordinates = { latitude: form.latitude, longitude: form.longitude }
+      if (!Number.isFinite(coordinates.latitude) || !Number.isFinite(coordinates.longitude)) {
+        const query = [form.affected_street, form.location_name].filter(Boolean).join(', ')
+        const geocodeResponse = await fetch(`${API}/geocode/search?q=${encodeURIComponent(query)}&limit=1`)
+        const matches = geocodeResponse.ok ? await geocodeResponse.json() : []
+        if (!matches.length) throw new Error('This location could not be placed on the map. Use GPS or enter a more specific Nigerian street, community, town, or state.')
+        coordinates = { latitude: matches[0].lat, longitude: matches[0].lon }
+      }
+      const payload = { ...form, ...coordinates, location_name: form.location_name.trim(), description: form.description.trim(), water_depth_cm: form.water_depth_cm === '' ? null : Number(form.water_depth_cm) }
       const token = editingId ? tokens[editingId] : null
       const response = await fetch(editingId ? `${API}/incidents/${editingId}` : `${API}/incidents`, {
         method: editingId ? 'PUT' : 'POST',
@@ -114,6 +122,7 @@ export default function FloodIncidentReporter({
         setTokens(next); saveTokens(next)
       }
       await uploadMedia(saved.id, editToken)
+      window.dispatchEvent(new Event('flood-reports-changed'))
       resetForm()
       setNotice({ type: 'success', text: editingId ? 'Report updated.' : 'Report submitted. Keep using this browser to edit or delete it.' })
       await loadReports()
@@ -134,6 +143,7 @@ export default function FloodIncidentReporter({
       const response = await fetch(`${API}/incidents/${report.id}`, { method: 'DELETE', headers: { 'X-Edit-Token': tokens[report.id] } })
       if (!response.ok) throw new Error('The report could not be deleted.')
       const next = { ...tokens }; delete next[report.id]; setTokens(next); saveTokens(next)
+      window.dispatchEvent(new Event('flood-reports-changed'))
       await loadReports()
     } catch (error) { setNotice({ type: 'error', text: error.message }) }
   }

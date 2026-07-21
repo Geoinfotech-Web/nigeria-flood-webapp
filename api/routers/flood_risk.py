@@ -228,20 +228,18 @@ async def flood_risk_geojson(
     request: Request,
     source: str = Query(
         default=None,
-        description="Filter by source: sar_dem_inundation, inundation_history, urban_flash_flood, synthetic, sentinel1",
+        description="Filter by source: sar_dem_inundation, inundation_history, or urban_flash_flood",
     ),
     min_risk: float = Query(default=0.0, ge=0, le=1),
 ):
     """
     Returns GeoJSON FeatureCollection of flood risk / inundation areas.
-    Prefers SAR/DEM inundation (Very High / High / Moderate) over synthetic state boxes.
+    Returns SAR/DEM inundation (Very High / High / Moderate) by default.
     Inundation history and urban flash flood are served only via explicit ?source=.
     """
-    prefer_inundation = source is None
-
     async with request.app.state.db.acquire() as conn:
-        if prefer_inundation:
-            inundation_rows = await conn.fetch(
+        if source is None:
+            rows = await conn.fetch(
                 """
                 SELECT name, admin_level, state, risk_score, risk_tier,
                        source, valid_from, valid_to,
@@ -254,23 +252,6 @@ async def flood_risk_geojson(
                 """,
                 min_risk,
             )
-            if inundation_rows:
-                rows = inundation_rows
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT name, admin_level, state, risk_score, risk_tier,
-                           source, valid_from, valid_to,
-                           ST_AsGeoJSON(geom)::json AS geometry
-                    FROM flood_risk_areas
-                    WHERE risk_score >= $1
-                      AND source NOT IN (
-                        'sentinel1', 'urban_flash_flood', 'inundation_history'
-                      )
-                    ORDER BY valid_from DESC, risk_score DESC
-                    """,
-                    min_risk,
-                )
         else:
             rows = await conn.fetch(
                 """
@@ -473,12 +454,13 @@ async def risk_summary(request: Request):
         rows = await conn.fetch("""
             SELECT risk_tier, COUNT(*) AS count
             FROM (
-                SELECT DISTINCT ON (name, admin_level) risk_tier
+                SELECT DISTINCT ON (name, admin_level, source) risk_tier
                 FROM flood_risk_areas
-                ORDER BY name, admin_level, valid_from DESC
+                WHERE source = ANY($1::text[])
+                ORDER BY name, admin_level, source, valid_from DESC
             ) t
             GROUP BY risk_tier
-        """)
+        """, list(IMPACT_SOURCES))
     return {r["risk_tier"]: r["count"] for r in rows}
 
 

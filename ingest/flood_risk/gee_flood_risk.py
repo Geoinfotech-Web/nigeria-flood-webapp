@@ -541,10 +541,7 @@ def run(mode: str = "monthly"):
         default_scale = 1000
 
     if not init_gee():
-        log.warning("GEE unavailable; falling back to synthetic risk areas only")
-        from synthetic_flood_risk import generate_synthetic_risk
-
-        generate_synthetic_risk()
+        log.warning("GEE unavailable; retaining the last published real geospatial products")
         return
 
     try:

@@ -65,7 +65,7 @@ Nigeria Flood Dashboard/
 │       ├── urban_footprints.py — monthly urban clusters (GEE)
 │       ├── urban_flash_flood.py — 3-hourly flash-flood classifier
 │       ├── sentinel1_flood.py  — legacy SAR state summaries
-│       └── synthetic_flood_risk.py — state-level synthetic fallback
+│       └── synthetic_flood_risk.py — legacy utility (not scheduled or served)
 │
 ├── flink/jobs/
 │   ├── flood_features.py
@@ -149,11 +149,6 @@ docker-compose down -v
 DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/real_data.py --once
 ```
 
-### Regenerate state-level risk scores
-```bash
-DB_HOST=localhost .venv/Scripts/python ingest/flood_risk/synthetic_flood_risk.py
-```
-
 ### Re-export inundation history + susceptibility
 ```bash
 docker exec flood_ingest python -m flood_risk.gee_flood_risk --mode monthly
@@ -210,7 +205,7 @@ LSTM for 6h, 12h, 24h often fails the F1 gate while training data remains largel
 | Flood susceptibility | JRC + SRTM HAND/drainage via GEE | Real historical satellite + terrain hydrology |
 | Urban flash flood | WorldCover + OpenMeteo rainfall | Real land cover + forecast rainfall |
 | Initial 90-day history | `backfill.py` synthetic generator | Synthetic — used only to bootstrap ML |
-| State-level risk polygons | `synthetic_flood_risk.py` | Modelled (not direct observation) |
+| State-level synthetic risk polygons | Legacy only | Not scheduled or served by the API |
 
 The 90-day synthetic backfill was necessary because the system has no historical in-situ sensor archive. Going forward, every new hour of real GloFAS/OpenMeteo data replaces synthetic data as the dominant signal.
 
@@ -223,10 +218,8 @@ The 6h, 12h, 24h LSTM models may fail the F1 gate. Expected while the dataset is
 
 **Workaround:** XGBoost alone is sufficient for these horizons.
 
-### State risk polygons may still be coarse
-`synthetic_flood_risk.py` fallback geometries can be rectangular. Prefer SAR/DEM inundation and susceptibility rasters for map truth.
-
-**Optional fix:** GADM Nigeria Level 1 boundaries for synthetic state polygons.
+### Legacy synthetic state risk utility
+`synthetic_flood_risk.py` remains in the repository for historical development only. The live scheduler and API do not use its state polygons.
 
 ### Rainfall is distance-weighted (IDW)
 `rolling_rain_Xh_mm` uses inverse-distance weighting over the **k=5 nearest met stations within 250 km** (not a national sum). Magnitudes are much smaller than the old all-station sum — `soil_moisture_idx` still uses `/ 80` as a soft saturation proxy.

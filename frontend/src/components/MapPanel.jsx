@@ -5,6 +5,7 @@ import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
 import LayersPanel from './LayersPanel'
+import FloodNewsLayer from './FloodNewsLayer'
 import { IconHome } from './Icons'
 import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
 
@@ -458,10 +459,15 @@ export default function MapPanel({
   const mapRef     = useRef(null)
   const mapObj     = useRef(null)
   const markersRef = useRef({})
+  const newsArticlesRef = useRef([])
+  const communityReportsRef = useRef([])
   const [riskAreasVisible, setRiskAreasVisible] = useState(true)
   const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
   const [gaugesVisible, setGaugesVisible] = useState(true)
+  const [newsVisible, setNewsVisible] = useState(false)
+  const [newsArticles, setNewsArticles] = useState([])
+  const [communityReports, setCommunityReports] = useState([])
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
   const [urbanFlashData, setUrbanFlashData] = useState(null)
@@ -503,6 +509,161 @@ export default function MapPanel({
   const toggleTileLayer = useCallback((source) => {
     setTileVisibility((current) => ({ ...current, [source]: !current[source] }))
   }, [])
+  const receiveNewsArticles = useCallback((articles) => {
+    newsArticlesRef.current = articles
+    setNewsArticles(articles)
+  }, [])
+
+  const loadCommunityReports = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/incidents?limit=100`, { cache: 'no-store' })
+      if (!response.ok) return
+      const reports = await response.json()
+      communityReportsRef.current = reports
+      setCommunityReports(reports)
+    } catch (_) { /* Keep the map usable while reports reconnect. */ }
+  }, [])
+
+  useEffect(() => {
+    loadCommunityReports()
+    const timer = setInterval(loadCommunityReports, 20000)
+    window.addEventListener('flood-reports-changed', loadCommunityReports)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('flood-reports-changed', loadCommunityReports)
+    }
+  }, [loadCommunityReports])
+  const focusNewsArticle = useCallback((article) => {
+    const map = mapObj.current
+    if (!map) return
+    if (!Number.isFinite(article.lat) || !Number.isFinite(article.lon)) {
+      window.open(article.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    map.flyTo({ center: [article.lon, article.lat], zoom: 10.5, duration: 1300 })
+    const content = document.createElement('div')
+    content.className = 'flood-news-popup-body'
+    if (article.image_url) {
+      const image = document.createElement('img')
+      image.src = article.image_url
+      image.alt = `${article.source} report`
+      image.referrerPolicy = 'no-referrer'
+      image.className = `flood-news-popup-image ${article.image_kind === 'report' ? '' : 'is-source'}`
+      content.append(image)
+    }
+    const heading = document.createElement('strong')
+    heading.textContent = article.location || 'Flood report'
+    const title = document.createElement('p')
+    title.textContent = article.title
+    title.style.margin = '6px 0'
+    const link = document.createElement('a')
+    link.href = article.url
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.textContent = `Open report · ${article.source}`
+    content.append(heading, title, link)
+    new maplibregl.Popup({ offset: 16, maxWidth: '320px', className: `flood-news-popup ${theme === 'dark' ? 'is-dark' : 'is-light'}` }).setLngLat([article.lon, article.lat]).setDOMContent(content).addTo(map)
+  }, [theme])
+
+  useEffect(() => {
+    if (!mapReady || !mapObj.current) return
+    const map = mapObj.current
+    const data = { type: 'FeatureCollection', features: newsArticles.map((a, index) => Number.isFinite(a.lat) && Number.isFinite(a.lon) ? ({ type: 'Feature', id: index, properties: { index }, geometry: { type: 'Point', coordinates: [a.lon, a.lat] } }) : null).filter(Boolean) }
+    if (map.getSource('flood-news')) map.getSource('flood-news').setData(data)
+    else {
+      map.addSource('flood-news', { type: 'geojson', data })
+      map.addLayer({ id: 'flood-news-points', type: 'circle', source: 'flood-news', paint: { 'circle-radius': 8, 'circle-color': '#ef4444', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.9 } })
+      map.on('mouseenter', 'flood-news-points', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'flood-news-points', () => { map.getCanvas().style.cursor = '' })
+      map.on('click', 'flood-news-points', (event) => {
+        const index = Number(event.features?.[0]?.properties?.index)
+        const article = newsArticlesRef.current[index]
+        if (article) focusNewsArticle(article)
+      })
+    }
+    map.setLayoutProperty('flood-news-points', 'visibility', newsVisible ? 'visible' : 'none')
+  }, [mapReady, newsArticles, newsVisible])
+
+  useEffect(() => {
+    if (!mapReady || !mapObj.current) return
+    const map = mapObj.current
+    const features = communityReports.map((report, index) => (
+      Number.isFinite(report.latitude) && Number.isFinite(report.longitude)
+        ? { type: 'Feature', id: report.id, properties: { index, severity: report.severity }, geometry: { type: 'Point', coordinates: [report.longitude, report.latitude] } }
+        : null
+    )).filter(Boolean)
+    const data = { type: 'FeatureCollection', features }
+    if (map.getSource('community-flood-reports')) map.getSource('community-flood-reports').setData(data)
+    else {
+      map.addSource('community-flood-reports', { type: 'geojson', data })
+      map.addLayer({
+        id: 'community-flood-report-points',
+        type: 'circle',
+        source: 'community-flood-reports',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': ['match', ['get', 'severity'], 'Critical', '#dc2626', 'High', '#f97316', 'Moderate', '#facc15', '#10b981'],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2.5,
+          'circle-opacity': 0.95,
+        },
+      })
+      map.on('mouseenter', 'community-flood-report-points', () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'community-flood-report-points', () => { map.getCanvas().style.cursor = '' })
+      map.on('click', 'community-flood-report-points', (event) => {
+        const index = Number(event.features?.[0]?.properties?.index)
+        const report = communityReportsRef.current[index]
+        if (!report) return
+        const body = document.createElement('div')
+        body.className = 'community-report-popup-body'
+        if (report.media_url) {
+          const mediaUrl = `${API}${report.media_url}`
+          if (report.media_type === 'video') {
+            const video = document.createElement('video')
+            video.src = mediaUrl
+            video.controls = true
+            video.preload = 'metadata'
+            video.className = 'community-report-popup-media'
+            body.append(video)
+          } else {
+            const image = document.createElement('img')
+            image.src = mediaUrl
+            image.alt = `Flood report from ${report.location_name}`
+            image.className = 'community-report-popup-media'
+            body.append(image)
+          }
+        }
+        const heading = document.createElement('strong')
+        heading.textContent = report.location_name
+        const meta = document.createElement('p')
+        meta.className = 'community-report-popup-meta'
+        meta.textContent = `${report.incident_type} · ${report.severity} · Unverified`
+        const description = document.createElement('p')
+        description.textContent = report.description
+        body.append(heading, meta)
+        if (report.affected_street) {
+          const street = document.createElement('p')
+          street.textContent = `Affected street: ${report.affected_street}`
+          body.append(street)
+        }
+        if (report.flood_source) {
+          const source = document.createElement('p')
+          source.textContent = `Flood source: ${report.flood_source}`
+          body.append(source)
+        }
+        if (report.water_depth_cm != null) {
+          const depth = document.createElement('p')
+          depth.textContent = `Estimated depth: ${report.water_depth_cm} cm`
+          body.append(depth)
+        }
+        body.append(description)
+        new maplibregl.Popup({ offset: 18, maxWidth: '340px', className: `community-report-popup ${theme === 'dark' ? 'is-dark' : 'is-light'}` })
+          .setLngLat([report.longitude, report.latitude])
+          .setDOMContent(body)
+          .addTo(map)
+      })
+    }
+  }, [mapReady, communityReports, theme])
 
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -1459,6 +1620,8 @@ export default function MapPanel({
           onToggleTile={toggleTileLayer}
           gaugesVisible={gaugesVisible}
           onToggleGauges={() => setGaugesVisible((v) => !v)}
+          newsVisible={newsVisible}
+          onToggleNews={() => setNewsVisible((v) => !v)}
           exposureLayers={exposureMeta.filter((layer) => layer.available)}
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
@@ -1483,6 +1646,7 @@ export default function MapPanel({
           </div>
         )}
       </div>
+      {newsVisible && <FloodNewsLayer theme={theme} onClose={() => setNewsVisible(false)} onArticles={receiveNewsArticles} onFocus={focusNewsArticle} />}
 
       {/* Home + basemap — below zoom (+/−) only; fullscreen is bottom-right */}
       <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">

@@ -28,7 +28,7 @@ function featuresToList(features = []) {
  * Falls back to viewport-style bbox fetch (same as map layer) if the
  * combined nearby+zone endpoint fails — so the tab still gets a list.
  */
-export function useNearbyBuildings(place, { radiusKm = 3, minTier = 'Watch' } = {}) {
+export function useNearbyBuildings(place, { radiusKm = 3, minTier = 'Moderate' } = {}) {
   const [buildings, setBuildings] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(false)
