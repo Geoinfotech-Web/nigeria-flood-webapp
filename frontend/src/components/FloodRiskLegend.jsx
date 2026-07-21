@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { IconChevronDown, IconChevronUp } from './Icons'
 
@@ -108,8 +108,13 @@ export default function FloodRiskLegend({
   visibleBoundaryIds = [],
   showGauges = true,
   theme = 'dark',
+  collapsedByDefault = false,
 }) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(collapsedByDefault)
+
+  useEffect(() => {
+    setCollapsed(collapsedByDefault)
+  }, [collapsedByDefault])
 
   const historyItems =
     historyLegend?.type === 'categories' && historyLegend.items?.length
