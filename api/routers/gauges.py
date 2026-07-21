@@ -38,6 +38,25 @@ async def get_readings(
             for r in rows]
 
 
+@router.get("/{station_id}/latest-reading")
+async def get_latest_reading(station_id: int, request: Request):
+    async with request.app.state.db.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT time, water_level_m, flow_rate_m3s
+            FROM gauge_readings
+            WHERE station_id = $1
+            ORDER BY time DESC
+            LIMIT 1
+        """, station_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="No readings found")
+    return {
+        "time": row["time"].isoformat(),
+        "water_level_m": row["water_level_m"],
+        "flow_rate_m3s": row["flow_rate_m3s"],
+    }
+
+
 @router.get("/{station_id}/features")
 async def get_features(station_id: int, request: Request):
     async with request.app.state.db.acquire() as conn:

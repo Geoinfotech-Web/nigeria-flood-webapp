@@ -16,19 +16,22 @@ export default function GaugeChart({
   height = 160,
 }) {
   const [data, setData] = useState([])
+  const [loaded, setLoaded] = useState(false)
   const isHistory = mode === 'history'
 
   useEffect(() => {
     if (!stationId) return undefined
 
     const load = () => {
+      setLoaded(false)
       const url = isHistory
         ? `${API}/stations/${stationId}/history?days=${days}`
         : `${API}/stations/${stationId}/readings?hours=${hours}`
       return axios
         .get(url)
         .then((r) => setData(Array.isArray(r.data) ? r.data : []))
-        .catch(console.error)
+        .catch(() => setData([]))
+        .finally(() => setLoaded(true))
     }
 
     load()
@@ -63,6 +66,10 @@ export default function GaugeChart({
   const heading =
     title ||
     (isHistory ? `Water Level — ${days} Days` : `Water Level - ${hours}h`)
+
+  const emptyMessage = isHistory
+    ? 'No hourly history available yet for this station.'
+    : 'No recent gauge readings available for this window.'
 
   const option = {
     backgroundColor: 'transparent',
@@ -126,7 +133,20 @@ export default function GaugeChart({
           {heading}
         </h3>
       ) : null}
-      <ReactECharts option={option} style={{ height }} />
+      {loaded && seriesData.length === 0 ? (
+        <div
+          className={
+            theme === 'dark'
+              ? 'flex items-center justify-center rounded-lg border border-gray-800 bg-gray-900/40 text-center text-xs text-gray-500'
+              : 'flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-center text-xs text-slate-500'
+          }
+          style={{ height }}
+        >
+          {emptyMessage}
+        </div>
+      ) : (
+        <ReactECharts option={option} style={{ height }} />
+      )}
     </div>
   )
 }

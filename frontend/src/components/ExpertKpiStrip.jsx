@@ -139,6 +139,8 @@ function KpiCard({ label, value, detail, accent, theme }) {
 export default function ExpertKpiStrip({
   impactSummary = null,
   urbanFlashSummary = null,
+  impactLoading = false,
+  urbanFlashLoading = false,
   rainfallAvgMm = null,
   theme = 'light',
 }) {
@@ -149,6 +151,20 @@ export default function ExpertKpiStrip({
   const likely = urban?.likely ?? 0
 
   const impactStates = impactSummary?.states || []
+  const urbanFlashStates = useMemo(
+    () => (urbanFlashSummary?.states || []).slice().sort((a, b) => a.localeCompare(b)),
+    [urbanFlashSummary?.states],
+  )
+  const affectedStates = useMemo(
+    () => Array.from(new Set([...impactStates, ...urbanFlashStates])).sort((a, b) => a.localeCompare(b)),
+    [impactStates, urbanFlashStates],
+  )
+  const affectedStateCount = Math.max(
+    Number(impactSummary?.affected_state_count || 0),
+    Number(urbanFlashSummary?.affected_state_count || 0),
+    affectedStates.length,
+  )
+  const statesLoading = impactLoading && !impactSummary && urbanFlashLoading && !urbanFlashSummary
   const settlements = impactSummary?.settlements?.total ?? '—'
   const towns =
     (impactSummary?.settlements?.by_class?.Town || 0) +
@@ -172,8 +188,8 @@ export default function ExpertKpiStrip({
       ? `${Math.round(rainfallAvgMm)} mm`
       : '—'
 
-  const riskDetail = impactStates.length
-    ? `Towns/villages in flood zones · ${impactStates.length} state${impactStates.length === 1 ? '' : 's'}`
+  const riskDetail = affectedStates.length
+    ? `Towns/villages in flood zones · ${affectedStates.length} state${affectedStates.length === 1 ? '' : 's'}`
     : 'Inundation probability + urban flash'
 
   return (
@@ -194,9 +210,9 @@ export default function ExpertKpiStrip({
         <KpiCard
           theme={theme}
           label="Affected States"
-          value={`${impactStates.length} / 36`}
+          value={statesLoading ? '—' : `${affectedStateCount} / 36`}
           detail={
-            impactStates.slice(0, 4).join(', ') ||
+            affectedStates.slice(0, 4).join(', ') ||
             'States with towns/villages in flood extents'
           }
           accent={CARD_ACCENT.states}

@@ -480,7 +480,17 @@ async def urban_flash_summary(request: Request):
         rows = await conn.fetch(
             """
             SELECT DISTINCT ON (name, admin_level, risk_tier)
-                name, admin_level, state, risk_tier, risk_score
+                name,
+                admin_level,
+                state,
+                risk_tier,
+                risk_score,
+                ST_X(ST_Centroid(geom)) AS lon,
+                ST_Y(ST_Centroid(geom)) AS lat,
+                ST_XMin(geom) AS min_lon,
+                ST_YMin(geom) AS min_lat,
+                ST_XMax(geom) AS max_lon,
+                ST_YMax(geom) AS max_lat
             FROM flood_risk_areas
             WHERE source = 'urban_flash_flood'
               AND risk_tier = ANY($1::text[])
@@ -496,6 +506,14 @@ async def urban_flash_summary(request: Request):
             "state": r["state"],
             "risk_tier": r["risk_tier"],
             "risk_score": float(r["risk_score"] or 0),
+            "lon": float(r["lon"]) if r["lon"] is not None else None,
+            "lat": float(r["lat"]) if r["lat"] is not None else None,
+            "bbox_lnglat": [
+                float(r["min_lon"]),
+                float(r["min_lat"]),
+                float(r["max_lon"]),
+                float(r["max_lat"]),
+            ] if all(r[key] is not None for key in ("min_lon", "min_lat", "max_lon", "max_lat")) else None,
         }
         for r in rows
     ]
@@ -510,6 +528,8 @@ async def urban_flash_summary(request: Request):
         "likely": sum(1 for a in areas if a["risk_tier"] == "Likely"),
         "highly_likely": sum(1 for a in areas if a["risk_tier"] == "Highly Likely"),
         "total": len(areas),
+        "states": sorted({a["state"] for a in areas if a.get("state")}),
+        "affected_state_count": len({a["state"] for a in areas if a.get("state")}),
         "top_areas": areas[:8],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -726,6 +746,9 @@ async def impact_summary(
                 "risk_tier": tier,
                 "risk_score": float(row["risk_score"] or 0),
                 "admin_level": row.get("admin_level"),
+                "lon": geom.centroid.x if not geom.centroid.is_empty else None,
+                "lat": geom.centroid.y if not geom.centroid.is_empty else None,
+                "bbox_lnglat": list(geom.bounds) if not geom.is_empty else None,
             })
 
     # Avoid unary_union of large SAR polygons (slow + TopologyException).
@@ -835,8 +858,8 @@ async def impact_summary(
         return result
 
     settlements = summarise_layer("places")
-    # Prefer states that actually contain exposed towns/villages; fall back to zone states.
-    affected_states = settlements.get("states") or sorted(
+    affected_states = sorted(
+        set(settlements.get("states") or []) |
         {z["state"] for z in zone_features if z.get("state")}
     )
 
@@ -862,6 +885,7 @@ async def impact_summary(
         "available_zones": available_zone_counts,
         "zones": _serialise_counter(zone_counts),
         "states": affected_states,
+        "affected_state_count": len(affected_states),
         "sources": list(IMPACT_SOURCES),
         "roads": summarise_layer("roads"),
         "bridges": summarise_layer("bridges"),

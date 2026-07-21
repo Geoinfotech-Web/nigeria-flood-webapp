@@ -447,6 +447,7 @@ export default function MapPanel({
   theme = 'dark',
   variant = 'expert',
   placeFocus = null,
+  zoneFocus = null,
   roadHighlight = null,
   forceBuildingsLayer = false,
   onBuildingsViewportChange = null,
@@ -735,19 +736,20 @@ export default function MapPanel({
       .then(r => r.json())
       .then(layers => {
         setTileLayers(layers)
-        // Default: Inundation History on, susceptibility off
+        // Public keeps Inundation History on by default; Expert starts with only
+        // gauges + urban flash visible to reduce map clutter.
         setTileVisibility((current) => {
           const next = { ...current }
           layers.forEach((layer) => {
             if (next[layer.source] === undefined) {
-              next[layer.source] = layer.source === 'jrc_occurrence'
+              next[layer.source] = publicMode ? layer.source === 'jrc_occurrence' : false
             }
           })
           return next
         })
       })
       .catch(console.error)
-  }, [])
+  }, [publicMode])
 
   useEffect(() => {
     fetch(`${API}/exposure/manifest`)
@@ -1428,6 +1430,31 @@ export default function MapPanel({
       })
     }
   }, [placeFocus, mapReady, publicMode])
+
+  useEffect(() => {
+    if (!mapReady || !zoneFocus || !mapObj.current) return
+    if (zoneFocus.bbox_lnglat?.length === 4) {
+      mapObj.current.fitBounds(
+        [
+          [zoneFocus.bbox_lnglat[0], zoneFocus.bbox_lnglat[1]],
+          [zoneFocus.bbox_lnglat[2], zoneFocus.bbox_lnglat[3]],
+        ],
+        {
+          padding: publicMode
+            ? { top: 80, right: 40, bottom: 280, left: 40 }
+            : 80,
+          duration: 1200,
+          maxZoom: 11,
+        },
+      )
+    } else if (Number.isFinite(zoneFocus.lon) && Number.isFinite(zoneFocus.lat)) {
+      mapObj.current.flyTo({
+        center: [zoneFocus.lon, zoneFocus.lat],
+        zoom: 10,
+        duration: 1200,
+      })
+    }
+  }, [zoneFocus, mapReady, publicMode])
 
   // Place pin marker
   useEffect(() => {

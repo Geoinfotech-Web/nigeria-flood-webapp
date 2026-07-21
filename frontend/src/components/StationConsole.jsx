@@ -161,13 +161,17 @@ export default function StationConsole({
   stationId,
   liveReading = null,
   theme = 'light',
+  basinVisible = false,
+  onToggleBasin,
   onClose,
 }) {
   const dark = theme === 'dark'
   const [tab, setTab] = useState('overview')
   const [prediction, setPrediction] = useState(null)
   const [readings24h, setReadings24h] = useState([])
+  const [latestReading, setLatestReading] = useState(null)
   const [rainToday, setRainToday] = useState(null)
+  const hasBasin = Boolean(station?.basin_id)
 
   useEffect(() => {
     setTab('overview')
@@ -185,6 +189,11 @@ export default function StationConsole({
         .get(`${API}/stations/${stationId}/readings?hours=24`)
         .then((r) => setReadings24h(Array.isArray(r.data) ? r.data : []))
         .catch(() => setReadings24h([]))
+    const loadLatest = () =>
+      axios
+        .get(`${API}/stations/${stationId}/latest-reading`)
+        .then((r) => setLatestReading(r.data || null))
+        .catch(() => setLatestReading(null))
     const loadRain = () =>
       axios
         .get(`${API}/stations/${stationId}/rainfall?days=1`)
@@ -196,19 +205,22 @@ export default function StationConsole({
         .catch(() => setRainToday(null))
     loadPred()
     loadReadings()
+    loadLatest()
     loadRain()
     const id = setInterval(() => {
       loadPred()
       loadReadings()
+      loadLatest()
       loadRain()
     }, 60_000)
     return () => clearInterval(id)
   }, [stationId])
 
+  const effectiveReading = liveReading?.time ? liveReading : latestReading
   const overall = prediction?.overall_risk || liveReading?.risk_tier || 'Normal'
   const banner = (dark ? RISK_BANNER.dark : RISK_BANNER.light)[overall] || RISK_BANNER.light.Normal
 
-  const level = liveReading?.water_level_m
+  const level = effectiveReading?.water_level_m
   const bankFull = station?.bank_full_m ?? liveReading?.bank_full_m
   const pct =
     liveReading?.pct_bank != null
@@ -216,11 +228,11 @@ export default function StationConsole({
       : bankFull && level != null
         ? Math.round((level / bankFull) * 1000) / 10
         : null
-  const flow = liveReading?.flow_rate_m3s
+  const flow = effectiveReading?.flow_rate_m3s
 
   const levelDelta1h = useMemo(() => {
     if (level == null || !readings24h.length) return null
-    const now = liveReading?.time ? new Date(liveReading.time).getTime() : Date.now()
+    const now = effectiveReading?.time ? new Date(effectiveReading.time).getTime() : Date.now()
     const target = now - 60 * 60 * 1000
     let best = null
     let bestDist = Infinity
@@ -234,7 +246,7 @@ export default function StationConsole({
     }
     if (best == null || bestDist > 45 * 60 * 1000) return null
     return Number(level) - Number(best)
-  }, [level, readings24h, liveReading?.time])
+  }, [level, readings24h, effectiveReading?.time])
 
   const flowDelta = useMemo(() => {
     if (flow == null || readings24h.length < 2) return null
@@ -257,10 +269,18 @@ export default function StationConsole({
     return best
   }, [prediction])
 
-  const online = useMemo(() => {
-    if (!liveReading?.time) return false
-    return Date.now() - new Date(liveReading.time).getTime() < 15 * 60 * 1000
-  }, [liveReading?.time])
+  const hasRecentReadings = readings24h.length > 0
+  const readingStatus = useMemo(() => {
+    if (liveReading?.time) return 'Online'
+    if (effectiveReading?.time) return 'Delayed'
+    return 'No data'
+  }, [liveReading?.time, effectiveReading?.time])
+
+  const freshnessNote = useMemo(() => {
+    if (liveReading?.time) return `Updated ${timeAgo(liveReading.time) || 'just now'}`
+    if (effectiveReading?.time) return `Last stored reading ${timeAgo(effectiveReading.time)}`
+    return 'No stored gauge reading available yet'
+  }, [liveReading?.time, effectiveReading?.time])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -284,16 +304,20 @@ export default function StationConsole({
               <span
                 className={clsx(
                   'rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
-                  online
+                  readingStatus === 'Online'
                     ? dark
                       ? 'bg-emerald-950 text-emerald-300'
                       : 'bg-emerald-50 text-emerald-700'
+                    : readingStatus === 'Delayed'
+                      ? dark
+                        ? 'bg-amber-950/60 text-amber-300'
+                        : 'bg-amber-50 text-amber-700'
                     : dark
                       ? 'bg-gray-800 text-gray-400'
                       : 'bg-slate-100 text-slate-500',
                 )}
               >
-                {online ? 'Online' : 'Stale'}
+                {readingStatus}
               </span>
             </div>
             <h2
@@ -354,10 +378,22 @@ export default function StationConsole({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-bold tracking-wide">{overall.toUpperCase()}</span>
                 <span className="text-[10px] opacity-80">
-                  Updated {timeAgo(liveReading?.time) || '—'}
+                  {freshnessNote}
                 </span>
               </div>
             </div>
+
+            {!hasRecentReadings && (
+              <div
+                className={clsx(
+                  'rounded-lg border px-3 py-2 text-[11px]',
+                  dark ? 'border-amber-900/40 bg-amber-950/20 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800',
+                )}
+              >
+                No readings were recorded in the last 24 hours for this station.
+                {effectiveReading?.time ? ' Overview cards show the latest stored reading instead.' : ''}
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-1.5">
               <MetricCard
@@ -403,9 +439,62 @@ export default function StationConsole({
               />
             </div>
 
+            <div
+              className={clsx(
+                'rounded-lg border px-3 py-2.5',
+                dark ? 'border-sky-900/40 bg-sky-950/20' : 'border-sky-200 bg-sky-50/80',
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p
+                    className={clsx(
+                      'text-xs font-semibold',
+                      dark ? 'text-sky-200' : 'text-sky-900',
+                    )}
+                  >
+                    River basin
+                  </p>
+                  <p
+                    className={clsx(
+                      'mt-0.5 text-[10px] leading-snug',
+                      dark ? 'text-sky-300/70' : 'text-sky-700/80',
+                    )}
+                  >
+                    {hasBasin
+                      ? 'Show this gauge’s HydroBASINS catchment on the map'
+                      : 'No basin assigned for this gauge'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={basinVisible}
+                  disabled={!hasBasin}
+                  onClick={() => onToggleBasin?.(!basinVisible)}
+                  className={clsx(
+                    'relative h-7 w-12 shrink-0 rounded-full transition',
+                    !hasBasin && 'cursor-not-allowed opacity-40',
+                    basinVisible
+                      ? 'bg-sky-600'
+                      : dark
+                        ? 'bg-gray-700'
+                        : 'bg-slate-300',
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      'absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition',
+                      basinVisible ? 'left-[1.35rem]' : 'left-0.5',
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
             <GaugeChart
               stationId={stationId}
-              liveReading={liveReading}
+              liveReading={effectiveReading}
               theme={theme}
               mode="readings"
               hours={24}
@@ -458,7 +547,7 @@ export default function StationConsole({
         {tab === 'historical' && (
           <GaugeChart
             stationId={stationId}
-            liveReading={liveReading}
+            liveReading={effectiveReading}
             theme={theme}
             mode="history"
             days={30}
@@ -475,11 +564,11 @@ export default function StationConsole({
               ['State', station.state],
               ['Coordinates', `${Number(station.lat).toFixed(4)}, ${Number(station.lon).toFixed(4)}`],
               ['Bankfull', station.bank_full_m != null ? `${station.bank_full_m} m` : '—'],
-              ['Status', online ? 'Online (< 15 min)' : 'No recent reading'],
+              ['Status', readingStatus === 'Online' ? 'Online (< 15 min)' : readingStatus === 'Delayed' ? 'Delayed / websocket missing' : 'No reading'],
               [
                 'Last reading',
-                liveReading?.time
-                  ? format(new Date(liveReading.time), 'dd MMM yyyy HH:mm')
+                effectiveReading?.time
+                  ? format(new Date(effectiveReading.time), 'dd MMM yyyy HH:mm')
                   : '—',
               ],
             ].map(([k, v]) => (

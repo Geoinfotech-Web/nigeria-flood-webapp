@@ -48,7 +48,7 @@ export default function PublicHeader({
             </div>
             <div className="min-w-0">
               <h1 className="font-display truncate text-base font-semibold tracking-tight sm:text-lg">
-                Nigeria Flood Watch
+                GGIS Flood Watch
               </h1>
               <p
                 className={clsx(
@@ -57,7 +57,7 @@ export default function PublicHeader({
                 )}
               >
                 {mode === 'expert'
-                  ? `Gauge console · forecasts · network triage · ${stationCount} gauges`
+                  ? `Gauge console · place exposure · forecasts · ${stationCount} gauges`
                   : `Public early warning · 72-hour forecasts · ${stationCount} gauges`}
               </p>
             </div>

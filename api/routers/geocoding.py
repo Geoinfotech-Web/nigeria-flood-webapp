@@ -3,7 +3,7 @@ import httpx
 from fastapi import APIRouter, Query, HTTPException
 
 router = APIRouter()
-_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "NigeriaFloodDashboard/1.0"})
+_client = httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "GGISFloodWatch/1.0"})
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 
@@ -112,4 +112,77 @@ async def reverse_geocode(
         "bbox": [float(x) for x in bbox] if bbox else None,
         "bbox_lnglat": bbox_lnglat,
         "from_geolocation": True,
+    }
+
+
+@router.get("/terrain")
+async def terrain_at_point(
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180),
+):
+    """
+    Elevation (m) and approximate slope (deg) at a point using Open-Meteo
+    SRTM-derived elevation samples around the location.
+    """
+    import math
+
+    # ~150 m offsets in degrees (approximate at mid-latitudes)
+    dlat = 150.0 / 111_320.0
+    dlon = 150.0 / max(111_320.0 * abs(math.cos(math.radians(lat))), 1e-6)
+    lats = [lat, lat + dlat, lat - dlat, lat, lat]
+    lons = [lon, lon, lon, lon + dlon, lon - dlon]
+
+    try:
+        resp = await _client.get(
+            "https://api.open-meteo.com/v1/elevation",
+            params={
+                "latitude": ",".join(f"{v:.6f}" for v in lats),
+                "longitude": ",".join(f"{v:.6f}" for v in lons),
+            },
+        )
+        resp.raise_for_status()
+        elevs = resp.json().get("elevation") or []
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Terrain service unavailable: {exc}")
+
+    if len(elevs) < 5 or elevs[0] is None:
+        raise HTTPException(status_code=404, detail="No elevation available for this location")
+
+    center = float(elevs[0])
+    neighbors = [float(e) for e in elevs[1:5] if e is not None]
+    if not neighbors:
+        return {
+            "lat": lat,
+            "lon": lon,
+            "elevation_m": round(center, 1),
+            "slope_deg": None,
+            "slope_class": None,
+            "source": "open-meteo/SRTM",
+        }
+
+    # Gradients along N-S and E-W axes (rise / 150 m run)
+    rise_ns = abs(float(elevs[1]) - float(elevs[2])) / 2.0 if elevs[1] is not None and elevs[2] is not None else 0.0
+    rise_ew = abs(float(elevs[3]) - float(elevs[4])) / 2.0 if elevs[3] is not None and elevs[4] is not None else 0.0
+    # Prefer max directional gradient; fall back to center vs neighbors
+    rise = max(rise_ns, rise_ew, max(abs(e - center) for e in neighbors))
+    slope_deg = math.degrees(math.atan(rise / 150.0))
+
+    if slope_deg < 1:
+        slope_class = "Very flat"
+    elif slope_deg < 3:
+        slope_class = "Flat"
+    elif slope_deg < 8:
+        slope_class = "Gentle"
+    elif slope_deg < 15:
+        slope_class = "Moderate"
+    else:
+        slope_class = "Steep"
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "elevation_m": round(center, 1),
+        "slope_deg": round(slope_deg, 1),
+        "slope_class": slope_class,
+        "source": "open-meteo/SRTM",
     }

@@ -156,7 +156,7 @@ function StateRankPanel({ stations, liveReadings, theme }) {
   )
 }
 
-function UrbanFlashPanel({ urbanFlash, theme }) {
+function UrbanFlashPanel({ urbanFlash, theme, onSelectArea }) {
   const dark = theme === 'dark'
   const areas = urbanFlash?.top_areas || []
 
@@ -179,23 +179,28 @@ function UrbanFlashPanel({ urbanFlash, theme }) {
         {areas.map((a, idx) => {
           const color = TIER_COLORS[a.risk_tier] || '#64748b'
           return (
-            <li
-              key={`${a.name}-${a.state}-${idx}`}
-              className={clsx(
-                'flex items-start gap-2 rounded-lg border px-2 py-1.5',
-                dark ? 'border-gray-800 bg-gray-950/40' : 'border-slate-100 bg-slate-50',
-              )}
-            >
-              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-              <span className="min-w-0 flex-1">
-                <span className={clsx('block truncate text-[11px] font-medium', dark ? 'text-gray-100' : 'text-slate-800')}>
-                  {a.name}
+            <li key={`${a.name}-${a.state}-${idx}`}>
+              <button
+                type="button"
+                onClick={() => onSelectArea?.(a)}
+                className={clsx(
+                  'flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition',
+                  dark
+                    ? 'border-gray-800 bg-gray-950/40 hover:border-gray-700 hover:bg-gray-900/70'
+                    : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white',
+                )}
+              >
+                <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="min-w-0 flex-1">
+                  <span className={clsx('block truncate text-[11px] font-medium', dark ? 'text-gray-100' : 'text-slate-800')}>
+                    {a.name}
+                  </span>
+                  <span className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                    {a.risk_tier}
+                    {a.state ? ` · ${a.state}` : ''}
+                  </span>
                 </span>
-                <span className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                  {a.risk_tier}
-                  {a.state ? ` · ${a.state}` : ''}
-                </span>
-              </span>
+              </button>
             </li>
           )
         })}
@@ -363,6 +368,7 @@ export default function ExpertAnalyticsRow({
   urbanFlashSummary = null,
   theme = 'light',
   onSelectStation,
+  onSelectUrbanFlash,
   onViewReports,
   collapsed = false,
   onToggleCollapsed,
@@ -401,7 +407,7 @@ export default function ExpertAnalyticsRow({
       {!collapsed && (
         <div className="grid grid-cols-4 gap-2 px-3 pb-2.5">
           <StateRankPanel stations={stations} liveReadings={liveReadings} theme={theme} />
-          <UrbanFlashPanel urbanFlash={urbanFlash} theme={theme} />
+          <UrbanFlashPanel urbanFlash={urbanFlash} theme={theme} onSelectArea={onSelectUrbanFlash} />
           <AlertsPanel theme={theme} onSelectStation={onSelectStation} stations={stations} />
           <CommunityReportsPanel theme={theme} onViewAll={onViewReports} />
         </div>

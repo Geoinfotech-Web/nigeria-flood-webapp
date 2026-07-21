@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import MapPanel from './components/MapPanel'
-import StationList from './components/StationList'
 import ExpertOverviewPanel from './components/ExpertOverviewPanel'
 import ExpertKpiStrip from './components/ExpertKpiStrip'
 import ExpertAnalyticsRow from './components/ExpertAnalyticsRow'
 import StationConsole from './components/StationConsole'
+import AtRiskPlacesPanel from './components/AtRiskPlacesPanel'
 import PublicHeader from './components/PublicHeader'
 import PlaceBriefPanel from './components/PlaceBriefPanel'
+import ExpertIntelligenceReport from './components/ExpertIntelligenceReport'
 import PublicGaugePanel from './components/PublicGaugePanel'
 import NationalAlertsStrip from './components/NationalAlertsStrip'
 import DisclaimerBar from './components/DisclaimerBar'
@@ -25,6 +26,9 @@ import { useNearbySettlements } from './hooks/useNearbySettlements'
 import { useNearbyRoads } from './hooks/useNearbyRoads'
 import { useNearbyBuildings } from './hooks/useNearbyBuildings'
 import { useDetectLocation } from './hooks/useDetectLocation'
+import { useTerrain } from './hooks/useTerrain'
+import { useSiteAssessment } from './hooks/useSiteAssessment'
+import { useAffectedSettlements } from './hooks/useAffectedSettlements'
 import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
 import AffectedPlacesStat from './components/AffectedPlacesStat'
 import RouteConditionsPanel from './components/RouteConditionsPanel'
@@ -70,6 +74,7 @@ export default function App() {
   const [selected, setSelected] = useState(null)
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
+  const [zoneFocus, setZoneFocus] = useState(null)
   const [highlightedRoad, setHighlightedRoad] = useState(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportInitialTab, setReportInitialTab] = useState(null)
@@ -78,6 +83,12 @@ export default function App() {
   const [viewportBuildings, setViewportBuildings] = useState(null)
   const [expertListOpen, setExpertListOpen] = useState(false)
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false)
+  const [expertPlaceFilters, setExpertPlaceFilters] = useState({
+    query: '',
+    state: 'All',
+    placeClass: 'All',
+    riskTier: 'All',
+  })
 
   const handleBuildingsViewportChange = useCallback((payload) => {
     setViewportBuildings(payload)
@@ -89,11 +100,24 @@ export default function App() {
     loading: predictionsLoading,
   } = useAllPredictions(mode === 'expert')
 
-  const { summary: impactSummary } = useImpactSummary({ enabled: mode === 'expert' })
-  const { summary: urbanFlashSummary } = useUrbanFlashSummary({ enabled: mode === 'expert' })
+  const { summary: impactSummary, loading: impactLoading } = useImpactSummary({ enabled: mode === 'expert' })
+  const { summary: urbanFlashSummary, loading: urbanFlashLoading } = useUrbanFlashSummary({ enabled: mode === 'expert' })
   const { latestAvgMm } = useNationalRainfall({
     enabled: mode === 'expert',
     days: 7,
+  })
+  const {
+    summary: affectedSettlements,
+    loading: affectedSettlementsLoading,
+  } = useAffectedSettlements({
+    enabled: mode === 'expert',
+    minTier: 'Warning',
+    radiusKm: 25,
+    state: expertPlaceFilters.state,
+    placeClass: expertPlaceFilters.placeClass,
+    riskTier: expertPlaceFilters.riskTier,
+    query: expertPlaceFilters.query,
+    limit: 160,
   })
 
   const openReportFeed = useCallback(() => {
@@ -113,12 +137,35 @@ export default function App() {
   const selectedStation = sortedStations.find((s) => s.id === selected)
 
   const handlePlaceSelect = useCallback((result) => {
+    setZoneFocus(null)
     setHighlightedRoad(null)
     setBuildingsTabActive(false)
     setViewportBuildings(null)
     setPlace(result)
     setSelected(null)
+    setShowSelectedBasin(false)
   }, [])
+
+  const selectAtRiskPlace = useCallback(
+    (nextPlace) => {
+      handlePlaceSelect({
+        name: nextPlace.name,
+        display_name: nextPlace.display_name || `${nextPlace.name}, Nigeria`,
+        lat: nextPlace.lat,
+        lon: nextPlace.lon,
+        bbox_lnglat: null,
+        class: nextPlace.class || null,
+        state: nextPlace.state || null,
+        population: nextPlace.population ?? null,
+        susceptibility: nextPlace.susceptibility || null,
+        susceptibility_class: nextPlace.susceptibility_class ?? null,
+        nearest_station: nextPlace.nearest_station || null,
+        station_risk_tier: nextPlace.station_risk_tier || null,
+        distance_km: nextPlace.distance_km ?? null,
+      })
+    },
+    [handlePlaceSelect],
+  )
 
   const placeConditions = usePlaceConditions(place, sortedStations)
   const { settlements, localSummary, loading: settlementsLoading } = useNearbySettlements(
@@ -132,6 +179,10 @@ export default function App() {
     loading: placeBuildingsLoading,
     error: placeBuildingsError,
   } = useNearbyBuildings(place)
+  const { terrain, loading: terrainLoading } = useTerrain(mode === 'expert' ? place : null)
+  const { assessment: siteAssessment, loading: siteLoading } = useSiteAssessment(
+    mode === 'expert' ? place : null,
+  )
 
   // Prefer map-viewport buildings (updates on pan/zoom); fall back to place-radius query
   const useViewport =
@@ -201,6 +252,8 @@ export default function App() {
     setShowSelectedBasin(false)
   }
   const handleSelectStation = (stationId) => {
+    setZoneFocus(null)
+    setPlace(null)
     setSelected((current) => {
       if (current === stationId) {
         setShowSelectedBasin(false)
@@ -213,6 +266,7 @@ export default function App() {
 
   const clearPlace = () => {
     setPlace(null)
+    setZoneFocus(null)
     setSelected(null)
     setShowSelectedBasin(false)
     setHighlightedRoad(null)
@@ -220,9 +274,21 @@ export default function App() {
     setViewportBuildings(null)
   }
 
+  const resetExpertPlaceFilters = useCallback(() => {
+    setExpertPlaceFilters({
+      query: '',
+      state: 'All',
+      placeClass: 'All',
+      riskTier: 'All',
+    })
+    setPlace(null)
+    setZoneFocus(null)
+  }, [])
+
   const handleAlertStation = (stationName) => {
     const match = sortedStations.find((s) => s.name === stationName)
     if (match) {
+      setZoneFocus(null)
       setShowSelectedBasin(false)
       setSelected(match.id)
       setPlace({
@@ -234,6 +300,17 @@ export default function App() {
       })
     }
   }
+
+  const handleSelectUrbanFlash = useCallback((area) => {
+    if (!area) return
+    setSelected(null)
+    setShowSelectedBasin(false)
+    setPlace(null)
+    setHighlightedRoad(null)
+    setBuildingsTabActive(false)
+    setViewportBuildings(null)
+    setZoneFocus(area)
+  }, [])
 
   const publicShell =
     theme === 'dark' ? 'bg-gray-950 text-gray-100' : 'bg-slate-100 text-slate-900'
@@ -260,6 +337,7 @@ export default function App() {
         affectedLoading={stripLoading}
         affectedScope={stripScope}
         placeName={place?.name}
+        showAffectedPlaces={mode === 'public'}
         onReportFlood={() => {
           setReportInitialTab('report')
           setReportOpen(true)
@@ -437,36 +515,41 @@ export default function App() {
           <ExpertKpiStrip
             impactSummary={impactSummary}
             urbanFlashSummary={urbanFlashSummary}
+            impactLoading={impactLoading}
+            urbanFlashLoading={urbanFlashLoading}
             rainfallAvgMm={latestAvgMm}
             theme={theme}
           />
 
           <div className="relative flex min-h-0 flex-1 overflow-hidden">
-            {/* Desktop triage rail */}
+            {/* Desktop places rail */}
             <aside
               className={clsx(
                 'hidden w-56 shrink-0 overflow-hidden border-r lg:w-64 sm:flex sm:flex-col',
                 theme === 'dark' ? 'border-gray-800 bg-gray-900/60' : 'border-slate-200 bg-white/90',
               )}
             >
-              <StationList
-                stations={sortedStations}
-                liveReadings={liveReadings}
-                predictionsByStation={predictionsByStation}
-                selected={selected}
-                onSelect={handleSelectStation}
-                onReset={clearSelectedStation}
+              <AtRiskPlacesPanel
+                summary={affectedSettlements}
+                loading={affectedSettlementsLoading}
+                selectedPlace={place}
+                filters={expertPlaceFilters}
+                onFiltersChange={(patch) =>
+                  setExpertPlaceFilters((current) => ({ ...current, ...patch }))
+                }
+                onSelectPlace={selectAtRiskPlace}
+                onReset={resetExpertPlaceFilters}
                 theme={theme}
               />
             </aside>
 
-            {/* Mobile gauges drawer */}
+            {/* Mobile places drawer */}
             {expertListOpen && (
               <div className="absolute inset-0 z-40 flex sm:hidden">
                 <button
                   type="button"
                   className="absolute inset-0 bg-black/40"
-                  aria-label="Close gauge list"
+                  aria-label="Close places list"
                   onClick={() => setExpertListOpen(false)}
                 />
                 <aside
@@ -487,7 +570,7 @@ export default function App() {
                         theme === 'dark' ? 'text-gray-300' : 'text-slate-700',
                       )}
                     >
-                      Gauges
+                      Places
                     </p>
                     <button
                       type="button"
@@ -504,16 +587,19 @@ export default function App() {
                     </button>
                   </div>
                   <div className="min-h-0 flex-1 overflow-hidden">
-                    <StationList
-                      stations={sortedStations}
-                      liveReadings={liveReadings}
-                      predictionsByStation={predictionsByStation}
-                      selected={selected}
-                      onSelect={(id) => {
-                        handleSelectStation(id)
+                    <AtRiskPlacesPanel
+                      summary={affectedSettlements}
+                      loading={affectedSettlementsLoading}
+                      selectedPlace={place}
+                      filters={expertPlaceFilters}
+                      onFiltersChange={(patch) =>
+                        setExpertPlaceFilters((current) => ({ ...current, ...patch }))
+                      }
+                      onSelectPlace={(nextPlace) => {
+                        selectAtRiskPlace(nextPlace)
                         setExpertListOpen(false)
                       }}
-                      onReset={clearSelectedStation}
+                      onReset={resetExpertPlaceFilters}
                       theme={theme}
                     />
                   </div>
@@ -533,7 +619,7 @@ export default function App() {
                 )}
               >
                 <IconGauge size={13} />
-                Gauges
+                Places
               </button>
               <MapPanel
                 stations={sortedStations}
@@ -545,10 +631,12 @@ export default function App() {
                 theme={theme}
                 variant="expert"
                 placeFocus={place}
+                zoneFocus={zoneFocus}
+                roadHighlight={highlightedRoad}
                 onPlaceSelect={handlePlaceSelect}
                 showSearch={false}
                 navigation={navigation}
-                highlightSelectedBasin={Boolean(selected)}
+                highlightSelectedBasin={showSelectedBasin}
               />
             </main>
 
@@ -566,7 +654,34 @@ export default function App() {
                   stationId={selected}
                   liveReading={liveReadings[selected]}
                   theme={theme}
+                  basinVisible={showSelectedBasin}
+                  onToggleBasin={setShowSelectedBasin}
                   onClose={clearSelectedStation}
+                />
+              ) : place ? (
+                <ExpertIntelligenceReport
+                  place={place}
+                  overallRisk={placeConditions.overallRisk}
+                  primaryStation={placeConditions.primaryStation}
+                  nearby={placeConditions.nearby}
+                  nearbySettlements={settlements}
+                  localSettlementSummary={localSummary}
+                  settlementsLoading={settlementsLoading}
+                  nearbyRoads={nearbyRoads}
+                  roadSummary={roadSummary}
+                  roadsLoading={roadsLoading}
+                  selectedRoad={highlightedRoad}
+                  onSelectRoad={setHighlightedRoad}
+                  onSelectPlace={handlePlaceSelect}
+                  terrain={terrain}
+                  terrainLoading={terrainLoading}
+                  siteAssessment={siteAssessment}
+                  siteLoading={siteLoading}
+                  loading={placeConditions.loading}
+                  liveReadings={liveReadings}
+                  theme={theme}
+                  onClose={clearPlace}
+                  onSelectStation={handleSelectStation}
                 />
               ) : (
                 <ExpertOverviewPanel
@@ -589,6 +704,7 @@ export default function App() {
             urbanFlashSummary={urbanFlashSummary}
             theme={theme}
             onSelectStation={handleSelectStation}
+            onSelectUrbanFlash={handleSelectUrbanFlash}
             onViewReports={openReportFeed}
             collapsed={analyticsCollapsed}
             onToggleCollapsed={() => setAnalyticsCollapsed((v) => !v)}

@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconActivity, IconGauge } from './Icons'
+import { IconActivity, IconChevronDown, IconGauge } from './Icons'
+import { bankPct, RISK_ORDER, stationRisk } from '../lib/stationRisk'
 
-const RISK_ORDER = { Normal: 0, Watch: 1, Warning: 2, Emergency: 3 }
 const TIERS = ['Emergency', 'Warning', 'Watch', 'Normal']
 
 const TIER_STYLE = {
@@ -24,39 +24,6 @@ const TIER_STYLE = {
   },
 }
 
-function bankPct(station, reading) {
-  if (!reading) return null
-  if (reading.pct_bank != null) return Number(reading.pct_bank)
-  if (station?.bank_full_m && reading.water_level_m != null) {
-    return Math.round((reading.water_level_m / station.bank_full_m) * 1000) / 10
-  }
-  return null
-}
-
-function riskFromBank(pct) {
-  if (pct == null) return 'Normal'
-  if (pct >= 100) return 'Emergency'
-  if (pct >= 85) return 'Warning'
-  if (pct >= 70) return 'Watch'
-  return 'Normal'
-}
-
-function stationRisk(reading, pred, pct) {
-  if (reading?.risk_tier && RISK_ORDER[reading.risk_tier] != null) return reading.risk_tier
-  if (pred?.overall_risk && RISK_ORDER[pred.overall_risk] != null) return pred.overall_risk
-  return riskFromBank(pct)
-}
-
-function maxHorizonProb(pred) {
-  const horizons = pred?.horizons || {}
-  let best = 0
-  for (const v of Object.values(horizons)) {
-    const p = Number(v?.flood_prob) || 0
-    if (p > best) best = p
-  }
-  return best
-}
-
 export default function ExpertOverviewPanel({
   stations = [],
   liveReadings = {},
@@ -67,6 +34,19 @@ export default function ExpertOverviewPanel({
   theme = 'light',
 }) {
   const dark = theme === 'dark'
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return undefined
+    const onClickAway = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickAway)
+    return () => document.removeEventListener('mousedown', onClickAway)
+  }, [dropdownOpen])
 
   const tierCounts = useMemo(() => {
     const counts = { Normal: 0, Watch: 0, Warning: 0, Emergency: 0 }
@@ -93,13 +73,13 @@ export default function ExpertOverviewPanel({
     return latest
   }, [liveReadings])
 
-  const topAtRisk = useMemo(() => {
-    const rows = stations.map((s) => {
+  const stationOptions = useMemo(() => {
+    return stations
+      .map((s) => {
       const reading = liveReadings[s.id]
       const pred = predictionsByStation[s.id]
       const pct = bankPct(s, reading)
       const risk = stationRisk(reading, pred, pct)
-      const floodProb = maxHorizonProb(pred)
       return {
         id: s.id,
         name: s.name,
@@ -107,14 +87,16 @@ export default function ExpertOverviewPanel({
         state: s.state,
         risk,
         pct,
-        floodProb,
-        score:
-          RISK_ORDER[risk] * 1000 +
-          (floodProb || 0) * 100 +
-          (pct != null ? pct / 100 : 0),
+        label: `${s.name} - ${s.river || 'Unknown river'}${s.state ? ` · ${s.state}` : ''} [${risk}]`,
       }
     })
-    return rows.sort((a, b) => b.score - a.score).slice(0, 5)
+      .sort((a, b) => {
+        const riskDelta = (RISK_ORDER[b.risk] || 0) - (RISK_ORDER[a.risk] || 0)
+        if (riskDelta) return riskDelta
+        const pctDelta = (b.pct ?? -1) - (a.pct ?? -1)
+        if (pctDelta) return pctDelta
+        return a.name.localeCompare(b.name)
+      })
   }, [stations, liveReadings, predictionsByStation])
 
   const statusLine =
@@ -223,77 +205,86 @@ export default function ExpertOverviewPanel({
                 dark ? 'text-gray-500' : 'text-slate-500',
               )}
             >
-              Top at-risk gauges
+              Gauge stations
             </p>
           </div>
-          <div className="space-y-1.5">
-            {topAtRisk.map((row, idx) => {
-              const style = TIER_STYLE[row.risk] || TIER_STYLE.Normal
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => onSelectStation?.(row.id)}
-                  className={clsx(
-                    'flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition',
-                    dark
-                      ? 'border-gray-800 bg-gray-900/50 hover:border-gray-700 hover:bg-gray-800/70'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50',
-                  )}
-                >
-                  <span
+          <div className="space-y-2" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setDropdownOpen((open) => !open)}
+              className={clsx(
+                'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition',
+                dark
+                  ? 'border-gray-800 bg-gray-900/60 text-gray-100 hover:border-gray-700 hover:bg-gray-900'
+                  : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300',
+              )}
+              aria-haspopup="listbox"
+              aria-expanded={dropdownOpen}
+            >
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium">Select a gauge station</span>
+                <span className={clsx('block truncate text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  Emergency and Warning stations appear first.
+                </span>
+              </span>
+              <IconChevronDown
+                size={14}
+                className={clsx('shrink-0 transition', dropdownOpen && 'rotate-180', dark ? 'text-gray-500' : 'text-slate-400')}
+              />
+            </button>
+            {dropdownOpen && (
+              <div
+                className={clsx(
+                  'max-h-72 overflow-y-auto rounded-xl border p-1.5 shadow-xl',
+                  dark ? 'border-gray-800 bg-gray-950/95' : 'border-slate-200 bg-white',
+                )}
+                role="listbox"
+              >
+                {stationOptions.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectStation?.(row.id)
+                      setDropdownOpen(false)
+                    }}
                     className={clsx(
-                      'flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold',
-                      dark ? 'bg-gray-800 text-gray-400' : 'bg-slate-100 text-slate-500',
+                      'mb-1 flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition last:mb-0',
+                      dark
+                        ? 'border-transparent bg-gray-900/70 hover:border-gray-700 hover:bg-gray-900'
+                        : 'border-transparent bg-slate-50 hover:border-slate-200 hover:bg-white',
                     )}
                   >
-                    {idx + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={clsx(
-                        'truncate text-[12px] font-medium',
-                        dark ? 'text-gray-100' : 'text-slate-800',
-                      )}
-                    >
-                      {row.name}
-                    </p>
-                    <p
-                      className={clsx(
-                        'truncate text-[10px]',
-                        dark ? 'text-gray-500' : 'text-slate-500',
-                      )}
-                    >
-                      {row.river} · {row.state}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
                     <span
                       className={clsx(
-                        'inline-block rounded border px-1.5 py-0.5 text-[9px] font-semibold',
-                        dark ? style.dark : style.light,
+                        'mt-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold',
+                        dark ? TIER_STYLE[row.risk]?.dark : TIER_STYLE[row.risk]?.light,
                       )}
                     >
                       {row.risk}
                     </span>
-                    <p
-                      className={clsx(
-                        'mt-0.5 text-[10px] tabular-nums',
-                        dark ? 'text-gray-400' : 'text-slate-500',
-                      )}
-                    >
-                      {row.pct != null ? `${Math.round(row.pct)}% bank` : '—'}
-                      {row.floodProb > 0 ? ` · ${Math.round(row.floodProb * 100)}%` : ''}
-                    </p>
-                  </div>
-                </button>
-              )
-            })}
-            {topAtRisk.length === 0 && (
-              <p className={clsx('text-[11px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                No gauge data yet.
-              </p>
+                    <span className="min-w-0 flex-1">
+                      <span className={clsx('block truncate text-[12px] font-medium', dark ? 'text-white' : 'text-slate-900')}>
+                        {row.name}
+                      </span>
+                      <span className={clsx('block truncate text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                        {row.river || 'Unknown river'}
+                        {row.state ? ` · ${row.state}` : ''}
+                        {row.pct != null ? ` · ${row.pct}% bankfull` : ''}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {stationOptions.length === 0 && (
+                  <p className={clsx('px-2 py-4 text-[11px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                    No gauge data yet.
+                  </p>
+                )}
+              </div>
             )}
+            <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+              Monitoring stations remain available here while the left rail focuses on exposed places.
+            </p>
           </div>
         </div>
       </div>

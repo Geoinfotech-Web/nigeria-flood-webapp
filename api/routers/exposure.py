@@ -7,6 +7,7 @@ import json
 import math
 import os
 import urllib.parse as up
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -332,6 +333,85 @@ async def nearby_settlements(
     return await _enrich_with_susceptibility(request, results)
 
 
+@router.get("/site-assessment")
+async def site_assessment(
+    request: Request,
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(2.0, ge=0.5, le=10),
+):
+    """
+    Flood-relevant assessment for a specific lat/lon (searched or user location).
+    Samples GEE susceptibility and nearby inundation / urban-flash zones.
+    """
+    cog_url = await _latest_susceptibility_cog(request)
+    sus = (
+        await _sample_susceptibility(cog_url, lon, lat)
+        if cog_url
+        else {"susceptibility_class": None, "susceptibility": None}
+    )
+
+    zones: list[dict] = []
+    try:
+        async with request.app.state.db.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    name,
+                    state,
+                    source,
+                    risk_tier,
+                    risk_score,
+                    ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) AS inside,
+                    ST_Distance(
+                        geom::geography,
+                        ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
+                    ) / 1000.0 AS distance_km
+                FROM flood_risk_areas
+                WHERE source = ANY($3::text[])
+                  AND ST_DWithin(
+                        geom::geography,
+                        ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+                        $4
+                      )
+                ORDER BY inside DESC, risk_score DESC NULLS LAST, distance_km ASC
+                LIMIT 8
+                """,
+                lon,
+                lat,
+                ["sar_dem_inundation", "urban_flash_flood"],
+                radius_km * 1000.0,
+            )
+        for r in rows:
+            zones.append(
+                {
+                    "name": r["name"] or "Flood risk zone",
+                    "state": r["state"],
+                    "source": r["source"],
+                    "risk_tier": r["risk_tier"],
+                    "risk_score": float(r["risk_score"] or 0),
+                    "inside": bool(r["inside"]),
+                    "distance_km": round(float(r["distance_km"] or 0), 2),
+                }
+            )
+    except Exception:
+        zones = []
+
+    inside_zones = [z for z in zones if z["inside"]]
+    near_zones = [z for z in zones if not z["inside"]]
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "susceptibility": sus.get("susceptibility"),
+        "susceptibility_class": sus.get("susceptibility_class"),
+        "zones_inside": inside_zones,
+        "zones_nearby": near_zones[:5],
+        "radius_km": radius_km,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 ROAD_CLASS_RANK = {
     "Highway": 0,
     "Major Road": 1,
@@ -586,6 +666,11 @@ async def affected_settlements_summary(
         "Warning",
         description="Minimum risk tier: Watch, Warning, or Emergency",
     ),
+    state: str | None = Query(default=None, description="Optional state filter"),
+    place_class: str | None = Query(default=None, description="Optional place class filter"),
+    risk_tier: str | None = Query(default=None, description="Optional station risk tier filter"),
+    q: str | None = Query(default=None, description="Optional text search for place name / station / state"),
+    limit: int = Query(100, ge=10, le=500),
 ):
     """
     Count unique towns/villages/cities within radius_km of gauges that currently
@@ -593,7 +678,15 @@ async def affected_settlements_summary(
     """
     min_rank = _TIER_RANK.get(min_tier, 2)
     # v3 returns the full places list (no 80-item cap) for the public outlook panel.
-    cache_key = f"affected-settlements:v3:{min_tier}:{radius_km}"
+    cache_key = (
+        "affected-settlements:v4:"
+        f"{min_tier}:{radius_km}:"
+        f"{(state or '').strip().lower()}:"
+        f"{(place_class or '').strip().lower()}:"
+        f"{(risk_tier or '').strip().lower()}:"
+        f"{(q or '').strip().lower()}:"
+        f"{limit}"
+    )
     try:
         cached = await request.app.state.redis.get(cache_key)
         if cached:
@@ -683,6 +776,7 @@ async def affected_settlements_summary(
                 seen[key] = {
                     **place,
                     "nearest_station": station["name"],
+                    "station_state": station["state"],
                     "station_risk_tier": station["risk_tier"],
                 }
                 cls = place.get("class") if place.get("class") in by_class else "Town"
@@ -710,6 +804,7 @@ async def affected_settlements_summary(
         {
             "name": p.get("name"),
             "class": p.get("class") or "Town",
+            "state": p.get("station_state") or p.get("state"),
             "lat": p.get("lat"),
             "lon": p.get("lon"),
             "display_name": p.get("display_name") or f"{p.get('name')}, Nigeria",
@@ -723,17 +818,60 @@ async def affected_settlements_summary(
         for p in places
     ]
 
+    available_states = sorted(
+        {p.get("state") for p in places_out if p.get("state")}
+    )
+    available_classes = sorted({p.get("class") or "Town" for p in places_out})
+
+    filtered_places = places_out
+    if state:
+        state_fold = state.strip().casefold()
+        filtered_places = [
+            p for p in filtered_places
+            if ((p.get("state") or "").strip().casefold() == state_fold)
+        ]
+    if place_class:
+        class_fold = place_class.strip().casefold()
+        filtered_places = [
+            p for p in filtered_places
+            if (p.get("class") or "").strip().casefold() == class_fold
+        ]
+    if risk_tier:
+        tier_fold = risk_tier.strip().casefold()
+        filtered_places = [
+            p for p in filtered_places
+            if (p.get("station_risk_tier") or "").strip().casefold() == tier_fold
+        ]
+    if q:
+        q_fold = q.strip().casefold()
+        filtered_places = [
+            p for p in filtered_places
+            if q_fold in (p.get("name") or "").casefold()
+            or q_fold in (p.get("display_name") or "").casefold()
+            or q_fold in (p.get("nearest_station") or "").casefold()
+            or q_fold in (p.get("state") or "").casefold()
+        ]
+
+    affected_states = sorted(
+        {(p.get("state") or "").strip() for p in filtered_places if p.get("state")}
+    )
+
     payload = {
-        "total": len(seen),
-        "highly_likely": len(seen),
+        "total": len(filtered_places),
+        "returned": min(len(filtered_places), limit),
+        "highly_likely": len(filtered_places),
         "radius_km": radius_km,
         "min_tier": min_tier,
         "elevated_stations": len(elevated),
         "by_class": by_class,
         "stations": station_counts,
-        "places": places_out,
+        "places": filtered_places[:limit],
+        "states": affected_states,
+        "affected_state_count": len(affected_states),
+        "available_states": available_states,
+        "available_classes": available_classes,
         "label": (
-            f"{len(seen)} towns/villages within {int(radius_km)} km of "
+            f"{len(filtered_places)} towns/villages within {int(radius_km)} km of "
             f"{min_tier}+ flood outlook gauges"
         ),
     }
