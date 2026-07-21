@@ -83,6 +83,7 @@ export default function App() {
   const [buildingsTabActive, setBuildingsTabActive] = useState(false)
   const [viewportBuildings, setViewportBuildings] = useState(null)
   const [expertListOpen, setExpertListOpen] = useState(false)
+  const [expertMobileConsoleOpen, setExpertMobileConsoleOpen] = useState(false)
   const [analyticsCollapsed, setAnalyticsCollapsed] = useState(false)
   const [expertPlaceFilters, setExpertPlaceFilters] = useState({
     query: '',
@@ -167,6 +168,7 @@ export default function App() {
     setPlace({ ...result, focusAt: Date.now() })
     setSelected(null)
     setShowSelectedBasin(false)
+    setExpertMobileConsoleOpen(true)
   }, [])
 
   const selectAtRiskPlace = useCallback(
@@ -276,6 +278,7 @@ export default function App() {
   const handleSelectStation = (stationId) => {
     setZoneFocus(null)
     setPlace(null)
+    setExpertMobileConsoleOpen(true)
     setSelected((current) => {
       if (current === stationId) {
         setShowSelectedBasin(false)
@@ -294,6 +297,7 @@ export default function App() {
     setHighlightedRoad(null)
     setBuildingsTabActive(false)
     setViewportBuildings(null)
+    setExpertMobileConsoleOpen(false)
   }
 
   const resetExpertPlaceFilters = useCallback(() => {
@@ -380,14 +384,17 @@ export default function App() {
           {/* Place brief — bottom sheet on mobile, side panel on desktop */}
           <aside
             className={clsx(
-              'z-20 order-2 w-full shrink-0 md:order-1 md:w-[22rem] lg:w-[24rem]',
+              'z-20 order-2 w-full shrink-0 md:order-1 md:flex md:w-[22rem] md:flex-col lg:w-[24rem]',
               navigation || place || selectedStation
-                ? 'max-h-[48vh] md:max-h-none md:h-full'
-                : 'hidden md:flex md:max-h-none md:h-full',
+                ? 'flex h-[min(48vh,26rem)] flex-col overflow-hidden rounded-t-2xl border-t md:h-full md:max-h-none md:overflow-hidden md:rounded-none md:border-t-0'
+                : 'hidden md:h-full',
+              (navigation || place || selectedStation) && (
+                theme === 'dark' ? 'border-gray-800 bg-gray-950/95' : 'border-slate-200 bg-white'
+              ),
             )}
           >
             {navigation ? (
-              <div className="h-full p-0 md:p-3 md:pr-0">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
                 <RouteConditionsPanel
                   navigation={navigation}
                   stations={sortedStations}
@@ -397,7 +404,7 @@ export default function App() {
                 />
               </div>
             ) : selectedStation ? (
-              <div className="h-full p-0 md:p-3 md:pr-0">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
                 <PublicGaugePanel
                   station={selectedStation}
                   stationId={selected}
@@ -409,7 +416,7 @@ export default function App() {
                 />
               </div>
             ) : place ? (
-              <div className="h-full p-0 md:p-3 md:pr-0">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
                 <PlaceBriefPanel
                   place={place}
                   overallRisk={placeConditions.overallRisk}
@@ -642,7 +649,7 @@ export default function App() {
                 type="button"
                 onClick={() => setExpertListOpen(true)}
                 className={clsx(
-                  'absolute left-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold shadow-md sm:hidden',
+                  'absolute bottom-24 left-3 z-20 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] font-semibold shadow-md sm:hidden',
                   theme === 'dark'
                     ? 'border-gray-700 bg-gray-900/95 text-gray-100'
                     : 'border-slate-200 bg-white/95 text-slate-800',
@@ -651,6 +658,20 @@ export default function App() {
                 <IconGauge size={13} />
                 Places
               </button>
+              {!selectedStation && !place && !expertMobileConsoleOpen && (
+                <button
+                  type="button"
+                  onClick={() => setExpertMobileConsoleOpen(true)}
+                  className={clsx(
+                    'absolute bottom-24 right-3 z-20 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] font-semibold shadow-md md:hidden',
+                    theme === 'dark'
+                      ? 'border-sky-700 bg-sky-950/95 text-sky-100'
+                      : 'border-sky-200 bg-sky-50/95 text-sky-900',
+                  )}
+                >
+                  Console
+                </button>
+              )}
               <MapPanel
                 stations={sortedStations}
                 liveReadings={liveReadings}
@@ -667,17 +688,45 @@ export default function App() {
                 showSearch={false}
                 navigation={navigation}
                 highlightSelectedBasin={showSelectedBasin}
+                bottomSheetOverlay={Boolean(
+                  selectedStation || place || expertMobileConsoleOpen,
+                )}
               />
             </main>
 
             <aside
               className={clsx(
-                'absolute inset-x-0 bottom-0 z-30 max-h-[55vh] overflow-hidden border-t md:static md:inset-auto md:z-auto md:flex md:max-h-none md:w-[22rem] md:shrink-0 md:flex-col md:border-l md:border-t-0 lg:w-[24rem]',
+                'z-30 flex flex-col overflow-hidden border-t md:static md:inset-auto md:z-auto md:max-h-none md:w-[22rem] md:shrink-0 md:border-l md:border-t-0 lg:w-[24rem]',
+                selectedStation || place || expertMobileConsoleOpen
+                  ? 'absolute inset-x-0 bottom-0 h-[min(55vh,28rem)] rounded-t-2xl md:relative md:bottom-auto md:h-full md:rounded-none'
+                  : 'hidden md:flex md:h-full',
                 theme === 'dark'
                   ? 'border-gray-800 bg-gray-900/95'
                   : 'border-slate-200 bg-white/95',
               )}
             >
+              {(selectedStation || place || expertMobileConsoleOpen) && !selectedStation && !place && (
+                <div
+                  className={clsx(
+                    'flex shrink-0 items-center justify-between border-b px-3 py-2 md:hidden',
+                    theme === 'dark' ? 'border-gray-800' : 'border-slate-200',
+                  )}
+                >
+                  <p className={clsx('text-[11px] font-semibold', theme === 'dark' ? 'text-gray-200' : 'text-slate-800')}>
+                    Network overview
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setExpertMobileConsoleOpen(false)}
+                    className={clsx(
+                      'rounded-md px-2 py-1 text-[10px] font-medium',
+                      theme === 'dark' ? 'text-gray-400 hover:bg-gray-800' : 'text-slate-500 hover:bg-slate-100',
+                    )}
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
               {selectedStation ? (
                 <StationConsole
                   station={selectedStation}
@@ -686,7 +735,10 @@ export default function App() {
                   theme={theme}
                   basinVisible={showSelectedBasin}
                   onToggleBasin={setShowSelectedBasin}
-                  onClose={clearSelectedStation}
+                  onClose={() => {
+                    clearSelectedStation()
+                    setExpertMobileConsoleOpen(false)
+                  }}
                 />
               ) : place ? (
                 <ExpertIntelligenceReport
@@ -710,7 +762,10 @@ export default function App() {
                   loading={placeConditions.loading}
                   liveReadings={liveReadings}
                   theme={theme}
-                  onClose={clearPlace}
+                  onClose={() => {
+                    clearPlace()
+                    setExpertMobileConsoleOpen(false)
+                  }}
                   onSelectStation={handleSelectStation}
                 />
               ) : (

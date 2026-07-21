@@ -89,7 +89,8 @@ export default function PublicGaugePanel({
   return (
     <div
       className={clsx(
-        'flex h-full max-h-[48vh] flex-col overflow-hidden border md:max-h-none md:rounded-2xl',
+        'flex h-full flex-col overflow-hidden border md:rounded-2xl',
+        'rounded-t-2xl md:rounded-2xl',
         dark ? 'border-gray-800 bg-gray-950/95' : 'border-slate-200 bg-white',
       )}
     >

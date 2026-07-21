@@ -540,6 +540,7 @@ export default function MapPanel({
   showSearch = true,
   navigation = null,
   highlightSelectedBasin = false,
+  bottomSheetOverlay = false,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -1755,6 +1756,7 @@ export default function MapPanel({
       className={clsx(
         'relative h-full w-full',
         theme === 'dark' ? 'map-ui-dark' : 'map-ui-light',
+        bottomSheetOverlay && 'map-sheet-overlay',
       )}
     >
       {/* Map canvas — sibling/descendant MapLibre controls pick up .map-ui-* styles */}
@@ -1767,8 +1769,8 @@ export default function MapPanel({
         </div>
       )}
 
-      {/* Unified Layers panel — top left */}
-      <div className="absolute top-3 left-3 z-10 space-y-2">
+      {/* Unified Layers panel — top left (nudge down on phones when search tip shows) */}
+      <div className="absolute left-3 top-3 z-10 max-w-[calc(100vw-5.5rem)] space-y-2 sm:max-w-none">
         <LayersPanel
           theme={theme}
           riskAreasVisible={riskAreasVisible}
@@ -1841,8 +1843,15 @@ export default function MapPanel({
         />
       </div>
 
-      {/* Legend — symbology only */}
-      <div className="absolute bottom-10 left-3 z-10 hidden sm:block">
+      {/* Legend — desktop always; compact on mobile when no overlay sheet */}
+      <div
+        className={clsx(
+          'absolute left-3 z-10',
+          bottomSheetOverlay
+            ? 'bottom-[calc(min(55vh,28rem)+0.75rem)] hidden sm:block md:bottom-10'
+            : 'bottom-10 hidden sm:block',
+        )}
+      >
         <FloodRiskLegend
           showProbability={riskAreasVisible}
           showUrbanFlash={urbanFlashVisible}

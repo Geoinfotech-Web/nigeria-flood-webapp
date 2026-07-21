@@ -5,7 +5,8 @@ export default function DisclaimerBar({ theme = 'light' }) {
   return (
     <p
       className={clsx(
-        'px-4 py-2 text-center text-[11px] leading-relaxed border-t shrink-0',
+        'shrink-0 border-t px-3 py-1.5 text-center text-[10px] leading-snug sm:px-4 sm:py-2 sm:text-[11px] sm:leading-relaxed',
+        'pb-[max(0.375rem,env(safe-area-inset-bottom))]',
         theme === 'dark'
           ? 'border-gray-800 bg-gray-950 text-gray-500'
           : 'border-slate-200 bg-white text-slate-500',

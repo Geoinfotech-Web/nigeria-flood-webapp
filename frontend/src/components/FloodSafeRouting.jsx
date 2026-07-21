@@ -74,9 +74,30 @@ export default function FloodSafeRouting({ theme = 'light', onNavigationChange, 
       .finally(() => setLoading(false))
   }, [position, destination, onNavigationChange])
 
-  return <div className={inline ? 'relative z-50' : 'absolute right-3 top-3 z-20'}>
-    {!open ? <button type="button" onClick={() => setOpen(true)} className={clsx('inline-flex items-center gap-1.5 border border-sky-400/40 bg-sky-600 font-semibold text-white shadow-lg hover:bg-sky-500', inline ? 'rounded-md px-2 py-1 text-[10px]' : 'rounded-xl px-3 py-2 text-[11px]')}><IconLocate size={inline ? 10 : 12} />Safe route</button> :
-    <section className={clsx('w-[min(21rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-2xl', inline && 'absolute right-0 top-full mt-2', dark ? 'border-gray-700 bg-gray-950/95 text-gray-100' : 'border-slate-200 bg-white/95 text-slate-900')}>
+  return (
+    <div className={inline ? 'relative z-50' : 'absolute right-3 top-3 z-20'}>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={clsx(
+            'inline-flex items-center gap-1.5 border border-sky-400/40 bg-sky-600 font-semibold text-white shadow-lg hover:bg-sky-500',
+            inline ? 'rounded-md px-2 py-1.5 text-[10px] sm:py-1' : 'rounded-xl px-3 py-2 text-[11px]',
+          )}
+        >
+          <IconLocate size={inline ? 10 : 12} />
+          Safe route
+        </button>
+      ) : (
+        <section
+          className={clsx(
+            'overflow-hidden rounded-2xl border shadow-2xl',
+            inline
+              ? 'fixed inset-x-3 top-[max(4.5rem,env(safe-area-inset-top))] z-[60] max-h-[min(70vh,32rem)] overflow-y-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-[min(21rem,calc(100vw-1.5rem))]'
+              : 'w-[min(21rem,calc(100vw-1.5rem))]',
+            dark ? 'border-gray-700 bg-gray-950/95 text-gray-100' : 'border-slate-200 bg-white/95 text-slate-900',
+          )}
+        >
       <header className={clsx('flex items-center justify-between border-b px-3 py-2.5', dark ? 'border-gray-800' : 'border-slate-200')}><div><h2 className="text-xs font-semibold">Flood-aware live route</h2><p className={clsx('text-[9px]', dark ? 'text-gray-500' : 'text-slate-500')}>GPS cautions near mapped flood-prone areas</p></div><button type="button" onClick={() => { stop(); setOpen(false) }}><IconX size={13} /></button></header>
       <div className="space-y-2 p-3">
         <form onSubmit={search} className="flex gap-2"><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Where are you going?" className={clsx('min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-xs outline-none focus:border-sky-500', dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white')} /><button disabled={loading} className="rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-500"><IconSearch size={13} /></button></form>
@@ -96,6 +117,8 @@ export default function FloodSafeRouting({ theme = 'light', onNavigationChange, 
         {error && <p className="rounded-lg bg-red-500/10 p-2 text-[10px] text-red-500">{error}</p>}
         <p className={clsx('text-[8px] leading-relaxed', dark ? 'text-gray-600' : 'text-slate-400')}>Advisory only. Never enter visible floodwater; obey official closures and emergency instructions.</p>
       </div>
-    </section>}
-  </div>
+        </section>
+      )}
+    </div>
+  )
 }

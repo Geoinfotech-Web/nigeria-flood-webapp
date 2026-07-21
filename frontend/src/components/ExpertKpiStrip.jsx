@@ -121,7 +121,7 @@ function KpiCard({ label, value, detail, accent, theme }) {
   return (
     <div
       className={clsx(
-        'relative min-w-[9.5rem] flex-1 overflow-hidden rounded-xl border px-3 py-2 shadow-sm',
+        'relative min-w-[7.75rem] flex-1 overflow-hidden rounded-xl border px-3 py-2 shadow-sm sm:min-w-[9.5rem]',
         dark ? accent.dark : accent.light,
       )}
     >
@@ -344,21 +344,21 @@ export default function ExpertKpiStrip({
   return (
     <div
       className={clsx(
-        'shrink-0 border-b px-3 py-2',
+        'shrink-0 border-b px-2 py-1.5 sm:px-3 sm:py-2',
         dark ? 'border-gray-800 bg-gray-950/80' : 'border-slate-200 bg-white/90',
       )}
     >
       {scoped ? (
         <p
           className={clsx(
-            'mb-1.5 text-[10px] font-semibold uppercase tracking-wide',
+            'mb-1.5 truncate text-[10px] font-semibold uppercase tracking-wide',
             dark ? 'text-sky-400/90' : 'text-sky-700',
           )}
         >
           KPIs focused on {scopeHint}
         </p>
       ) : null}
-      <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+      <div className="-mx-0.5 flex gap-2 overflow-x-auto px-0.5 pb-0.5 scrollbar-none">
         <KpiCard
           theme={theme}
           label="Current Risk Level"

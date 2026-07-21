@@ -179,7 +179,7 @@ export default function AtRiskPlacesPanel({
           />
         </div>
 
-        <div className="flex gap-1.5">
+        <div className="flex flex-col gap-1.5 sm:flex-row">
           <select
             value={filters.state}
             onChange={(e) => onFiltersChange({ state: e.target.value })}

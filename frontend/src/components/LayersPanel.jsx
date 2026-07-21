@@ -94,13 +94,16 @@ export default function LayersPanel({
   boundaryVisibility = {},
   onToggleBoundary,
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.matchMedia('(min-width: 768px)').matches
+  })
   const dark = theme === 'dark'
 
   return (
     <div
       className={clsx(
-        'w-[15.5rem] overflow-hidden rounded-xl border shadow-xl',
+        'w-[min(15.5rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border shadow-xl',
         dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white',
       )}
       style={

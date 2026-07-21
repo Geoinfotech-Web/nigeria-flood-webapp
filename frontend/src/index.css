@@ -8,6 +8,15 @@
   --flood-mist: #e0f2fe;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
 }
@@ -72,6 +81,14 @@ body {
 
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { scrollbar-width: none; }
+
+/* Lift MapLibre bottom controls above Expert mobile bottom sheet */
+@media (max-width: 767px) {
+  .map-sheet-overlay .maplibregl-ctrl-bottom-left,
+  .map-sheet-overlay .maplibregl-ctrl-bottom-right {
+    bottom: calc(min(55vh, 28rem) + 10px) !important;
+  }
+}
 
 /* ── MapLibre control overrides (theme via .map-ui-light / .map-ui-dark) ── */
 .maplibregl-ctrl-group {

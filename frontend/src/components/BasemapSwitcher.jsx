@@ -54,7 +54,7 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
       {expanded && (
         <div
           className={clsx(
-            'absolute top-full right-0 mt-2 w-40 overflow-hidden rounded-lg border shadow-2xl divide-y',
+            'absolute bottom-full right-0 mb-2 max-h-[min(50vh,22rem)] w-40 overflow-y-auto rounded-lg border shadow-2xl divide-y',
             theme === 'dark'
               ? 'bg-gray-900 border-gray-700 divide-gray-800'
               : 'bg-white border-slate-200 divide-slate-200'

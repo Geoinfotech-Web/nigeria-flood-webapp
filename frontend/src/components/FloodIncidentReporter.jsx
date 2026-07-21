@@ -149,8 +149,8 @@ export default function FloodIncidentReporter({
   }
 
   return (
-    <div className="absolute bottom-3 left-3 z-30">
-      {open && <section className={clsx('mb-2 flex max-h-[min(42rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl', dark ? 'border-gray-700/90 bg-gray-950/95 text-gray-100' : 'border-slate-200 bg-white/95 text-slate-900')}>
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 p-0 sm:pointer-events-auto sm:absolute sm:inset-x-auto sm:bottom-3 sm:left-3 sm:z-30 sm:p-0">
+      {open && <section className={clsx('pointer-events-auto flex max-h-[min(85dvh,42rem)] w-full flex-col overflow-hidden rounded-t-2xl border shadow-2xl backdrop-blur-xl sm:mb-2 sm:max-h-[min(42rem,calc(100dvh-8rem))] sm:w-[min(24rem,calc(100vw-1.5rem))] sm:rounded-2xl', dark ? 'border-gray-700/90 bg-gray-950/95 text-gray-100' : 'border-slate-200 bg-white/95 text-slate-900')}>
         <header className={clsx('flex items-start justify-between border-b px-4 py-3', dark ? 'border-gray-800' : 'border-slate-200')}>
           <div><div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /><h2 className="text-sm font-semibold">Live flood reports</h2></div><p className={clsx('mt-1 text-[10px]', dark ? 'text-gray-400' : 'text-slate-500')}>Add a photo or video; manage reports submitted on this browser</p></div>
           <button type="button" onClick={() => setOpen(false)} className={clsx('rounded-lg p-1.5', dark ? 'hover:bg-gray-800' : 'hover:bg-slate-100')} aria-label="Close flood reports"><IconX size={14} /></button>
@@ -179,7 +179,7 @@ export default function FloodIncidentReporter({
           </article>)}
         </div>}
       </section>}
-      {showTrigger && <button type="button" onClick={() => setOpen(value => !value)} className="flex items-center gap-2 rounded-xl bg-red-600 px-3.5 py-2.5 text-xs font-semibold text-white"><IconAlertTriangle size={15} /> Report flood</button>}
+      {showTrigger && <button type="button" onClick={() => setOpen(value => !value)} className="pointer-events-auto flex items-center gap-2 rounded-xl bg-red-600 px-3.5 py-2.5 text-xs font-semibold text-white"><IconAlertTriangle size={15} /> Report flood</button>}
     </div>
   )
 }
