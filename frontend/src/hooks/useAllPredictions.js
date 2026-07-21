@@ -44,7 +44,10 @@ export function useAllPredictions(enabled = true) {
   const byStation = useMemo(() => {
     const map = {}
     for (const p of predictions) {
-      if (p?.station_id != null) map[p.station_id] = p
+      if (p?.station_id == null) continue
+      const id = Number(p.station_id)
+      map[id] = p
+      map[p.station_id] = p
     }
     return map
   }, [predictions])

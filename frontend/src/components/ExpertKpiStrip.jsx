@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import clsx from 'clsx'
 import { formatPopulation } from '../lib/stationRisk'
+import { RISK_ORDER } from '../lib/riskCopy'
 
 const ZONE_SEVERITY = {
   'Highly Likely': 6,
@@ -64,6 +65,13 @@ const TIER_ACCENT = {
     valueLight: 'text-sky-800',
     bar: 'bg-sky-500',
   },
+  Watch: {
+    dark: 'border-amber-800/50 bg-amber-950/40',
+    light: 'border-amber-200 bg-amber-50',
+    valueDark: 'text-amber-300',
+    valueLight: 'text-amber-800',
+    bar: 'bg-amber-500',
+  },
   Normal: {
     dark: 'border-emerald-800/50 bg-emerald-950/35',
     light: 'border-emerald-200 bg-emerald-50',
@@ -93,6 +101,19 @@ function worstZoneTier(zones = {}) {
     }
   }
   return best
+}
+
+function mapGaugeToZoneLabel(tier) {
+  switch (tier) {
+    case 'Emergency':
+      return 'Emergency'
+    case 'Warning':
+      return 'Warning'
+    case 'Watch':
+      return 'Watch'
+    default:
+      return 'Normal'
+  }
 }
 
 function KpiCard({ label, value, detail, accent, theme }) {
@@ -137,16 +158,29 @@ function KpiCard({ label, value, detail, accent, theme }) {
 }
 
 export default function ExpertKpiStrip({
+  place = null,
+  placeConditions = null,
+  localSettlementSummary = null,
+  settlementsLoading = false,
+  roadSummary = null,
+  roadsLoading = false,
+  siteAssessment = null,
   impactSummary = null,
   urbanFlashSummary = null,
   impactLoading = false,
   urbanFlashLoading = false,
   rainfallAvgMm = null,
+  placeRainMm = null,
   theme = 'light',
 }) {
   const dark = theme === 'dark'
+  const scoped = Boolean(place)
 
-  const urban = urbanFlashSummary || impactSummary?.urban_flash
+  const urban = useMemo(() => {
+    if (scoped) return impactSummary?.urban_flash || null
+    return urbanFlashSummary || impactSummary?.urban_flash || null
+  }, [scoped, impactSummary, urbanFlashSummary])
+
   const highly = urban?.highly_likely ?? 0
   const likely = urban?.likely ?? 0
 
@@ -155,42 +189,157 @@ export default function ExpertKpiStrip({
     () => (urbanFlashSummary?.states || []).slice().sort((a, b) => a.localeCompare(b)),
     [urbanFlashSummary?.states],
   )
-  const affectedStates = useMemo(
+
+  const nationalAffectedStates = useMemo(
     () => Array.from(new Set([...impactStates, ...urbanFlashStates])).sort((a, b) => a.localeCompare(b)),
     [impactStates, urbanFlashStates],
   )
-  const affectedStateCount = Math.max(
-    Number(impactSummary?.affected_state_count || 0),
-    Number(urbanFlashSummary?.affected_state_count || 0),
-    affectedStates.length,
-  )
-  const statesLoading = impactLoading && !impactSummary && urbanFlashLoading && !urbanFlashSummary
-  const settlements = impactSummary?.settlements?.total ?? '—'
-  const towns =
-    (impactSummary?.settlements?.by_class?.Town || 0) +
-    (impactSummary?.settlements?.by_class?.Village || 0)
-  const pop = formatPopulation(impactSummary?.settlements?.total_population)
-  const roads = impactSummary?.roads?.total ?? '—'
-  const roadKm = impactSummary?.roads?.total_length_km
+
+  const localState =
+    place?.state ||
+    placeConditions?.primaryStation?.state ||
+    impactSummary?.context?.state ||
+    null
+
+  const affectedStates = scoped
+    ? localState
+      ? [localState]
+      : []
+    : nationalAffectedStates
+
+  const affectedStateCount = scoped
+    ? localState
+      ? 1
+      : 0
+    : Math.max(
+        Number(impactSummary?.affected_state_count || 0),
+        Number(urbanFlashSummary?.affected_state_count || 0),
+        nationalAffectedStates.length,
+      )
+
+  const statesLoading =
+    !scoped && impactLoading && !impactSummary && urbanFlashLoading && !urbanFlashSummary
+
+  const localSettlements = localSettlementSummary?.total
+  const localHighlyLikely = localSettlementSummary?.highly_likely ?? 0
+  const localHighlySusceptible = localSettlementSummary?.highly_susceptible ?? 0
+
+  const settlements = scoped
+    ? settlementsLoading && localSettlements == null
+      ? '—'
+      : localSettlements ?? 0
+    : impactSummary?.settlements?.total ?? '—'
+
+  const towns = scoped
+    ? (localSettlementSummary?.by_class?.Town || 0) +
+      (localSettlementSummary?.by_class?.Village || 0)
+    : (impactSummary?.settlements?.by_class?.Town || 0) +
+      (impactSummary?.settlements?.by_class?.Village || 0)
+
+  const pop = scoped ? null : formatPopulation(impactSummary?.settlements?.total_population)
+
+  const roads = scoped
+    ? roadsLoading && roadSummary == null
+      ? '—'
+      : roadSummary?.at_risk ?? roadSummary?.total_in_radius ?? 0
+    : impactSummary?.roads?.total ?? '—'
+
+  const roadKm = scoped ? null : impactSummary?.roads?.total_length_km
 
   const worstTier = useMemo(() => {
+    if (scoped) {
+      const candidates = []
+      const gaugeLabel = mapGaugeToZoneLabel(placeConditions?.overallRisk || 'Normal')
+      candidates.push(gaugeLabel)
+
+      if (highly > 0) candidates.push('Highly Likely')
+      else if (likely > 0) candidates.push('Likely')
+
+      const zoneTiers = [
+        ...(siteAssessment?.zones_inside || []),
+        ...(siteAssessment?.zones_nearby || []).slice(0, 2),
+      ].map((z) => z.risk_tier)
+      candidates.push(...zoneTiers.filter(Boolean))
+
+      const fromImpact = worstZoneTier(impactSummary?.zones)
+      if (fromImpact && fromImpact !== 'Normal') candidates.push(fromImpact)
+
+      // Prefer zone-style labels when present; otherwise gauge tier.
+      let best = 'Normal'
+      let bestRank = -1
+      for (const tier of candidates) {
+        const rank = ZONE_SEVERITY[tier] ?? RISK_ORDER[tier] ?? 0
+        if (rank > bestRank) {
+          bestRank = rank
+          best = tier
+        }
+      }
+      return best
+    }
+
     const fromZones = worstZoneTier(impactSummary?.zones)
-    // If impact-summary hasn't loaded (or failed), still surface urban flash severity.
     if (highly > 0 && (ZONE_SEVERITY['Highly Likely'] || 0) >= (ZONE_SEVERITY[fromZones] || 0)) {
       return 'Highly Likely'
     }
     if (likely > 0 && fromZones === 'Normal') return 'Likely'
     return fromZones
-  }, [impactSummary?.zones, highly, likely])
+  }, [
+    scoped,
+    placeConditions?.overallRisk,
+    highly,
+    likely,
+    siteAssessment,
+    impactSummary?.zones,
+  ])
 
+  const rainMm = scoped ? placeRainMm : rainfallAvgMm
   const rainValue =
-    rainfallAvgMm != null && Number.isFinite(rainfallAvgMm)
-      ? `${Math.round(rainfallAvgMm)} mm`
-      : '—'
+    rainMm != null && Number.isFinite(rainMm) ? `${Math.round(rainMm)} mm` : '—'
 
-  const riskDetail = affectedStates.length
-    ? `Towns/villages in flood zones · ${affectedStates.length} state${affectedStates.length === 1 ? '' : 's'}`
-    : 'Inundation probability + urban flash'
+  const placeLabel = place?.name || 'Selected place'
+  const scopeHint = localState ? `${placeLabel} · ${localState}` : placeLabel
+
+  const riskDetail = scoped
+    ? placeConditions?.primaryStation
+      ? `Near ${placeConditions.primaryStation.name} · ${scopeHint}`
+      : `Local outlook · ${scopeHint}`
+    : affectedStates.length
+      ? `Towns/villages in flood zones · ${affectedStates.length} state${affectedStates.length === 1 ? '' : 's'}`
+      : 'Inundation probability + urban flash'
+
+  const statesDetail = scoped
+    ? scopeHint
+    : affectedStates.slice(0, 4).join(', ') || 'States with towns/villages in flood extents'
+
+  const settlementsDetail = scoped
+    ? localHighlyLikely > 0 || localHighlySusceptible > 0
+      ? `${localHighlyLikely} elevated · ${localHighlySusceptible} highly susceptible`
+      : towns
+        ? `${towns} towns/villages nearby`
+        : 'Local exposure radius'
+    : pop
+      ? `${pop} pop · ${towns} towns/villages`
+      : towns
+        ? `${towns} towns/villages exposed`
+        : 'In inundation / urban flash zones'
+
+  const roadsDetail = scoped
+    ? roadSummary?.at_risk != null
+      ? `${roadSummary.at_risk} high susceptibility near place`
+      : 'Local road exposure'
+    : roadKm != null
+      ? `${Number(roadKm).toLocaleString()} km length`
+      : 'Intersecting flood extents'
+
+  const rainDetail = scoped
+    ? placeConditions?.primaryStation
+      ? `Nearest gauge · ${placeConditions.primaryStation.name}`
+      : 'No nearby gauge rainfall'
+    : 'National average (daily)'
+
+  const urbanDetail = scoped
+    ? `Near place · ${highly} highly likely · ${likely} likely`
+    : `${highly} highly likely · ${likely} likely`
 
   return (
     <div
@@ -199,6 +348,16 @@ export default function ExpertKpiStrip({
         dark ? 'border-gray-800 bg-gray-950/80' : 'border-slate-200 bg-white/90',
       )}
     >
+      {scoped ? (
+        <p
+          className={clsx(
+            'mb-1.5 text-[10px] font-semibold uppercase tracking-wide',
+            dark ? 'text-sky-400/90' : 'text-sky-700',
+          )}
+        >
+          KPIs focused on {scopeHint}
+        </p>
+      ) : null}
       <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
         <KpiCard
           theme={theme}
@@ -209,50 +368,37 @@ export default function ExpertKpiStrip({
         />
         <KpiCard
           theme={theme}
-          label="Affected States"
+          label={scoped ? 'Focus State' : 'Affected States'}
           value={statesLoading ? '—' : `${affectedStateCount} / 36`}
-          detail={
-            affectedStates.slice(0, 4).join(', ') ||
-            'States with towns/villages in flood extents'
-          }
+          detail={statesDetail}
           accent={CARD_ACCENT.states}
         />
         <KpiCard
           theme={theme}
           label="Settlements at Risk"
           value={typeof settlements === 'number' ? settlements.toLocaleString() : settlements}
-          detail={
-            pop
-              ? `${pop} pop · ${towns} towns/villages`
-              : towns
-                ? `${towns} towns/villages exposed`
-                : 'In inundation / urban flash zones'
-          }
+          detail={settlementsDetail}
           accent={CARD_ACCENT.settlements}
         />
         <KpiCard
           theme={theme}
           label="Urban Flash Flood"
           value={`${highly + likely}`}
-          detail={`${highly} highly likely · ${likely} likely`}
+          detail={urbanDetail}
           accent={CARD_ACCENT.urban}
         />
         <KpiCard
           theme={theme}
           label="Roads at Risk"
           value={typeof roads === 'number' ? roads.toLocaleString() : roads}
-          detail={
-            roadKm != null
-              ? `${Number(roadKm).toLocaleString()} km length`
-              : 'Intersecting flood extents'
-          }
+          detail={roadsDetail}
           accent={CARD_ACCENT.roads}
         />
         <KpiCard
           theme={theme}
           label="Rainfall (24h)"
           value={rainValue}
-          detail="National average (daily)"
+          detail={rainDetail}
           accent={CARD_ACCENT.rain}
         />
       </div>

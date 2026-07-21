@@ -1,20 +1,112 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import clsx from 'clsx'
 import { IconSearch, IconX } from './Icons'
 
 const RISK_FILTERS = ['All', 'Emergency', 'Warning', 'Watch']
 
-const RISK_COLOR = {
-  Watch: { dot: 'bg-yellow-400', text: 'text-yellow-400', badge: 'bg-yellow-950/40 border-yellow-800 text-yellow-300' },
-  Warning: { dot: 'bg-orange-400', text: 'text-orange-400', badge: 'bg-orange-950/40 border-orange-800 text-orange-300' },
-  Emergency: { dot: 'bg-red-400 animate-pulse', text: 'text-red-400', badge: 'bg-red-950/40 border-red-800 text-red-300' },
+/** Full Nigeria states + FCT for the Expert places filter (not only currently at-risk). */
+const NIGERIA_STATES = [
+  'Abia',
+  'Adamawa',
+  'Akwa Ibom',
+  'Anambra',
+  'Bauchi',
+  'Bayelsa',
+  'Benue',
+  'Borno',
+  'Cross River',
+  'Delta',
+  'Ebonyi',
+  'Edo',
+  'Ekiti',
+  'Enugu',
+  'Gombe',
+  'Imo',
+  'Jigawa',
+  'Kaduna',
+  'Kano',
+  'Katsina',
+  'Kebbi',
+  'Kogi',
+  'Kwara',
+  'Lagos',
+  'Nasarawa',
+  'Niger',
+  'Ogun',
+  'Ondo',
+  'Osun',
+  'Oyo',
+  'Plateau',
+  'Rivers',
+  'Sokoto',
+  'Taraba',
+  'Yobe',
+  'Zamfara',
+  'FCT',
+]
+
+const RISK_STYLE = {
+  Watch: {
+    dark: {
+      dot: 'bg-yellow-400',
+      badge: 'border-yellow-600 bg-yellow-900 text-yellow-100',
+    },
+    light: {
+      dot: 'bg-yellow-500',
+      badge: 'border-yellow-400 bg-yellow-100 text-yellow-900',
+    },
+  },
+  Warning: {
+    dark: {
+      dot: 'bg-orange-400',
+      badge: 'border-orange-600 bg-orange-900 text-orange-100',
+    },
+    light: {
+      dot: 'bg-orange-500',
+      badge: 'border-orange-400 bg-orange-100 text-orange-900',
+    },
+  },
+  Emergency: {
+    dark: {
+      dot: 'bg-red-400',
+      badge: 'border-red-500 bg-red-800 text-red-50',
+    },
+    light: {
+      dot: 'bg-red-500',
+      badge: 'border-red-400 bg-red-100 text-red-900',
+    },
+  },
 }
 
 function selectClass(dark) {
   return clsx(
-    'min-w-0 flex-1 rounded-md border px-2 py-1 text-[10px] font-medium',
-    dark ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-slate-200 bg-white text-slate-700',
+    'min-w-0 flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium',
+    dark
+      ? 'border-gray-700 bg-gray-950 text-gray-200'
+      : 'border-slate-300 bg-white text-slate-800',
   )
+}
+
+function normalizeStateKey(name) {
+  return (name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/^abuja\s+fct$/, 'fct')
+    .replace(/^federal capital territory$/, 'fct')
+    .replace(/^nassarawa$/, 'nasarawa')
+}
+
+function mergeStateOptions(fromApi = []) {
+  const seen = new Set()
+  const out = []
+  for (const name of [...NIGERIA_STATES, ...fromApi]) {
+    const key = normalizeStateKey(name)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(key === 'fct' ? 'FCT' : name.trim())
+  }
+  return out.sort((a, b) => a.localeCompare(b))
 }
 
 export default function AtRiskPlacesPanel({
@@ -29,7 +121,10 @@ export default function AtRiskPlacesPanel({
 }) {
   const dark = theme === 'dark'
   const places = summary?.places || []
-  const states = summary?.available_states || []
+  const states = useMemo(
+    () => mergeStateOptions(summary?.available_states || []),
+    [summary?.available_states],
+  )
   const classes = summary?.available_classes || []
 
   return (
@@ -151,7 +246,7 @@ export default function AtRiskPlacesPanel({
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {!loading && places.map((place) => {
           const risk = place.station_risk_tier || 'Warning'
-          const color = RISK_COLOR[risk] || RISK_COLOR.Warning
+          const color = (RISK_STYLE[risk] || RISK_STYLE.Warning)[dark ? 'dark' : 'light']
           const isSelected =
             selectedPlace &&
             selectedPlace.name === place.name &&
@@ -171,7 +266,7 @@ export default function AtRiskPlacesPanel({
                     : 'border-sky-300 bg-sky-50 shadow-sm'
                   : dark
                     ? 'border-transparent bg-gray-800/30 hover:border-gray-700/50 hover:bg-gray-800/60'
-                    : 'border-slate-200 bg-slate-50 shadow-sm hover:border-slate-300 hover:bg-white',
+                    : 'border-slate-200 bg-white shadow-sm hover:border-slate-300',
               )}
             >
               <div className="flex items-center gap-2.5">
@@ -181,7 +276,7 @@ export default function AtRiskPlacesPanel({
                 </span>
                 <span
                   className={clsx(
-                    'ml-auto shrink-0 rounded border px-1 py-0.5 text-[9px] font-bold',
+                    'ml-auto shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold tracking-wide',
                     color.badge,
                   )}
                 >

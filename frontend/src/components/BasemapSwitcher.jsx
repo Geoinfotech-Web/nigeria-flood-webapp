@@ -11,6 +11,8 @@ const BASEMAP_ICON = {
   streets: IconMap,
   satellite: IconSatellite,
   topo: IconMountain,
+  google: IconMap,
+  'google-sat': IconSatellite,
 }
 
 export default function BasemapSwitcher({ current, onChange, options, theme = 'dark' }) {

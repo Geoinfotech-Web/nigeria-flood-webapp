@@ -21,6 +21,7 @@ import { useAllPredictions } from './hooks/useAllPredictions'
 import { useImpactSummary } from './hooks/useImpactSummary'
 import { useUrbanFlashSummary } from './hooks/useUrbanFlashSummary'
 import { useNationalRainfall } from './hooks/useNationalRainfall'
+import { useStationRainfall } from './hooks/useStationRainfall'
 import { usePlaceConditions } from './hooks/usePlaceConditions'
 import { useNearbySettlements } from './hooks/useNearbySettlements'
 import { useNearbyRoads } from './hooks/useNearbyRoads'
@@ -100,11 +101,38 @@ export default function App() {
     loading: predictionsLoading,
   } = useAllPredictions(mode === 'expert')
 
-  const { summary: impactSummary, loading: impactLoading } = useImpactSummary({ enabled: mode === 'expert' })
-  const { summary: urbanFlashSummary, loading: urbanFlashLoading } = useUrbanFlashSummary({ enabled: mode === 'expert' })
+  const sortedStations = useMemo(
+    () => [...stations].sort((a, b) => a.name.localeCompare(b.name)),
+    [stations],
+  )
+  const selectedStation = sortedStations.find((s) => s.id === selected)
+
+  const placeConditions = usePlaceConditions(place, sortedStations)
+  const primaryStationId =
+    mode === 'expert' && place && placeConditions.primaryStation?.id
+      ? placeConditions.primaryStation.id
+      : null
+
+  // National impact for analytics row; station-scoped impact when a place is selected (KPI strip).
+  const { summary: nationalImpactSummary, loading: nationalImpactLoading } = useImpactSummary({
+    enabled: mode === 'expert',
+  })
+  const { summary: scopedImpactSummary, loading: scopedImpactLoading } = useImpactSummary({
+    enabled: mode === 'expert' && Boolean(primaryStationId),
+    stationId: primaryStationId,
+  })
+
+  const { summary: nationalUrbanFlashSummary, loading: urbanFlashLoading } = useUrbanFlashSummary({
+    enabled: mode === 'expert',
+  })
   const { latestAvgMm } = useNationalRainfall({
     enabled: mode === 'expert',
     days: 7,
+  })
+  const { totalMm: placeRainMm } = useStationRainfall({
+    enabled: mode === 'expert' && Boolean(place),
+    stationId: primaryStationId,
+    days: 1,
   })
   const {
     summary: affectedSettlements,
@@ -130,18 +158,13 @@ export default function App() {
     if (!open) setReportInitialTab(null)
   }, [])
 
-  const sortedStations = useMemo(
-    () => [...stations].sort((a, b) => a.name.localeCompare(b.name)),
-    [stations],
-  )
-  const selectedStation = sortedStations.find((s) => s.id === selected)
-
   const handlePlaceSelect = useCallback((result) => {
     setZoneFocus(null)
     setHighlightedRoad(null)
     setBuildingsTabActive(false)
     setViewportBuildings(null)
-    setPlace(result)
+    // Stamp focusAt so re-selecting the same place still re-triggers map zoom
+    setPlace({ ...result, focusAt: Date.now() })
     setSelected(null)
     setShowSelectedBasin(false)
   }, [])
@@ -167,7 +190,6 @@ export default function App() {
     [handlePlaceSelect],
   )
 
-  const placeConditions = usePlaceConditions(place, sortedStations)
   const { settlements, localSummary, loading: settlementsLoading } = useNearbySettlements(
     place,
     placeConditions.nearby,
@@ -513,11 +535,19 @@ export default function App() {
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <ExpertKpiStrip
-            impactSummary={impactSummary}
-            urbanFlashSummary={urbanFlashSummary}
-            impactLoading={impactLoading}
+            place={place}
+            placeConditions={placeConditions}
+            localSettlementSummary={localSummary}
+            settlementsLoading={settlementsLoading}
+            roadSummary={roadSummary}
+            roadsLoading={roadsLoading}
+            siteAssessment={siteAssessment}
+            impactSummary={place ? scopedImpactSummary : nationalImpactSummary}
+            urbanFlashSummary={place ? null : nationalUrbanFlashSummary}
+            impactLoading={place ? scopedImpactLoading : nationalImpactLoading}
             urbanFlashLoading={urbanFlashLoading}
             rainfallAvgMm={latestAvgMm}
+            placeRainMm={placeRainMm}
             theme={theme}
           />
 
@@ -700,8 +730,8 @@ export default function App() {
           <ExpertAnalyticsRow
             stations={sortedStations}
             liveReadings={liveReadings}
-            impactSummary={impactSummary}
-            urbanFlashSummary={urbanFlashSummary}
+            impactSummary={nationalImpactSummary}
+            urbanFlashSummary={nationalUrbanFlashSummary}
             theme={theme}
             onSelectStation={handleSelectStation}
             onSelectUrbanFlash={handleSelectUrbanFlash}

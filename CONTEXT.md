@@ -330,8 +330,9 @@ GET /flood-risk/tiles/{z}/{x}/{y}.png?url=<encoded-cog-url>
 | GET | `/flood-risk/layers` | Available raster tile layers (GEE + SAR) |
 | GET | `/flood-risk/tiles/{z}/{x}/{y}.png` | Proxied COG map tiles |
 | GET | `/flood-risk/summary` | Count of states per risk tier |
-| GET | `/geocode/search?q=Lagos` | Nominatim geocoding proxy |
-| GET | `/geocode/reverse?lat=&lon=` | Reverse geocoding |
+| GET | `/geocode/search?q=Lagos` | Google Places Text Search (preferred) / Nominatim fallback |
+| GET | `/map/google-style?map_type=roadmap` | MapLibre style for Google Map Tiles (roadmap/satellite/terrain) |
+| GET | `/geocode/reverse?lat=&lon=` | Reverse geocoding (Google preferred) |
 | POST | `/auth/token` | JWT login (8-hour token) |
 
 ### WebSocket Streams
@@ -354,7 +355,7 @@ GET /flood-risk/tiles/{z}/{x}/{y}.png?url=<encoded-cog-url>
 | Water level chart | `GaugeChart.jsx` | 24h ECharts line chart |
 | Rainfall chart | `RainfallChart.jsx` | 7-day ECharts bar chart |
 | Alert banner | `AlertBanner.jsx` | Active Watch/Warning/Emergency alerts |
-| Search bar | `SearchBar.jsx` | Nominatim geocoding with debounce |
+| Search bar | `SearchBar.jsx` | Google / Nominatim geocoding with debounce |
 | Basemap switcher | `BasemapSwitcher.jsx` | Dark / Light / Streets / Satellite / Topo (SVG icons) |
 | Risk layer control | `RiskLayerControl.jsx` | Toggle + opacity + satellite overlay picker |
 | Risk legend | `FloodRiskLegend.jsx` | Colour-coded tier key |
@@ -383,7 +384,8 @@ GET /flood-risk/tiles/{z}/{x}/{y}.png?url=<encoded-cog-url>
 | Rainfall, temperature, humidity, wind, pressure | OpenMeteo | `api.open-meteo.com` | Hourly | No |
 | Flood susceptibility composite | Google Earth Engine | `earthengine.googleapis.com` | Monthly | Service account |
 | Sentinel-1 SAR flood extent | Google Earth Engine | `earthengine.googleapis.com` | On demand | Service account |
-| Geocoding / place search | Nominatim (OSM) | `nominatim.openstreetmap.org` | On demand | No |
+| Geocoding / place search | Google Places (classic Text/Nearby) + optional Geocoding; Nominatim fallback | `maps.googleapis.com` | On demand | `GOOGLE_MAPS_API_KEY` |
+| Google basemap | Map Tiles API session → MapLibre raster style | `tile.googleapis.com` | On demand | `GOOGLE_MAPS_API_KEY` |
 
 ### GEE Service Account
 - **Email:** `gee-144@nfie-490816.iam.gserviceaccount.com`

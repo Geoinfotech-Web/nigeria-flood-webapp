@@ -50,6 +50,7 @@ export const BASEMAPS = [
     label: 'Satellite',
     style: {
       version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         esri_satellite: {
           type: 'raster',
@@ -77,6 +78,7 @@ export const BASEMAPS = [
     label: 'Topo',
     style: {
       version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         opentopomap: {
           type: 'raster',
@@ -89,9 +91,37 @@ export const BASEMAPS = [
       layers: [{ id: 'topo-tiles', type: 'raster', source: 'opentopomap' }],
     },
   },
+  {
+    id:    'google',
+    label: 'Google',
+    // Resolved at map init from /map/google-style (proxied Map Tiles)
+    styleUrl: 'google-style',
+  },
+  {
+    id:    'google-sat',
+    label: 'Google Sat',
+    styleUrl: 'google-style-sat',
+  },
 ]
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+async function resolveBasemapStyle(basemapId) {
+  const def = BASEMAPS.find((b) => b.id === basemapId)
+  if (!def) return BASEMAPS.find((b) => b.id === 'streets')?.style
+  if (def.style) return def.style
+  if (def.styleUrl === 'google-style') {
+    const r = await fetch(`${API}/map/google-style?map_type=roadmap`)
+    if (!r.ok) throw new Error('Google basemap unavailable')
+    return r.json()
+  }
+  if (def.styleUrl === 'google-style-sat') {
+    const r = await fetch(`${API}/map/google-style?map_type=satellite`)
+    if (!r.ok) throw new Error('Google satellite basemap unavailable')
+    return r.json()
+  }
+  return def.style
+}
 const DEFAULT_NIGERIA_BOUNDS = [
   [2.65, 4.2],
   [14.75, 13.95],
@@ -110,6 +140,48 @@ const PLACE_LAYER_STYLES = [
 
 function interpolateWidth(stops) {
   return ['interpolate', ['linear'], ['zoom'], ...stops]
+}
+
+/** Zoom the map to a place: tight flyTo, or fitBounds only for small local bboxes. */
+function focusMapOnPlace(map, place, { publicMode = false, zoom = 13 } = {}) {
+  if (!map || !place) return
+  const lat = Number(place.lat)
+  const lon = Number(place.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return
+
+  const bbox = place.bbox_lnglat
+  let useBbox = false
+  if (Array.isArray(bbox) && bbox.length === 4) {
+    const [west, south, east, north] = bbox.map(Number)
+    if ([west, south, east, north].every(Number.isFinite)) {
+      const span = Math.max(Math.abs(east - west), Math.abs(north - south))
+      // Ignore huge state/country boxes from geocoders — they barely zoom in.
+      useBbox = span > 0.002 && span < 0.6
+    }
+  }
+
+  if (useBbox) {
+    map.fitBounds(
+      [
+        [bbox[0], bbox[1]],
+        [bbox[2], bbox[3]],
+      ],
+      {
+        padding: publicMode
+          ? { top: 80, right: 40, bottom: 280, left: 40 }
+          : { top: 60, right: 60, bottom: 60, left: 60 },
+        duration: 1200,
+        maxZoom: 14,
+      },
+    )
+    return
+  }
+
+  map.flyTo({
+    center: [lon, lat],
+    zoom,
+    duration: 1200,
+  })
 }
 
 function registerPointerCursor(map, layerId) {
@@ -371,7 +443,7 @@ function addBridgeLayer(map, sourceId) {
   }
 }
 
-function addPlaceLayers(map, sourceId) {
+function addPlaceLayers(map, sourceId, onPlaceClick) {
   PLACE_LAYER_STYLES.forEach(style => {
     const circleId = `exposure-places-${style.key}-circle`
     const labelId = `exposure-places-${style.key}-label`
@@ -393,7 +465,9 @@ function addPlaceLayers(map, sourceId) {
       })
 
       map.on('click', circleId, e => {
-        const props = e.features?.[0]?.properties || {}
+        const feature = e.features?.[0]
+        const props = feature?.properties || {}
+        const coords = feature?.geometry?.coordinates
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
@@ -407,6 +481,17 @@ function addPlaceLayers(map, sourceId) {
             </div>
           `)
           .addTo(map)
+        if (onPlaceClick && Array.isArray(coords) && coords.length >= 2) {
+          onPlaceClick({
+            name: props.name || 'Place',
+            display_name: props.display_name || `${props.name || 'Place'}, Nigeria`,
+            lat: Number(coords[1]),
+            lon: Number(coords[0]),
+            bbox_lnglat: null,
+            class: props.class || style.className,
+            population: props.population ?? null,
+          })
+        }
       })
       registerPointerCursor(map, circleId)
     }
@@ -473,6 +558,8 @@ export default function MapPanel({
   const [riskData,    setRiskData]    = useState(null)
   const [urbanFlashData, setUrbanFlashData] = useState(null)
   const [mapReady,    setMapReady]    = useState(false)
+  /** Bumped after each basemap setStyle so overlays re-attach (setStyle wipes sources). */
+  const [styleEpoch,  setStyleEpoch]  = useState(0)
   const [tileLayers,  setTileLayers]  = useState([])
   /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
   const [tileVisibility, setTileVisibility] = useState({})
@@ -494,6 +581,12 @@ export default function MapPanel({
   const [boundaryVisible, setBoundaryVisible] = useState({ states: false, lgas: false, basins: false })
   const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
   const buildingsFetchRef = useRef(0)
+  const appliedBasemapRef = useRef(null)
+  const onPlaceSelectRef = useRef(onPlaceSelect)
+  useEffect(() => {
+    onPlaceSelectRef.current = onPlaceSelect
+  }, [onPlaceSelect])
+
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
     mapObj.current.fitBounds(DEFAULT_NIGERIA_BOUNDS, {
@@ -583,7 +676,7 @@ export default function MapPanel({
       })
     }
     map.setLayoutProperty('flood-news-points', 'visibility', newsVisible ? 'visible' : 'none')
-  }, [mapReady, newsArticles, newsVisible])
+  }, [mapReady, styleEpoch, newsArticles, newsVisible])
 
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -664,7 +757,7 @@ export default function MapPanel({
           .addTo(map)
       })
     }
-  }, [mapReady, communityReports, theme])
+  }, [mapReady, styleEpoch, communityReports, theme])
 
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -691,28 +784,103 @@ export default function MapPanel({
       map.addSource('safe-route-points', { type: 'geojson', data: points })
       map.addLayer({ id: 'safe-route-points', type: 'circle', source: 'safe-route-points', paint: { 'circle-radius': 7, 'circle-color': ['match', ['get', 'kind'], 'current', '#22c55e', '#0284c7'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } })
     }
-  }, [mapReady, navigation])
+  }, [mapReady, styleEpoch, navigation])
 
-  // ── Init map ───────────────────────────────────────────────────────────────
+  // ── Init map once (Streets). Basemap changes use setStyle below. ───────────
   useEffect(() => {
-    const style = BASEMAPS.find(b => b.id === basemap)?.style
-    mapObj.current = new maplibregl.Map({
+    if (!mapRef.current) return
+
+    let cancelled = false
+    const streetsStyle = BASEMAPS.find((b) => b.id === 'streets')?.style
+    const map = new maplibregl.Map({
       container: mapRef.current,
-      style,
+      style: streetsStyle,
       center: [8.0, 9.0],
       zoom: 5.5,
       minZoom: 4,
     })
-    mapObj.current.addControl(
+    mapObj.current = map
+    map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       'top-right',
     )
-    mapObj.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
-    mapObj.current.addControl(new maplibregl.FullscreenControl(), 'bottom-right')
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
+    map.addControl(new maplibregl.FullscreenControl(), 'bottom-right')
+    map.on('load', () => {
+      if (!cancelled) setMapReady(true)
+    })
+    map.on('error', (e) => {
+      console.warn('MapLibre error', e?.error || e)
+    })
 
-    mapObj.current.on('load', () => setMapReady(true))
-    return () => { mapObj.current?.remove(); setMapReady(false) }
-  }, [basemap])
+    return () => {
+      cancelled = true
+      mapObj.current?.remove()
+      mapObj.current = null
+      appliedBasemapRef.current = null
+      setMapReady(false)
+    }
+  }, [])
+
+  // Swap basemap via setStyle. Never flip mapReady off here — that cancelled the
+  // style.load handler (effect cleanup) and left the map stuck until refresh.
+  useEffect(() => {
+    const map = mapObj.current
+    if (!map || !mapReady) return
+    if (appliedBasemapRef.current === basemap) return
+
+    let cancelled = false
+
+    async function applyBasemap() {
+      if (appliedBasemapRef.current === null && basemap === 'streets') {
+        appliedBasemapRef.current = 'streets'
+        return
+      }
+
+      let style
+      try {
+        style = await resolveBasemapStyle(basemap)
+      } catch (err) {
+        console.warn(err)
+        try {
+          style = await resolveBasemapStyle('streets')
+        } catch (err2) {
+          console.warn(err2)
+          return
+        }
+      }
+      if (cancelled || !mapObj.current) return
+
+      const target = basemap
+      await new Promise((resolve) => {
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          mapObj.current?.off('style.load', onLoad)
+          resolve()
+        }
+        const onLoad = () => finish()
+        const timer = setTimeout(finish, 10000)
+        mapObj.current.once('style.load', onLoad)
+        try {
+          mapObj.current.setStyle(style, { diff: false })
+        } catch (err) {
+          console.warn('Failed to set basemap style', err)
+          finish()
+        }
+      })
+
+      if (cancelled || !mapObj.current) return
+      appliedBasemapRef.current = target
+      // Re-run overlay effects — setStyle removes all custom sources/layers
+      setStyleEpoch((n) => n + 1)
+    }
+
+    applyBasemap()
+    return () => { cancelled = true }
+  }, [basemap, mapReady])
 
   // ── Load flood risk GeoJSON ────────────────────────────────────────────────
   useEffect(() => {
@@ -921,7 +1089,7 @@ export default function MapPanel({
       clearTimeout(debounceId)
       map.off('moveend', onMoveEnd)
     }
-  }, [mapReady, exposureVisible.buildings, onBuildingsViewportChange])
+  }, [mapReady, styleEpoch, exposureVisible.buildings, onBuildingsViewportChange])
 
   // ── Add risk GeoJSON layer once map + data are ready ──────────────────────
   useEffect(() => {
@@ -1009,7 +1177,7 @@ export default function MapPanel({
       map.on('mouseenter', 'flood-risk-fill', () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', 'flood-risk-fill', () => { map.getCanvas().style.cursor = '' })
     }
-  }, [mapReady, riskData])
+  }, [mapReady, styleEpoch, riskData])
 
   // ── Update risk layer visibility + opacity ─────────────────────────────────
   useEffect(() => {
@@ -1021,7 +1189,7 @@ export default function MapPanel({
     map.setLayoutProperty('flood-risk-outline', 'visibility', vis)
     map.setPaintProperty('flood-risk-fill',    'fill-opacity',  riskOpacity * 0.6)
     map.setPaintProperty('flood-risk-outline', 'line-opacity',  riskOpacity)
-  }, [mapReady, riskAreasVisible, riskOpacity])
+  }, [mapReady, styleEpoch, riskAreasVisible, riskOpacity])
 
   // ── Add urban flash flood GeoJSON layer ────────────────────────────────────
   useEffect(() => {
@@ -1112,7 +1280,7 @@ export default function MapPanel({
         map.getCanvas().style.cursor = ''
       })
     }
-  }, [mapReady, urbanFlashData])
+  }, [mapReady, styleEpoch, urbanFlashData])
 
   // ── Update urban flash visibility + opacity ────────────────────────────────
   useEffect(() => {
@@ -1124,7 +1292,7 @@ export default function MapPanel({
     map.setLayoutProperty('urban-flash-outline', 'visibility', vis)
     map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.55)
     map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity)
-  }, [mapReady, urbanFlashVisible, urbanFlashOpacity])
+  }, [mapReady, styleEpoch, urbanFlashVisible, urbanFlashOpacity])
 
   // ── Add / sync independent raster tile layers ─────────────────────────────
   useEffect(() => {
@@ -1177,7 +1345,7 @@ export default function MapPanel({
         map.setPaintProperty(layerId, 'raster-opacity', riskOpacity * 0.75)
       }
     })
-  }, [mapReady, tileLayers, tileVisibility, riskOpacity])
+  }, [mapReady, styleEpoch, tileLayers, tileVisibility, riskOpacity])
 
   // ── Sync raster opacity when slider changes ───────────────────────────────
   useEffect(() => {
@@ -1189,7 +1357,7 @@ export default function MapPanel({
         map.setPaintProperty(layerId, 'raster-opacity', riskOpacity * 0.75)
       }
     })
-  }, [mapReady, riskOpacity, tileLayers])
+  }, [mapReady, styleEpoch, riskOpacity, tileLayers])
 
   useEffect(() => {
     if (!mapReady) return
@@ -1227,7 +1395,9 @@ export default function MapPanel({
         map.getSource('exposure-places').setData(exposureData.places)
       } else {
         map.addSource('exposure-places', { type: 'geojson', data: exposureData.places })
-        addPlaceLayers(map, 'exposure-places')
+        addPlaceLayers(map, 'exposure-places', (nextPlace) => {
+          onPlaceSelectRef.current?.(nextPlace)
+        })
       }
       PLACE_LAYER_STYLES.forEach(style => {
         const circleId = `exposure-places-${style.key}-circle`
@@ -1256,7 +1426,7 @@ export default function MapPanel({
         )
       }
     }
-  }, [mapReady, exposureData, exposureVisible])
+  }, [mapReady, styleEpoch, exposureData, exposureVisible])
 
   // ── Admin / basin boundaries ───────────────────────────────────────────────
   useEffect(() => {
@@ -1284,7 +1454,7 @@ export default function MapPanel({
         },
       )
     })
-  }, [mapReady, boundaryData, boundaryVisible])
+  }, [mapReady, styleEpoch, boundaryData, boundaryVisible])
 
   // ── Highlight selected gauge's HydroBASINS catchment ───────────────────────
   useEffect(() => {
@@ -1313,7 +1483,7 @@ export default function MapPanel({
         ? { type: 'FeatureCollection', features: [match] }
         : empty,
     )
-  }, [mapReady, highlightSelectedBasin, selected, stations, boundaryData.basins])
+  }, [mapReady, styleEpoch, highlightSelectedBasin, selected, stations, boundaryData.basins])
 
   // ── Station markers ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1376,60 +1546,27 @@ export default function MapPanel({
         .setPopup(popup)
         .addTo(map)
     })
-  }, [mapReady, stations, liveReadings, selected, gaugesVisible, onSelect])
+  }, [mapReady, styleEpoch, stations, liveReadings, selected, gaugesVisible, onSelect])
 
   // ── Fly-to on station select ───────────────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !selected) return
     const s = stations.find(st => st.id === selected)
     if (s) mapObj.current.flyTo({ center: [s.lon, s.lat], zoom: 9, duration: 1000 })
-  }, [selected, mapReady])
+  }, [selected, mapReady, styleEpoch])
 
   // ── Fly-to on search result ────────────────────────────────────────────────
   const handleSearchResult = useCallback((result) => {
     if (!mapObj.current) return
-    if (result.bbox_lnglat) {
-      const pad = publicMode
-        ? { top: 80, right: 40, bottom: 280, left: 40 }
-        : 60
-      mapObj.current.fitBounds(
-        [
-          [result.bbox_lnglat[0], result.bbox_lnglat[1]],
-          [result.bbox_lnglat[2], result.bbox_lnglat[3]],
-        ],
-        { padding: pad, duration: 1200, maxZoom: 11 },
-      )
-    } else {
-      mapObj.current.flyTo({ center: [result.lon, result.lat], zoom: 10, duration: 1200 })
-    }
+    focusMapOnPlace(mapObj.current, result, { publicMode, zoom: 13 })
     onPlaceSelect?.(result)
   }, [onPlaceSelect, publicMode])
 
-  // External place focus (header search in public mode)
+  // External place focus (header search, at-risk list, nearby settlements, …)
   useEffect(() => {
     if (!mapReady || !placeFocus || !mapObj.current) return
-    if (placeFocus.bbox_lnglat?.length === 4) {
-      mapObj.current.fitBounds(
-        [
-          [placeFocus.bbox_lnglat[0], placeFocus.bbox_lnglat[1]],
-          [placeFocus.bbox_lnglat[2], placeFocus.bbox_lnglat[3]],
-        ],
-        {
-          padding: publicMode
-            ? { top: 80, right: 40, bottom: 280, left: 40 }
-            : 60,
-          duration: 1200,
-          maxZoom: 11,
-        },
-      )
-    } else {
-      mapObj.current.flyTo({
-        center: [placeFocus.lon, placeFocus.lat],
-        zoom: 10,
-        duration: 1200,
-      })
-    }
-  }, [placeFocus, mapReady, publicMode])
+    focusMapOnPlace(mapObj.current, placeFocus, { publicMode, zoom: 13 })
+  }, [placeFocus, mapReady, styleEpoch, publicMode])
 
   useEffect(() => {
     if (!mapReady || !zoneFocus || !mapObj.current) return
@@ -1454,7 +1591,7 @@ export default function MapPanel({
         duration: 1200,
       })
     }
-  }, [zoneFocus, mapReady, publicMode])
+  }, [zoneFocus, mapReady, styleEpoch, publicMode])
 
   // Place pin marker
   useEffect(() => {
@@ -1477,7 +1614,7 @@ export default function MapPanel({
     markersRef.current.__place = new maplibregl.Marker({ element: el })
       .setLngLat([placeFocus.lon, placeFocus.lat])
       .addTo(map)
-  }, [mapReady, placeFocus])
+  }, [mapReady, styleEpoch, placeFocus])
 
   // Highlight a road selected from the place panel
   useEffect(() => {
@@ -1611,7 +1748,7 @@ export default function MapPanel({
         duration: 900,
       })
     }
-  }, [mapReady, roadHighlight, publicMode])
+  }, [mapReady, styleEpoch, roadHighlight, publicMode])
 
   return (
     <div

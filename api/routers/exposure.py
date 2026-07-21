@@ -285,10 +285,23 @@ async def nearby_settlements(
     limit: int = Query(8, ge=1, le=20),
     exclude_name: str | None = Query(default=None),
 ):
-    """Return neighbouring OSM cities/towns/villages within a radius."""
-    results = []
-    exclude = (exclude_name or "").strip().lower()
+    """
+    Neighbouring cities/towns/villages within a radius.
 
+    Prefers Google Places Nearby Search when GOOGLE_MAPS_API_KEY is set,
+    then merges/dedupes with the static OSM exposure layer (and Nominatim
+    if needed). Results are enriched with GEE flood susceptibility.
+    """
+    from services import google_places
+
+    exclude = (exclude_name or "").strip().lower()
+    class_rank = {"City": 0, "Town": 1, "Village": 2}
+
+    google_results = await google_places.nearby_settlements(
+        lat, lon, radius_km=radius_km, limit=limit, exclude_name=exclude_name
+    )
+
+    osm_results: list[dict] = []
     try:
         data = _load_layer("places")
         for feature in data.get("features", []):
@@ -312,7 +325,7 @@ async def nearby_settlements(
             if exclude and name.lower() == exclude:
                 continue
 
-            results.append({
+            osm_results.append({
                 "name": name,
                 "class": str(place_class).title() if isinstance(place_class, str) else "Settlement",
                 "lat": place_lat,
@@ -320,14 +333,35 @@ async def nearby_settlements(
                 "distance_km": round(distance, 1),
                 "population": props.get("population"),
                 "display_name": f"{name}, Nigeria",
+                "source": "osm",
             })
     except FileNotFoundError:
-        results = []
+        osm_results = []
 
-    if not results:
-        results = await _nearby_from_nominatim(lat, lon, radius_km, limit, exclude)
+    results: list[dict] = []
+    seen: set[str] = set()
 
-    class_rank = {"City": 0, "Town": 1, "Village": 2}
+    def _push(rows: list[dict]):
+        for row in rows:
+            key = (row.get("name") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            results.append(row)
+
+    if google_results:
+        _push(google_results)
+        # Top up with OSM if Google returned few hits
+        if len(results) < limit:
+            _push(osm_results)
+    else:
+        _push(osm_results)
+        if not results:
+            nominatim_rows = await _nearby_from_nominatim(lat, lon, radius_km, limit, exclude)
+            for row in nominatim_rows:
+                row.setdefault("source", "nominatim")
+            _push(nominatim_rows)
+
     results.sort(key=lambda row: (row["distance_km"], class_rank.get(row["class"], 9)))
     results = results[:limit]
     return await _enrich_with_susceptibility(request, results)
@@ -826,10 +860,28 @@ async def affected_settlements_summary(
     filtered_places = places_out
     if state:
         state_fold = state.strip().casefold()
-        filtered_places = [
-            p for p in filtered_places
-            if ((p.get("state") or "").strip().casefold() == state_fold)
-        ]
+        # Treat FCT / Abuja FCT / Federal Capital Territory as the same filter
+        fct_aliases = {
+            "fct",
+            "abuja fct",
+            "abuja",
+            "federal capital territory",
+        }
+        want_fct = state_fold in fct_aliases
+        nas_aliases = {"nasarawa", "nassarawa"}
+        want_nas = state_fold in nas_aliases
+
+        def _state_match(place_state: str | None) -> bool:
+            ps = (place_state or "").strip().casefold()
+            if not ps:
+                return False
+            if want_fct and ps in fct_aliases:
+                return True
+            if want_nas and ps in nas_aliases:
+                return True
+            return ps == state_fold
+
+        filtered_places = [p for p in filtered_places if _state_match(p.get("state"))]
     if place_class:
         class_fold = place_class.strip().casefold()
         filtered_places = [

@@ -10,7 +10,13 @@ cp .env.example .env
 # into the repo root and point .env at it:
 #   GEE_SERVICE_ACCOUNT_EMAIL=your-sa@your-project.iam.gserviceaccount.com
 #   GEE_SERVICE_ACCOUNT_KEY=./your-key-file.json
-```
+#
+# For fresher place search + nearby towns/villages, enable **Places API**
+# (legacy Text Search / Nearby Search) in Google Cloud and set:
+#   GOOGLE_MAPS_API_KEY=your-key
+# Optional: enable **Geocoding API** (better reverse) and **Map Tiles API**
+# (Google roadmap / satellite basemap in the map switcher).
+# When unset, place search falls back to Nominatim / OSM.```
 
 > **Note for fresh clones:** `.env` and the GEE `*.json` key files are
 > gitignored, so they are **not** in the repo — copy them over manually.

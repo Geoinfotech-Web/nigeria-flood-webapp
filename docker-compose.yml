@@ -204,6 +204,7 @@ services:
       BENTOML_URL: http://bentoml:3000
       TITILER_URL: http://titiler
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
     depends_on:
       timescaledb:
         condition: service_healthy

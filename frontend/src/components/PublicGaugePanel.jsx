@@ -32,17 +32,39 @@ export default function PublicGaugePanel({
   onClose,
 }) {
   const dark = theme === 'dark'
-  const risk = liveReading?.risk_tier || 'Normal'
-  const level = liveReading?.water_level_m
-  const bank = station?.bank_full_m
-  const pct =
-    level != null && bank > 0 ? Math.min(100, Math.round((level / bank) * 100)) : null
+  const [latestReading, setLatestReading] = useState(null)
   const [rainToday, setRainToday] = useState(null)
+
+  // Prefer live WS reading when it has a level; otherwise fall back to API
+  // (same pattern as StationConsole — WS is often empty until the first push).
+  const effectiveReading =
+    liveReading?.water_level_m != null || liveReading?.time
+      ? liveReading
+      : latestReading
+
+  const risk = effectiveReading?.risk_tier || liveReading?.risk_tier || 'Normal'
+  const level = effectiveReading?.water_level_m
+  const bank = station?.bank_full_m ?? liveReading?.bank_full_m
+  const pct =
+    liveReading?.pct_bank != null
+      ? Number(liveReading.pct_bank)
+      : level != null && bank > 0
+        ? Math.min(100, Math.round((level / bank) * 100))
+        : null
 
   useEffect(() => {
     if (!stationId) return undefined
+    setLatestReading(null)
     setRainToday(null)
     let cancelled = false
+    axios
+      .get(`${API}/stations/${stationId}/latest-reading`)
+      .then((r) => {
+        if (!cancelled) setLatestReading(r.data || null)
+      })
+      .catch(() => {
+        if (!cancelled) setLatestReading(null)
+      })
     axios
       .get(`${API}/stations/${stationId}/rainfall?days=1`)
       .then((r) => {
@@ -174,7 +196,7 @@ export default function PublicGaugePanel({
           </p>
           <GaugeChart
             stationId={stationId}
-            liveReading={liveReading}
+            liveReading={effectiveReading}
             theme={theme}
             mode="readings"
             hours={24}

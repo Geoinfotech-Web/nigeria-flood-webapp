@@ -7,6 +7,7 @@ import { IconX } from './Icons'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 import PredictionPanel from './PredictionPanel'
+import { bankPct, stationRisk } from '../lib/stationRisk'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -216,18 +217,15 @@ export default function StationConsole({
     return () => clearInterval(id)
   }, [stationId])
 
-  const effectiveReading = liveReading?.time ? liveReading : latestReading
-  const overall = prediction?.overall_risk || liveReading?.risk_tier || 'Normal'
+  const effectiveReading = liveReading?.water_level_m != null || liveReading?.time
+    ? liveReading
+    : latestReading
+  const pct = bankPct(station, effectiveReading)
+  const overall = stationRisk(effectiveReading, prediction, pct)
   const banner = (dark ? RISK_BANNER.dark : RISK_BANNER.light)[overall] || RISK_BANNER.light.Normal
 
   const level = effectiveReading?.water_level_m
   const bankFull = station?.bank_full_m ?? liveReading?.bank_full_m
-  const pct =
-    liveReading?.pct_bank != null
-      ? Number(liveReading.pct_bank)
-      : bankFull && level != null
-        ? Math.round((level / bankFull) * 1000) / 10
-        : null
   const flow = effectiveReading?.flow_rate_m3s
 
   const levelDelta1h = useMemo(() => {

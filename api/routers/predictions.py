@@ -1,12 +1,30 @@
 """Prediction endpoints — fetches latest features then calls BentoML."""
 import json
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
 RISK_ORDER = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
+
+
+@router.get("/all/predictions")
+async def get_all_predictions(request: Request):
+    """Summary prediction for every station (for Expert gauge console / map).
+
+    Must be declared before /{station_id}/predictions so "all" is not parsed as an id.
+    """
+    async with request.app.state.db.acquire() as conn:
+        stations = await conn.fetch("SELECT id FROM gauge_stations")
+
+    results = []
+    for row in stations:
+        try:
+            pred = await get_predictions(row["id"], request)
+            results.append(pred)
+        except HTTPException:
+            pass
+    return results
 
 
 @router.get("/{station_id}/predictions")
@@ -58,24 +76,9 @@ async def get_predictions(station_id: int, request: Request):
         if RISK_ORDER.get(tier, 0) > RISK_ORDER.get(worst, 0):
             worst = tier
     result["overall_risk"] = worst
+    if "station_id" not in result:
+        result["station_id"] = station_id
 
     # 5) Cache + return
     await request.app.state.redis.setex(cache_key, 30, json.dumps(result))
     return result
-
-
-@router.get("/all/predictions")
-async def get_all_predictions(request: Request):
-    """Summary prediction for every station (for map view)."""
-    async with request.app.state.db.acquire() as conn:
-        stations = await conn.fetch("SELECT id FROM gauge_stations")
-
-    results = []
-    for row in stations:
-        try:
-            # Re-use per-station endpoint logic via direct call
-            pred = await get_predictions(row["id"], request)
-            results.append(pred)
-        except HTTPException:
-            pass
-    return results
