@@ -118,11 +118,24 @@ CREATE TABLE IF NOT EXISTS flood_incident_reports (
     media_url      TEXT,
     media_type     TEXT,
     edit_token_hash TEXT,
+    reporter_token_hash TEXT,
     updated_at     TIMESTAMPTZ,
     status         TEXT NOT NULL DEFAULT 'unverified'
 );
 CREATE INDEX IF NOT EXISTS idx_flood_incident_reports_created
     ON flood_incident_reports (created_at DESC);
+CREATE TABLE IF NOT EXISTS flood_incident_verifications (
+    id                  BIGSERIAL PRIMARY KEY,
+    incident_id         BIGINT NOT NULL REFERENCES flood_incident_reports(id) ON DELETE CASCADE,
+    verifier_token_hash TEXT NOT NULL,
+    latitude            DOUBLE PRECISION NOT NULL,
+    longitude           DOUBLE PRECISION NOT NULL,
+    distance_km         DOUBLE PRECISION NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (incident_id, verifier_token_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_flood_incident_verifications_incident
+    ON flood_incident_verifications (incident_id, created_at DESC);
 -- ─── Flood risk polygons (SAR/DEM inundation or synthetic fallback) ──
 CREATE TABLE IF NOT EXISTS flood_risk_areas (
     id           SERIAL PRIMARY KEY,
