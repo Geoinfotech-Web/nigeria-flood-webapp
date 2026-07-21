@@ -156,6 +156,64 @@ function StateRankPanel({ stations, liveReadings, theme }) {
   )
 }
 
+function FloodNewsPanel({ theme }) {
+  const dark = theme === 'dark'
+  const [articles, setArticles] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = () =>
+      fetch(`${API}/news?limit=5`, { cache: 'no-store' })
+        .then((response) => (response.ok ? response.json() : { articles: [] }))
+        .then((data) => setArticles(Array.isArray(data.articles) ? data.articles : []))
+        .catch(() => setArticles([]))
+        .finally(() => setLoading(false))
+    load()
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <PanelShell title="Flood News Reports" theme={theme}>
+      <ul className="max-h-[140px] space-y-1.5 overflow-y-auto">
+        {loading && (
+          <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>
+            Loading flood news…
+          </li>
+        )}
+        {!loading && articles.length === 0 && (
+          <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>
+            No recent flood news
+          </li>
+        )}
+        {articles.map((article) => (
+          <li key={article.url}>
+            <a
+              href={article.url}
+              target="_blank"
+              rel="noreferrer"
+              className={clsx(
+                'block rounded-lg border px-2 py-1.5 transition',
+                dark
+                  ? 'border-gray-800 bg-gray-950/40 hover:border-sky-700 hover:bg-gray-900'
+                  : 'border-slate-100 bg-slate-50 hover:border-sky-300 hover:bg-white',
+              )}
+            >
+              <p className={clsx('line-clamp-2 text-[10px] font-medium leading-snug', dark ? 'text-gray-100' : 'text-slate-800')}>
+                {article.title}
+              </p>
+              <p className={clsx('mt-1 flex justify-between gap-2 text-[9px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                <span className="truncate text-sky-500">{article.source}</span>
+                <span className="shrink-0">{timeAgo(article.published_at)}</span>
+              </p>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </PanelShell>
+  )
+}
+
 function UrbanFlashPanel({ urbanFlash, theme, onSelectArea }) {
   const dark = theme === 'dark'
   const areas = urbanFlash?.top_areas || []
@@ -320,11 +378,13 @@ function CommunityReportsPanel({ theme, onViewAll }) {
           </li>
         )}
         {reports.map((r) => (
-          <li
-            key={r.id}
+          <li key={r.id}>
+          <button
+            type="button"
+            onClick={() => onViewAll?.(r)}
             className={clsx(
-              'flex gap-2 rounded-lg border px-2 py-1.5',
-              dark ? 'border-gray-800 bg-gray-950/40' : 'border-slate-100 bg-slate-50',
+              'flex w-full gap-2 rounded-lg border px-2 py-1.5 text-left transition',
+              dark ? 'border-gray-800 bg-gray-950/40 hover:border-sky-700 hover:bg-gray-900' : 'border-slate-100 bg-slate-50 hover:border-sky-300 hover:bg-white',
             )}
           >
             {r.media_url && r.media_type === 'image' ? (
@@ -354,6 +414,7 @@ function CommunityReportsPanel({ theme, onViewAll }) {
                 {r.severity} · {r.status || 'unverified'} · {timeAgo(r.created_at)}
               </p>
             </div>
+          </button>
           </li>
         ))}
       </ul>
@@ -406,7 +467,7 @@ export default function ExpertAnalyticsRow({
       </div>
       {!collapsed && (
         <div className="grid grid-cols-4 gap-2 px-3 pb-2.5">
-          <StateRankPanel stations={stations} liveReadings={liveReadings} theme={theme} />
+          <FloodNewsPanel theme={theme} />
           <UrbanFlashPanel urbanFlash={urbanFlash} theme={theme} onSelectArea={onSelectUrbanFlash} />
           <AlertsPanel theme={theme} onSelectStation={onSelectStation} stations={stations} />
           <CommunityReportsPanel theme={theme} onViewAll={onViewReports} />

@@ -1,5 +1,4 @@
 # ── Credentials & secrets ─────────────────────
-.env
 .tools/
 *.json
 !package.json
@@ -56,6 +55,6 @@ minio/data/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/settings.json
 *.swp
 *.swo
+config.bat

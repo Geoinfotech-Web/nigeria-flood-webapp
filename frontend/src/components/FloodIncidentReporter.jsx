@@ -7,12 +7,22 @@ const TYPES = ['Flash flood', 'River overflow', 'Urban flooding', 'Coastal flood
 const SEVERITIES = ['Low', 'Moderate', 'High', 'Critical']
 const EMPTY_FORM = { location_name: '', affected_street: '', flood_source: '', incident_type: 'Flash flood', severity: 'Moderate', description: '', water_depth_cm: '', latitude: null, longitude: null }
 const TOKEN_KEY = 'flood_report_edit_tokens'
+const VERIFIER_TOKEN_KEY = 'flood_report_verifier_token'
+const VERIFICATIONS_REQUIRED = 2
 const severityColor = { Low: 'bg-emerald-500', Moderate: 'bg-amber-400', High: 'bg-orange-500', Critical: 'bg-red-500' }
 
 function loadTokens() {
   try { return JSON.parse(localStorage.getItem(TOKEN_KEY) || '{}') } catch { return {} }
 }
 function saveTokens(tokens) { localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens)) }
+function verifierToken() {
+  let token = localStorage.getItem(VERIFIER_TOKEN_KEY)
+  if (!token) {
+    token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')
+    localStorage.setItem(VERIFIER_TOKEN_KEY, token)
+  }
+  return token
+}
 function timeAgo(value) {
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000))
   if (minutes < 1) return 'just now'
@@ -40,6 +50,7 @@ export default function FloodIncidentReporter({
   const [tokens, setTokens] = useState(loadTokens)
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [verifyingId, setVerifyingId] = useState(null)
   const [notice, setNotice] = useState(null)
 
   useEffect(() => {
@@ -111,7 +122,7 @@ export default function FloodIncidentReporter({
       const token = editingId ? tokens[editingId] : null
       const response = await fetch(editingId ? `${API}/incidents/${editingId}` : `${API}/incidents`, {
         method: editingId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Edit-Token': token } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Edit-Token': token } : { 'X-Reporter-Token': verifierToken() }) },
         body: JSON.stringify(payload),
       })
       if (!response.ok) throw new Error((await response.json()).detail || 'The report could not be saved.')
@@ -148,6 +159,44 @@ export default function FloodIncidentReporter({
     } catch (error) { setNotice({ type: 'error', text: error.message }) }
   }
 
+  const verifyReport = report => {
+    setNotice(null)
+    if (!navigator.geolocation) return setNotice({ type: 'error', text: 'GPS is required to confirm that you are near this incident.' })
+    setVerifyingId(report.id)
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const response = await fetch(`${API}/incidents/${report.id}/verify`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Verifier-Token': verifierToken(),
+              ...(tokens[report.id] ? { 'X-Edit-Token': tokens[report.id] } : {}),
+            },
+            body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude }),
+          })
+          const result = await response.json()
+          if (!response.ok) throw new Error(result.detail || 'The confirmation could not be saved.')
+          setNotice({
+            type: 'success',
+            text: result.status === 'verified'
+              ? 'Incident verified by two nearby community members.'
+              : `Confirmation saved. ${VERIFICATIONS_REQUIRED - result.verification_count} more nearby confirmation needed.`,
+          })
+          window.dispatchEvent(new Event('flood-reports-changed'))
+          await loadReports()
+        } catch (error) {
+          setNotice({ type: 'error', text: error.message })
+        } finally { setVerifyingId(null) }
+      },
+      () => {
+        setVerifyingId(null)
+        setNotice({ type: 'error', text: 'Allow location access to confirm you are within 10 km of this incident.' })
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
+    )
+  }
+
   return (
     <div className="absolute bottom-3 left-3 z-30">
       {open && <section className={clsx('mb-2 flex max-h-[min(42rem,calc(100vh-8rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl', dark ? 'border-gray-700/90 bg-gray-950/95 text-gray-100' : 'border-slate-200 bg-white/95 text-slate-900')}>
@@ -175,7 +224,7 @@ export default function FloodIncidentReporter({
           {reports.map(report => <article key={report.id} className={clsx('overflow-hidden rounded-xl border', dark ? 'border-gray-800 bg-gray-900/80' : 'border-slate-200 bg-slate-50')}>
             {report.media_url && (report.media_type === 'video' ? <video controls preload="metadata" className="max-h-48 w-full bg-black" src={`${API}${report.media_url}`} /> : <img className="max-h-48 w-full object-cover" src={`${API}${report.media_url}`} alt={`Flood report from ${report.location_name}`} />)}
             <div className="p-3"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-1.5"><span className={clsx('h-2 w-2 shrink-0 rounded-full', severityColor[report.severity])} /><h3 className="truncate text-xs font-semibold">{report.location_name}</h3></div><p className={clsx('mt-1 text-[10px]', dark ? 'text-gray-400' : 'text-slate-500')}>{report.incident_type} · {report.severity}</p></div><span className={clsx('shrink-0 text-[9px]', dark ? 'text-gray-500' : 'text-slate-400')}>{timeAgo(report.updated_at || report.created_at)}</span></div>{report.affected_street && <p className="mt-2 text-[10px] font-semibold text-blue-500">Affected street: {report.affected_street}</p>}{report.flood_source && <p className={clsx('mt-1 text-[10px]', dark ? 'text-gray-400' : 'text-slate-500')}>Source: {report.flood_source}</p>}<p className={clsx('mt-2 text-[10px] leading-relaxed', dark ? 'text-gray-300' : 'text-slate-600')}>{report.description}</p>
-            <div className="mt-2 flex items-center justify-between"><span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[8px] font-semibold uppercase text-amber-500">Unverified</span>{tokens[report.id] && <span className="flex gap-1"><button type="button" onClick={() => startEdit(report)} className="rounded-md bg-blue-600 px-2 py-1 text-[9px] font-semibold text-white">Edit</button><button type="button" onClick={() => removeReport(report)} className="rounded-md bg-red-600 px-2 py-1 text-[9px] font-semibold text-white">Delete</button></span>}</div></div>
+            <div className="mt-2 flex items-center justify-between gap-2"><span className={clsx('rounded-full border px-2 py-0.5 text-[8px] font-semibold uppercase', report.status === 'verified' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-amber-500/30 bg-amber-500/10 text-amber-500')}>{report.status === 'verified' ? 'Verified' : `${report.verification_count || 0}/${VERIFICATIONS_REQUIRED} confirmed`}</span><span className="flex gap-1">{!tokens[report.id] && report.status !== 'verified' && <button type="button" disabled={verifyingId === report.id} onClick={() => verifyReport(report)} className="rounded-md bg-emerald-600 px-2 py-1 text-[9px] font-semibold text-white disabled:opacity-60">{verifyingId === report.id ? 'Checking GPS…' : 'Confirm nearby'}</button>}{tokens[report.id] && <><button type="button" onClick={() => startEdit(report)} className="rounded-md bg-blue-600 px-2 py-1 text-[9px] font-semibold text-white">Edit</button><button type="button" onClick={() => removeReport(report)} className="rounded-md bg-red-600 px-2 py-1 text-[9px] font-semibold text-white">Delete</button></>}</span></div></div>
           </article>)}
         </div>}
       </section>}

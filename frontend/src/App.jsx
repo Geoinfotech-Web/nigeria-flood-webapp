@@ -76,6 +76,7 @@ export default function App() {
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
   const [zoneFocus, setZoneFocus] = useState(null)
+  const [communityReportFocus, setCommunityReportFocus] = useState(null)
   const [highlightedRoad, setHighlightedRoad] = useState(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportInitialTab, setReportInitialTab] = useState(null)
@@ -152,6 +153,11 @@ export default function App() {
     setReportInitialTab('feed')
     setReportOpen(true)
   }, [])
+
+  const focusCommunityReport = useCallback((report) => {
+    if (!report) return openReportFeed()
+    setCommunityReportFocus({ ...report, focusKey: Date.now() })
+  }, [openReportFeed])
 
   const handleReportOpenChange = useCallback((open) => {
     setReportOpen(open)
@@ -662,6 +668,7 @@ export default function App() {
                 variant="expert"
                 placeFocus={place}
                 zoneFocus={zoneFocus}
+                communityReportFocus={communityReportFocus}
                 roadHighlight={highlightedRoad}
                 onPlaceSelect={handlePlaceSelect}
                 showSearch={false}
@@ -735,7 +742,7 @@ export default function App() {
             theme={theme}
             onSelectStation={handleSelectStation}
             onSelectUrbanFlash={handleSelectUrbanFlash}
-            onViewReports={openReportFeed}
+            onViewReports={focusCommunityReport}
             collapsed={analyticsCollapsed}
             onToggleCollapsed={() => setAnalyticsCollapsed((v) => !v)}
           />

@@ -103,6 +103,19 @@ async def startup():
             ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
             ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS affected_street TEXT;
             ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS flood_source TEXT;
+            ALTER TABLE flood_incident_reports ADD COLUMN IF NOT EXISTS reporter_token_hash TEXT;
+            CREATE TABLE IF NOT EXISTS flood_incident_verifications (
+                id BIGSERIAL PRIMARY KEY,
+                incident_id BIGINT NOT NULL REFERENCES flood_incident_reports(id) ON DELETE CASCADE,
+                verifier_token_hash TEXT NOT NULL,
+                latitude DOUBLE PRECISION NOT NULL,
+                longitude DOUBLE PRECISION NOT NULL,
+                distance_km DOUBLE PRECISION NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (incident_id, verifier_token_hash)
+            );
+            CREATE INDEX IF NOT EXISTS idx_flood_incident_verifications_incident
+                ON flood_incident_verifications (incident_id, created_at DESC);
         """)
     log.info("DB pool and Redis ready")
 
