@@ -19,12 +19,13 @@ import psycopg2
 from shapely.geometry import Point, shape
 from shapely.strtree import STRtree
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[2] if len(Path(__file__).resolve().parents) > 2 else Path("/api_data")
 CANDIDATES = [
     Path(os.environ["BASINS_GEOJSON"]) if os.environ.get("BASINS_GEOJSON") else None,
     ROOT / "api" / "data" / "basins.geojson",
     Path("/api_data/basins.geojson"),
     Path("/app/data/basins.geojson"),
+    Path(__file__).resolve().parent / "basins.geojson",
 ]
 
 DB_DSN = (

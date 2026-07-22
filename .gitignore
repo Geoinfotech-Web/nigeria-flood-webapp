@@ -34,6 +34,9 @@ frontend/.vite/
 *.pt
 *.pth
 bentoml/
+ml/bentoml_store/
+ml/Dockerfile.train
+
 mlruns/
 mlartifacts/
 

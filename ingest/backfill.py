@@ -37,12 +37,14 @@ GAUGE_PARAMS = {
     "KADUNA_ZAR": dict(k=18.0, baseline=2.1, noise=0.05, flood_prob=0.005),
     "SOKOTO_BIR": dict(k=22.0, baseline=3.0, noise=0.05, flood_prob=0.004),
 }
+DEFAULT_GAUGE = dict(k=30.0, baseline=4.0, noise=0.06, flood_prob=0.003)
 MET_PARAMS = {
     "MET_ABUJA":  dict(temp_mean=28, temp_amp=4, rain_scale=18, lat=9.08),
     "MET_IBADAN": dict(temp_mean=27, temp_amp=3, rain_scale=22, lat=7.38),
     "MET_KANO":   dict(temp_mean=31, temp_amp=6, rain_scale=12, lat=12.05),
     "MET_PHC":    dict(temp_mean=26, temp_amp=2, rain_scale=28, lat=4.82),
 }
+DEFAULT_MET = dict(temp_mean=28, temp_amp=4, rain_scale=18, lat=9.0)
 
 BATCH = 2000
 
@@ -54,7 +56,14 @@ def seasonal(ts, lat=9.0):
 
 
 def gen_gauge_rows(station_id, code, bank_full, start, end):
-    p = GAUGE_PARAMS[code]
+    p = GAUGE_PARAMS.get(code, DEFAULT_GAUGE)
+    # Scale synthetic baseline to each station's bankfull so expanded gauges look plausible
+    if code not in GAUGE_PARAMS and bank_full:
+        p = {
+            **DEFAULT_GAUGE,
+            "baseline": max(1.0, float(bank_full) * 0.45),
+            "k": max(12.0, float(bank_full) * 3.0),
+        }
     ts = start
     flood_rem = 0
     flood_mag = 0.0
@@ -76,7 +85,7 @@ def gen_gauge_rows(station_id, code, bank_full, start, end):
 
 
 def gen_met_rows(station_id, code, start, end):
-    p = MET_PARAMS[code]
+    p = MET_PARAMS.get(code, DEFAULT_MET)
     ts = start
     rain_rem = 0
     rain_int = 0.0

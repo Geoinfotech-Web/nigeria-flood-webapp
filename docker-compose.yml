@@ -192,6 +192,8 @@ services:
       context: ./api
       dockerfile: Dockerfile
     container_name: flood_api
+    # Local override: production Dockerfile has no --reload
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "8000:8000"
     environment:
@@ -205,6 +207,7 @@ services:
       TITILER_URL: http://titiler
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      CORS_ORIGINS: "*"
     depends_on:
       timescaledb:
         condition: service_healthy

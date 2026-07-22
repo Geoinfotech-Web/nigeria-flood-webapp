@@ -1,4 +1,6 @@
-# Nigeria Flood Prediction Dashboard — Local Dev
+# GGIS Flood Watch (Nigeria Flood Dashboard)
+
+Local development stack and pointers for the live GCP deployment.
 
 ## Prerequisites
 
@@ -16,14 +18,15 @@ cp .env.example .env
 #   GOOGLE_MAPS_API_KEY=your-key
 # Optional: enable **Geocoding API** (better reverse) and **Map Tiles API**
 # (Google roadmap / satellite basemap in the map switcher).
-# When unset, place search falls back to Nominatim / OSM.```
+# When unset, place search falls back to Nominatim / OSM.
+```
 
 > **Note for fresh clones:** `.env` and the GEE `*.json` key files are
 > gitignored, so they are **not** in the repo — copy them over manually.
 > Everything else (all 26 gauge + 29 met station definitions, exposure
 > layers, and code) comes with the clone.
 
-## Quick Start
+## Quick Start (local)
 
 ```bash
 # 1. Start all services
@@ -45,6 +48,48 @@ docker-compose run --rm bentoml python train.py
 open http://localhost:5173
 ```
 
+## Live GCP deployment (temporary URLs)
+
+Production project **`ggis-flood-watch`** (`europe-west1`) is up on temporary endpoints while custom domains (`gfw.ggis.africa` / `api.gfw.ggis.africa`) are prepared by the web team.
+
+| Surface | URL |
+|---------|-----|
+| Frontend (Firebase Hosting) | https://ggis-flood-watch.web.app |
+| API (Cloud Run `gfw-api`) | https://gfw-api-883584176276.europe-west1.run.app |
+| API docs | https://gfw-api-883584176276.europe-west1.run.app/docs |
+| ML (Cloud Run `gfw-ml`) | BentoML behind `BENTOML_URL` on the API |
+| TiTiler (Cloud Run `gfw-titiler`) | COG tiles for susceptibility / inundation history |
+
+| Backend | Resource |
+|---------|----------|
+| Database | Cloud SQL `gfw-postgres` (DB `flooddb`, PostGIS) |
+| Rasters | GCS `gs://gfw-flood-rasters-ggis-flood-watch/` → `flood_risk_tiles` |
+| Secrets | Secret Manager (`DB_*`, `JWT_SECRET`, `GOOGLE_MAPS_API_KEY`, GEE SA) |
+
+**Cloud data policy:** Cloud SQL uses **real OpenMeteo / GloFAS only** (synthetic history purged). Features and XGB+LSTM models were trained on that real series.
+
+### Redeploy cheat sheet
+
+```bash
+# API image → Artifact Registry → Cloud Run
+gcloud auth configure-docker europe-west1-docker.pkg.dev
+docker build -t europe-west1-docker.pkg.dev/ggis-flood-watch/gfw-api/api:latest ./api
+docker push europe-west1-docker.pkg.dev/ggis-flood-watch/gfw-api/api:latest
+gcloud run deploy gfw-api \
+  --image europe-west1-docker.pkg.dev/ggis-flood-watch/gfw-api/api:latest \
+  --region europe-west1 \
+  --env-vars-file scripts/api_env.yaml \
+  --set-secrets "JWT_SECRET=JWT_SECRET:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY:latest" \
+  --add-cloudsql-instances ggis-flood-watch:europe-west1:gfw-postgres \
+  --allow-unauthenticated --port 8080 --memory 1Gi --quiet
+
+# Frontend → Firebase Hosting (uses frontend/.env.production)
+cd frontend && npm run build && cd ..
+python scripts/deploy_firebase_hosting.py
+```
+
+More detail: `CLOUD_RUN_API.md`, `GCP_HOSTING_RUNBOOK.md`, and helpers under `scripts/` (`seed_cloud_sql_real.py`, `seed_cloud_raster_tiles.py`, `migrate_flood_risk_areas.py`, `deploy_cloud_ml.py`, `apply_incident_verification.py`).
+
 ## Real data & enrichment (optional)
 
 The geospatial flood map uses SAR+DEM inundation, urban flash-flood,
@@ -57,18 +102,20 @@ synthetic state polygons. To refresh these products, run the following against t
 | `ingest/flood_risk/real_data.py` | Live weather/rainfall per station from Open-Meteo | network |
 | `ingest/flood_risk/gee_flood_risk.py` | Inundation History (JRC Landsat) + Flood Susceptibility (JRC + HAND + distance-to-drainage + slope) COGs | GEE creds |
 | `ingest/flood_risk/inundation_extent.py` | SAR+DEM inundation probability (Very High / High / Moderate) | GEE creds |
-| `ingest/flood_risk/urban_footprints.py` | Urban built-up footprints for flash-flood model | GEE creds |
+| `ingest/flood_risk/urban_footprints.py` | Urban built-up footprints; names from OSM places + LGA (`--rename-only` to relabel without GEE) | GEE / local data |
 | `ingest/flood_risk/urban_flash_flood.py` | Short-range urban flash-flood alerts (Open-Meteo rainfall) | network |
 | `ingest/flood_risk/sentinel1_flood.py` | Sentinel-1 SAR flood extent (legacy/state summaries) | GEE creds |
 | `ingest/exposure/fetch_osm_exposure.py` | Roads / bridges / places exposure from OSM | network |
 | `ingest/expand_stations.py` | Top up stations on an **already-running** DB (init.sql already seeds all 26/29 on a fresh volume) | — |
+
+Urban flash polygons show place names (e.g. `Pulka, Borno`), not `Urban cluster N`.
 
 ## Map modes
 
 | Mode | Audience | What you get |
 |------|----------|--------------|
 | **Public** | Communities & responders | Place search, early-warning outlook, nearby towns/roads/buildings at risk |
-| **Expert** | Hydrologists & ops | Gauge triage (search/sort/filter), network risk overview, stage vs bankfull, multi-horizon forecasts, hydrographs |
+| **Expert** | Hydrologists & ops | Gauge triage (search/sort/filter), network risk overview, stage vs bankfull, multi-horizon forecasts, hydrographs, community report verification |
 
 Toggle Public / Expert in the header. Expert never starts blank — the right rail shows a network overview until a gauge is selected.
 
@@ -77,18 +124,20 @@ Toggle Public / Expert in the header. Expert never starts blank — the right ra
 | Layer | Meaning |
 |-------|---------|
 | Inundation probability | Current/near-term riverine extents (SAR + DEM floodplain) |
-| Urban flash flood | 24h rainfall over built-up areas (Likely / Highly likely) |
+| Urban flash flood | 24h rainfall over built-up areas (Likely / Highly likely), labeled by place |
 | Inundation History | How often land was wet, JRC Landsat 1984–2021 (5–25% / 25–50% / >50%) |
 | Flood Susceptibility | Static predisposition: JRC 40% + HAND 30% + distance to drainage 20% + slope 10% |
 | River basins | HydroBASINS Level 7 watersheds; selecting a gauge highlights its catchment |
+| Google roadmap / satellite | Optional basemaps when `GOOGLE_MAPS_API_KEY` is set |
+| Community flood reports | Submit + peer verify (2 nearby verifications → verified) |
 
-After overwriting a COG in MinIO, restart TiTiler so tiles do not serve a stale cache:
+After overwriting a COG in MinIO (local), restart TiTiler so tiles do not serve a stale cache:
 
 ```bash
 docker restart flood_titiler
 ```
 
-## Service URLs
+## Service URLs (local)
 
 | Service       | URL                          |
 |---------------|------------------------------|
@@ -97,7 +146,7 @@ docker restart flood_titiler
 | MLflow UI     | http://localhost:5000        |
 | Flink UI      | http://localhost:8081        |
 | MinIO console | http://localhost:9001        |
-| Grafana       | http://localhost:3001        |
+| Grafana       | http://localhost:3002        |
 | Prometheus    | http://localhost:9090        |
 
 ## Architecture (local)
@@ -126,12 +175,14 @@ Cloud Scheduler → [APScheduler in ingest container]
 
 ## Data flow after `docker-compose up`
 
-1. **ingest** container generates synthetic gauge + met readings continuously.
+1. **ingest** container generates synthetic gauge + met readings continuously (local bootstrap).
 2. **Flink job** (run manually step 3 above) polls TimescaleDB and writes `flood_features`.
 3. **train.py** trains XGBoost + LSTM on 90 days of backfilled features.
 4. **BentoML** serves the trained models at port 3000.
 5. **FastAPI** queries features → calls BentoML → returns predictions to frontend.
 6. **React** renders risk map, charts, and alert banner live via WebSocket.
+
+On **GCP**, step 1 is replaced by real OpenMeteo/GloFAS seeding (`scripts/seed_cloud_sql_real.py`); synthetic history is not kept in Cloud SQL.
 
 ## Dev credentials
 
@@ -150,4 +201,7 @@ docker-compose run --rm bentoml python train.py
 
 # Retrain only 24h horizon
 docker-compose run --rm bentoml python train.py --horizon 24
+
+# Against Cloud SQL + redeploy ML (see scripts/deploy_cloud_ml.py)
+python scripts/deploy_cloud_ml.py
 ```

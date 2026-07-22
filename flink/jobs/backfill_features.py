@@ -34,7 +34,7 @@ DB_DSN = (
     f"user={os.getenv('DB_USER','flood')} "
     f"password={os.getenv('DB_PASSWORD','floodpass')}"
 )
-STEP_MIN  = 30   # compute a feature row every 30 minutes
+STEP_MIN  = int(os.getenv("FEATURE_STEP_MIN", "60"))   # real GloFAS is daily; hourly is enough
 BATCH     = 500
 
 

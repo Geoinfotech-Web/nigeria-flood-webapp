@@ -50,7 +50,10 @@ DB_DSN = (
 
 OPENMETEO_BASE = "https://api.open-meteo.com/v1/forecast"
 FLOOD_API_BASE = "https://flood-api.open-meteo.com/v1/flood"
-MET_HISTORY_HOURS = 24 * 7
+# Open-Meteo free APIs allow up to 92 past days on these endpoints.
+MET_HISTORY_DAYS = int(os.getenv("MET_HISTORY_DAYS", "92"))
+GAUGE_HISTORY_DAYS = int(os.getenv("GAUGE_HISTORY_DAYS", "92"))
+MET_HISTORY_HOURS = 24 * MET_HISTORY_DAYS
 
 # Manning inverse constant (calibrated for Nigerian rivers)
 MANNING_K = 35.0
@@ -82,7 +85,7 @@ def load_gauge_stations(conn) -> list[dict]:
 
 def fetch_met(station: dict, hours_back: int = MET_HISTORY_HOURS) -> list[dict]:
     """Fetch recent hourly met observations from OpenMeteo."""
-    past_days = max(1, min(14, (hours_back + 23) // 24))
+    past_days = max(1, min(92, (hours_back + 23) // 24))
     url = (
         f"{OPENMETEO_BASE}"
         f"?latitude={station['lat']}&longitude={station['lon']}"
@@ -113,10 +116,11 @@ def fetch_met(station: dict, hours_back: int = MET_HISTORY_HOURS) -> list[dict]:
 
 def fetch_river(station: dict) -> list[dict]:
     """Fetch GloFAS river discharge from OpenMeteo Flood API."""
+    past_days = max(1, min(92, GAUGE_HISTORY_DAYS))
     url = (
         f"{FLOOD_API_BASE}"
         f"?latitude={station['lat']}&longitude={station['lon']}"
-        f"&daily=river_discharge&past_days=7&forecast_days=7&timezone=UTC"
+        f"&daily=river_discharge&past_days={past_days}&forecast_days=7&timezone=UTC"
     )
     try:
         data = _get(url)
@@ -159,14 +163,19 @@ def write_met(conn, station_id: int, rows: list[dict]):
               (time, station_id, rainfall_mm, temperature_c,
                humidity_pct, wind_speed_ms, pressure_hpa)
             SELECT
-                i.time, i.station_id, i.rainfall_mm, i.temperature_c,
-                i.humidity_pct, i.wind_speed_ms, i.pressure_hpa
+                i.time::timestamptz,
+                i.station_id::int,
+                i.rainfall_mm::double precision,
+                i.temperature_c::double precision,
+                i.humidity_pct::double precision,
+                i.wind_speed_ms::double precision,
+                i.pressure_hpa::double precision
             FROM incoming i
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM met_readings mr
-                WHERE mr.station_id = i.station_id
-                  AND mr.time = i.time
+                WHERE mr.station_id = i.station_id::int
+                  AND mr.time = i.time::timestamptz
             )
         """, data)
     conn.commit()
@@ -184,13 +193,16 @@ def write_gauge(conn, station_id: int, rows: list[dict]):
             )
             INSERT INTO gauge_readings (time, station_id, water_level_m, flow_rate_m3s)
             SELECT
-                i.time, i.station_id, i.water_level_m, i.flow_rate_m3s
+                i.time::timestamptz,
+                i.station_id::int,
+                i.water_level_m::double precision,
+                i.flow_rate_m3s::double precision
             FROM incoming i
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM gauge_readings gr
-                WHERE gr.station_id = i.station_id
-                  AND gr.time = i.time
+                WHERE gr.station_id = i.station_id::int
+                  AND gr.time = i.time::timestamptz
             )
         """, data)
     conn.commit()

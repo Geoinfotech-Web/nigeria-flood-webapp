@@ -54,6 +54,8 @@ FEATURE_COLS = [
 ]
 AUC_GATE = float(os.getenv("AUC_GATE", "0.80"))   # 0.87 for production with real data
 F1_GATE  = float(os.getenv("F1_GATE",  "0.60"))   # 0.78 for production with real data
+# Set FORCE_REGISTER=1 to bake models even when gates fail (bootstrap / sparse real history)
+FORCE_REGISTER = os.getenv("FORCE_REGISTER", "0") == "1"
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -85,7 +87,14 @@ def build_labels(df: pd.DataFrame, horizon_h: int) -> pd.Series:
     in the next `horizon_h` hours for that station.
     """
     label = pd.Series(0, index=df.index)
-    horizon_steps = horizon_h * 2   # flood_features is 30-min intervals (2 rows/hour)
+    # Infer feature cadence (synthetic/backfill may be 30-min; real GloFAS features often hourly)
+    deltas = df.groupby("station_id")["time"].diff().dropna()
+    if len(deltas):
+        median_min = float(pd.Series(deltas).dt.total_seconds().median() / 60.0)
+        steps_per_hour = max(1, int(round(60.0 / max(median_min, 1.0))))
+    else:
+        steps_per_hour = 2
+    horizon_steps = horizon_h * steps_per_hour
 
     for sid in df["station_id"].unique():
         mask = df["station_id"] == sid
@@ -178,6 +187,11 @@ def train_horizon(df: pd.DataFrame, horizon_h: int, dry_run: bool):
         log.warning("  Not enough data (%d rows) — skipping horizon %dh", len(y), horizon_h)
         return
 
+    if pos_rate <= 0.0 or pos_rate >= 1.0:
+        log.warning("  Labels lack both classes (pos_rate=%.3f) — skipping horizon %dh",
+                    pos_rate, horizon_h)
+        return
+
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
@@ -233,15 +247,17 @@ def train_horizon(df: pd.DataFrame, horizon_h: int, dry_run: bool):
         mlflow.log_metrics({"auc": xgb_auc, "f1": xgb_f1, "threshold": best_t})
         mlflow.xgboost.log_model(xgb_model, "xgb_model")
 
-        if not dry_run and xgb_auc >= AUC_GATE and xgb_f1 >= F1_GATE:
+        gate_ok = xgb_auc >= AUC_GATE and xgb_f1 >= F1_GATE
+        if not dry_run and (gate_ok or FORCE_REGISTER):
             tag = f"xgb_h{horizon_h}"
             bentoml.xgboost.save_model(
                 tag, xgb_model,
                 signatures={"predict_proba": {"batchable": True}},
                 metadata={"horizon_h": horizon_h, "auc": xgb_auc, "f1": xgb_f1,
-                          "threshold": best_t},
+                          "threshold": best_t, "forced": not gate_ok},
             )
-            log.info("  Registered BentoML model: %s", tag)
+            log.info("  Registered BentoML model: %s%s", tag,
+                     " (forced)" if not gate_ok else "")
         else:
             if xgb_auc < AUC_GATE or xgb_f1 < F1_GATE:
                 log.warning("  XGB did NOT pass quality gate (AUC≥%.2f F1≥%.2f)", AUC_GATE, F1_GATE)
@@ -262,16 +278,19 @@ def train_horizon(df: pd.DataFrame, horizon_h: int, dry_run: bool):
         log.info("  LSTM AUC=%.4f  F1=%.4f", lstm_auc, lstm_f1)
         mlflow.log_metrics({"auc": lstm_auc, "f1": lstm_f1})
 
-        if not dry_run and lstm_auc >= AUC_GATE and lstm_f1 >= F1_GATE:
+        lstm_gate_ok = lstm_auc >= AUC_GATE and lstm_f1 >= F1_GATE
+        if not dry_run and (lstm_gate_ok or FORCE_REGISTER):
             tag = f"lstm_h{horizon_h}"
             bentoml.pytorch.save_model(
                 tag, lstm_model,
                 signatures={"__call__": {"batchable": False}},
                 metadata={"horizon_h": horizon_h, "auc": lstm_auc, "f1": lstm_f1,
                           "seq_len": SEQ_LEN, "scaler_mean": scaler.mean_.tolist(),
-                          "scaler_scale": scaler.scale_.tolist()},
+                          "scaler_scale": scaler.scale_.tolist(),
+                          "forced": not lstm_gate_ok},
             )
-            log.info("  Registered BentoML model: %s", tag)
+            log.info("  Registered BentoML model: %s%s", tag,
+                     " (forced)" if not lstm_gate_ok else "")
 
 
 def main():

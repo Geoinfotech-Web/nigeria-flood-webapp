@@ -47,16 +47,68 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_DSN = (
-    f"postgresql://{os.getenv('DB_USER','flood')}:{os.getenv('DB_PASSWORD','floodpass')}"
-    f"@{os.getenv('DB_HOST','timescaledb')}:{os.getenv('DB_PORT','5432')}"
-    f"/{os.getenv('DB_NAME','flooddb')}"
-)
-REDIS_URL   = os.getenv("REDIS_URL", "redis://redis:6379/0")
+DB_USER = os.getenv("DB_USER", "flood")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "floodpass")
+DB_NAME = os.getenv("DB_NAME", "flooddb")
+DB_HOST = os.getenv("DB_HOST", "timescaledb")
+DB_PORT = os.getenv("DB_PORT", "5432")
+# Cloud Run + Cloud SQL Auth Connector uses unix socket:
+# INSTANCE_CONNECTION_NAME=project:region:instance
+INSTANCE_CONNECTION_NAME = (
+    os.getenv("INSTANCE_CONNECTION_NAME")
+    or os.getenv("CLOUD_SQL_CONNECTION_NAME")
+    or ""
+).strip()
+
+if INSTANCE_CONNECTION_NAME:
+    DB_DSN = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@/{DB_NAME}"
+        f"?host=/cloudsql/{INSTANCE_CONNECTION_NAME}"
+    )
+elif DB_HOST.startswith("/cloudsql/"):
+    DB_DSN = f"postgresql://{DB_USER}:{DB_PASSWORD}@/{DB_NAME}?host={DB_HOST}"
+else:
+    DB_DSN = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}"
+        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    )
+
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
 BENTOML_URL = os.getenv("BENTOML_URL", "http://bentoml:3000")
-JWT_SECRET  = os.getenv("JWT_SECRET", "dev-secret")
-JWT_ALG     = "HS256"
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
+JWT_ALG = "HS256"
 JWT_EXPIRE_MIN = 60 * 8  # 8 hours
+
+# Comma-separated origins. Use "*" only for local/dev.
+_CORS_RAW = os.getenv("CORS_ORIGINS", "https://gfw.ggis.africa").strip()
+CORS_ORIGINS = (
+    ["*"]
+    if _CORS_RAW == "*"
+    else [o.strip() for o in _CORS_RAW.split(",") if o.strip()]
+)
+
+
+class _NullRedis:
+    """No-op async Redis stand-in when REDIS_URL is unset (e.g. first Cloud Run launch)."""
+
+    async def get(self, key):
+        return None
+
+    async def set(self, key, value, ex=None, **kwargs):
+        return True
+
+    async def setex(self, key, time, value):
+        return True
+
+    async def aclose(self):
+        return None
+
+
+def _redis_enabled() -> bool:
+    if not REDIS_URL:
+        return False
+    return REDIS_URL.lower() not in {"none", "disabled", "false", "off"}
+
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -69,7 +121,8 @@ os.makedirs("/app/uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -78,9 +131,16 @@ Instrumentator().instrument(app).expose(app)
 # ── DB + Redis pools ──────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    app.state.db    = await asyncpg.create_pool(DB_DSN, min_size=2, max_size=10)
-    app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-    app.state.http  = httpx.AsyncClient(base_url=BENTOML_URL, timeout=10.0)
+    app.state.db = await asyncpg.create_pool(DB_DSN, min_size=1, max_size=10)
+    if _redis_enabled():
+        app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        app.state.redis_enabled = True
+        log.info("Redis connected: %s", REDIS_URL.split("@")[-1])
+    else:
+        app.state.redis = _NullRedis()
+        app.state.redis_enabled = False
+        log.warning("REDIS_URL unset/disabled — running without cache")
+    app.state.http = httpx.AsyncClient(base_url=BENTOML_URL, timeout=10.0)
     async with app.state.db.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flood_incident_reports (
@@ -117,7 +177,7 @@ async def startup():
             CREATE INDEX IF NOT EXISTS idx_flood_incident_verifications_incident
                 ON flood_incident_verifications (incident_id, created_at DESC);
         """)
-    log.info("DB pool and Redis ready")
+    log.info("DB pool ready (Cloud SQL socket=%s)", bool(INSTANCE_CONNECTION_NAME or DB_HOST.startswith("/cloudsql/")))
 
 
 @app.on_event("shutdown")
@@ -130,7 +190,19 @@ async def shutdown():
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    db_ok = False
+    try:
+        async with app.state.db.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        db_ok = True
+    except Exception as exc:
+        log.warning("Health DB check failed: %s", exc)
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "time": datetime.now(timezone.utc).isoformat(),
+        "db": "ok" if db_ok else "error",
+        "redis": "ok" if getattr(app.state, "redis_enabled", False) else "disabled",
+    }
 
 
 # ── Include routers ───────────────────────────────────────────────────────────

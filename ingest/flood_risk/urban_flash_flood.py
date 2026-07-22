@@ -294,6 +294,7 @@ def run():
                 continue
             alerts.append(
                 {
+                    "id": fp["id"],
                     "name": fp["name"],
                     "state": fp.get("state"),
                     "geometry": fp["geometry"],
@@ -302,15 +303,15 @@ def run():
                 }
             )
 
-        # Prefer Highly Likely over Likely if somehow duplicated by name
-        by_name = {}
+        # One alert per footprint; prefer Highly Likely if classify were ever dual
+        by_id: dict[int, dict] = {}
         for a in alerts:
-            prev = by_name.get(a["name"])
+            prev = by_id.get(a["id"])
             if not prev or (
                 a["tier"] == "Highly Likely" and prev["tier"] != "Highly Likely"
             ):
-                by_name[a["name"]] = a
-        alerts = list(by_name.values())
+                by_id[a["id"]] = a
+        alerts = list(by_id.values())
 
         save_alerts(conn, alerts, valid_from, valid_to)
         highly = sum(1 for a in alerts if a["tier"] == "Highly Likely")

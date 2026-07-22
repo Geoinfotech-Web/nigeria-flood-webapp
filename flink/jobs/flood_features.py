@@ -148,9 +148,9 @@ def upsert_features(conn, features: list[dict]):
     conn.commit()
 
 
-def run_standalone():
+def run_standalone(once: bool = False):
     """Standalone polling loop — used in local dev without a Flink cluster."""
-    log.info("Standalone mode — polling every %ds", POLL_INTERVAL)
+    log.info("Standalone mode — %s", "single pass" if once else f"polling every {POLL_INTERVAL}s")
     conn = get_conn()
     stations = fetch_stations(conn)
     weight_map = build_gauge_met_weights(conn)
@@ -182,6 +182,11 @@ def run_standalone():
                 conn = get_conn()
                 weight_map = build_gauge_met_weights(conn)
 
+        if once:
+            conn.close()
+            log.info("Standalone single-pass complete.")
+            return
+
         time.sleep(POLL_INTERVAL)
 
 
@@ -206,9 +211,13 @@ if __name__ == "__main__":
         "--standalone", action="store_true",
         help="Run polling loop without Flink cluster",
     )
+    parser.add_argument(
+        "--once", action="store_true",
+        help="With --standalone, compute one feature snapshot and exit",
+    )
     args = parser.parse_args()
 
     if args.standalone:
-        run_standalone()
+        run_standalone(once=args.once)
     else:
         run_flink()

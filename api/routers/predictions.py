@@ -61,13 +61,15 @@ async def get_predictions(station_id: int, request: Request):
         "level_pct_bank":       row["level_pct_bank"],
     }
 
-    # 3) Call BentoML
+    # 3) Call BentoML — fall back to bankfull heuristic when ML service is offline
     try:
         resp = await request.app.state.http.post("/predict", json=features)
         resp.raise_for_status()
         result = resp.json()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"BentoML unavailable: {exc}")
+        result = _heuristic_prediction(station_id, features)
+        result["fallback"] = "heuristic"
+        result["ml_error"] = str(exc)
 
     # 4) Derive overall risk tier (worst across horizons)
     worst = "Normal"
@@ -82,3 +84,41 @@ async def get_predictions(station_id: int, request: Request):
     # 5) Cache + return
     await request.app.state.redis.setex(cache_key, 30, json.dumps(result))
     return result
+
+
+def _heuristic_prediction(station_id: int, features: dict) -> dict:
+    """Bankfull-based outlook used when BentoML is not deployed yet."""
+    pct = float(features.get("level_pct_bank") or 0.0)
+    rain24 = float(features.get("rolling_rain_24h_mm") or 0.0)
+    change3h = float(features.get("level_change_3h") or 0.0)
+
+    score = pct
+    if rain24 > 40:
+        score += 0.08
+    if change3h > 0.3:
+        score += 0.05
+
+    if score >= 0.95:
+        tier, base_prob = "Emergency", 0.88
+    elif score >= 0.80:
+        tier, base_prob = "Warning", 0.68
+    elif score >= 0.65:
+        tier, base_prob = "Watch", 0.42
+    else:
+        tier, base_prob = "Normal", max(0.05, min(0.35, score * 0.4))
+
+    horizons = {}
+    for h, bump in ((6, 0.0), (12, 0.02), (24, 0.04), (48, 0.06), (72, 0.08)):
+        prob = round(min(0.99, max(0.01, base_prob + bump)), 3)
+        horizons[str(h)] = {
+            "flood_prob": prob,
+            "risk_tier": tier,
+            "xgb_prob": prob,
+            "lstm_prob": None,
+        }
+
+    return {
+        "station_id": station_id,
+        "horizons": horizons,
+        "model_version": "heuristic-bankfull-v1",
+    }

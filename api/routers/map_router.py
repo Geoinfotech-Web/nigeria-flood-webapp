@@ -1,5 +1,6 @@
 """GeoJSON risk map endpoint + Google basemap style / tile proxy."""
 import json
+import os
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -16,6 +17,16 @@ RISK_COLOR = {
 }
 
 
+def _public_base_url(request: Request) -> str:
+    """Prefer HTTPS when behind Cloud Run / load balancers (avoid mixed-content tiles)."""
+    base = str(request.base_url).rstrip("/")
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    if proto == "https" and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    force = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+    return force or base
+
+
 @router.get("/google-style")
 async def google_basemap_style(
     request: Request,
@@ -28,7 +39,7 @@ async def google_basemap_style(
         raise HTTPException(status_code=503, detail="GOOGLE_MAPS_API_KEY is not configured")
 
     # Absolute URL so the browser hits the API host, not the Vite frontend origin.
-    base = str(request.base_url).rstrip("/")
+    base = _public_base_url(request)
     tile_template = f"{base}/map/google-tiles/{{z}}/{{x}}/{{y}}?map_type={map_type}"
     style = await google_places.google_maplibre_style(
         map_type=map_type,

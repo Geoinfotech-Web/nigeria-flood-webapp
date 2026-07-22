@@ -120,14 +120,17 @@ def predict(features: FeatureInput) -> PredictionOutput:
         if available:
             final_prob = float(np.mean(available))
 
-        horizons_out[f"{h}h"] = {
+        horizons_out[str(h)] = {
             "flood_prob": round(final_prob, 4),
             "risk_tier":  classify_risk(final_prob),
             "xgb_prob":   round(xgb_prob, 4) if xgb_prob is not None else None,
             "lstm_prob":  round(lstm_prob, 4) if lstm_prob is not None else None,
         }
 
-    return PredictionOutput(station_id=features.station_id, horizons=horizons_out)
+    return PredictionOutput(
+        station_id=features.station_id,
+        horizons=horizons_out,
+    )
 
 
 @svc.api(input=JSON(), output=JSON())

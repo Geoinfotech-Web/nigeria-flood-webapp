@@ -1,0 +1,5 @@
+﻿CORS_ORIGINS: "https://gfw.ggis.africa,https://ggis-flood-watch.web.app,https://ggis-flood-watch.firebaseapp.com"
+INSTANCE_CONNECTION_NAME: "ggis-flood-watch:europe-west1:gfw-postgres"
+BENTOML_URL: "https://gfw-ml-qcwclnvtdq-ew.a.run.app"
+PUBLIC_API_BASE_URL: "https://gfw-api-883584176276.europe-west1.run.app"
+TITILER_URL: "https://gfw-titiler-qcwclnvtdq-ew.a.run.app"

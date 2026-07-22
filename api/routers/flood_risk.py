@@ -317,6 +317,12 @@ async def list_tile_layers(request: Request):
         qs = up.parse_qs(parsed.query)
         cog_url = qs.get("url", [raw_url])[0]
         base = str(request.base_url).rstrip("/")
+        proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+        if proto == "https" and base.startswith("http://"):
+            base = "https://" + base[len("http://"):]
+        force = os.getenv("PUBLIC_API_BASE_URL", "").rstrip("/")
+        if force:
+            base = force
         params = {"url": cog_url}
         if render:
             params.update(render)
