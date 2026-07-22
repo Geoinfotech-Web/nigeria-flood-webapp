@@ -522,6 +522,79 @@ function addPlaceLayers(map, sourceId, onPlaceClick) {
   })
 }
 
+function showCommunityReportPopup(map, report, theme) {
+  const body = document.createElement('article')
+  body.className = 'community-report-popup-body'
+
+  if (report.media_url) {
+    const mediaUrl = report.media_url.startsWith('http') ? report.media_url : `${API}${report.media_url}`
+    const media = document.createElement(report.media_type === 'video' ? 'video' : 'img')
+    media.src = mediaUrl
+    media.className = 'community-report-popup-media'
+    if (report.media_type === 'video') {
+      media.controls = true
+      media.preload = 'metadata'
+    } else {
+      media.alt = `Flood report from ${report.location_name}`
+    }
+    body.append(media)
+  }
+
+  const header = document.createElement('header')
+  header.className = 'community-report-popup-header'
+  const headingWrap = document.createElement('div')
+  const eyebrow = document.createElement('span')
+  eyebrow.className = 'community-report-popup-eyebrow'
+  eyebrow.textContent = 'Community flood incident'
+  const heading = document.createElement('strong')
+  heading.textContent = report.location_name
+  headingWrap.append(eyebrow, heading)
+  const badge = document.createElement('span')
+  badge.className = `community-report-popup-badge ${report.status === 'verified' ? 'is-verified' : ''}`
+  badge.textContent = report.status === 'verified' ? 'Verified' : `${report.verification_count || 0}/2 confirmed`
+  header.append(headingWrap, badge)
+
+  const summary = document.createElement('p')
+  summary.className = 'community-report-popup-meta'
+  summary.textContent = `${report.incident_type} · ${report.severity}`
+  body.append(header, summary)
+
+  const details = [
+    report.affected_street && ['Affected street', report.affected_street],
+    report.flood_source && ['Flood source', report.flood_source],
+    report.water_depth_cm != null && ['Estimated depth', `${report.water_depth_cm} cm`],
+  ].filter(Boolean)
+  if (details.length) {
+    const grid = document.createElement('dl')
+    grid.className = 'community-report-popup-details'
+    details.forEach(([label, value]) => {
+      const item = document.createElement('div')
+      const term = document.createElement('dt')
+      term.textContent = label
+      const description = document.createElement('dd')
+      description.textContent = value
+      item.append(term, description)
+      grid.append(item)
+    })
+    body.append(grid)
+  }
+
+  const description = document.createElement('p')
+  description.className = 'community-report-popup-description'
+  description.textContent = report.description
+  body.append(description)
+
+  return new maplibregl.Popup({
+    offset: 20,
+    maxWidth: '270px',
+    closeButton: true,
+    className: `community-report-popup ${theme === 'dark' ? 'is-dark' : 'is-light'}`,
+  })
+    .setLngLat([report.longitude, report.latitude])
+    .setDOMContent(body)
+    .addTo(map)
+}
+
 export default function MapPanel({
   stations,
   liveReadings,
@@ -533,6 +606,7 @@ export default function MapPanel({
   variant = 'expert',
   placeFocus = null,
   zoneFocus = null,
+  communityReportFocus = null,
   roadHighlight = null,
   forceBuildingsLayer = false,
   onBuildingsViewportChange = null,
@@ -564,6 +638,10 @@ export default function MapPanel({
   const [tileLayers,  setTileLayers]  = useState([])
   /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
   const [tileVisibility, setTileVisibility] = useState({})
+
+  useEffect(() => {
+    if (!publicMode) setNewsVisible(false)
+  }, [publicMode])
   const [exposureMeta, setExposureMeta] = useState([])
   const [exposureData, setExposureData] = useState({
     roads: null,
@@ -684,7 +762,7 @@ export default function MapPanel({
     const map = mapObj.current
     const features = communityReports.map((report, index) => (
       Number.isFinite(report.latitude) && Number.isFinite(report.longitude)
-        ? { type: 'Feature', id: report.id, properties: { index, severity: report.severity }, geometry: { type: 'Point', coordinates: [report.longitude, report.latitude] } }
+        ? { type: 'Feature', id: report.id, properties: { index, severity: report.severity, status: report.status }, geometry: { type: 'Point', coordinates: [report.longitude, report.latitude] } }
         : null
     )).filter(Boolean)
     const data = { type: 'FeatureCollection', features }
@@ -709,53 +787,7 @@ export default function MapPanel({
         const index = Number(event.features?.[0]?.properties?.index)
         const report = communityReportsRef.current[index]
         if (!report) return
-        const body = document.createElement('div')
-        body.className = 'community-report-popup-body'
-        if (report.media_url) {
-          const mediaUrl = `${API}${report.media_url}`
-          if (report.media_type === 'video') {
-            const video = document.createElement('video')
-            video.src = mediaUrl
-            video.controls = true
-            video.preload = 'metadata'
-            video.className = 'community-report-popup-media'
-            body.append(video)
-          } else {
-            const image = document.createElement('img')
-            image.src = mediaUrl
-            image.alt = `Flood report from ${report.location_name}`
-            image.className = 'community-report-popup-media'
-            body.append(image)
-          }
-        }
-        const heading = document.createElement('strong')
-        heading.textContent = report.location_name
-        const meta = document.createElement('p')
-        meta.className = 'community-report-popup-meta'
-        meta.textContent = `${report.incident_type} · ${report.severity} · Unverified`
-        const description = document.createElement('p')
-        description.textContent = report.description
-        body.append(heading, meta)
-        if (report.affected_street) {
-          const street = document.createElement('p')
-          street.textContent = `Affected street: ${report.affected_street}`
-          body.append(street)
-        }
-        if (report.flood_source) {
-          const source = document.createElement('p')
-          source.textContent = `Flood source: ${report.flood_source}`
-          body.append(source)
-        }
-        if (report.water_depth_cm != null) {
-          const depth = document.createElement('p')
-          depth.textContent = `Estimated depth: ${report.water_depth_cm} cm`
-          body.append(depth)
-        }
-        body.append(description)
-        new maplibregl.Popup({ offset: 18, maxWidth: '340px', className: `community-report-popup ${theme === 'dark' ? 'is-dark' : 'is-light'}` })
-          .setLngLat([report.longitude, report.latitude])
-          .setDOMContent(body)
-          .addTo(map)
+        showCommunityReportPopup(map, report, theme)
       })
     }
   }, [mapReady, styleEpoch, communityReports, theme])
@@ -1594,6 +1626,28 @@ export default function MapPanel({
     }
   }, [zoneFocus, mapReady, styleEpoch, publicMode])
 
+  useEffect(() => {
+    if (!mapReady || !communityReportFocus || !mapObj.current) return
+    if (!Number.isFinite(communityReportFocus.latitude) || !Number.isFinite(communityReportFocus.longitude)) return
+    const map = mapObj.current
+    let popup = null
+    const revealReport = () => {
+      popup = showCommunityReportPopup(map, communityReportFocus, theme)
+    }
+    map.once('moveend', revealReport)
+    map.flyTo({
+      center: [communityReportFocus.longitude, communityReportFocus.latitude],
+      zoom: Math.max(map.getZoom(), 13.5),
+      offset: [0, 105],
+      duration: 1200,
+      essential: true,
+    })
+    return () => {
+      map.off('moveend', revealReport)
+      popup?.remove()
+    }
+  }, [communityReportFocus, mapReady, theme])
+
   // Place pin marker
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -1788,6 +1842,7 @@ export default function MapPanel({
           onToggleGauges={() => setGaugesVisible((v) => !v)}
           newsVisible={newsVisible}
           onToggleNews={() => setNewsVisible((v) => !v)}
+          showNewsControl={publicMode}
           exposureLayers={exposureMeta.filter((layer) => layer.available)}
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
@@ -1868,6 +1923,7 @@ export default function MapPanel({
           visibleBoundaryIds={Object.keys(boundaryVisible).filter((id) => boundaryVisible[id])}
           showGauges={gaugesVisible}
           theme={theme}
+          collapsedByDefault={!publicMode}
         />
       </div>
     </div>

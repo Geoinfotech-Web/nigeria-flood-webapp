@@ -85,6 +85,7 @@ export default function LayersPanel({
   onToggleGauges,
   newsVisible = false,
   onToggleNews,
+  showNewsControl = true,
   // Exposure
   exposureLayers = [],
   exposureVisibility = {},
@@ -214,12 +215,14 @@ export default function LayersPanel({
               onToggle={onToggleGauges}
               theme={theme}
             />
-            <Row
-              label="Flood news reports"
-              on={newsVisible}
-              onToggle={onToggleNews}
-              theme={theme}
-            />
+            {showNewsControl && (
+              <Row
+                label="Flood news reports"
+                on={newsVisible}
+                onToggle={onToggleNews}
+                theme={theme}
+              />
+            )}
           </Section>
 
           <Section title="Boundaries" theme={theme}>
