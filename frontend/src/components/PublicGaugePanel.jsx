@@ -198,6 +198,7 @@ export default function PublicGaugePanel({
           <GaugeChart
             stationId={stationId}
             liveReading={effectiveReading}
+            bankFullM={station?.bank_full_m}
             theme={theme}
             mode="readings"
             hours={24}

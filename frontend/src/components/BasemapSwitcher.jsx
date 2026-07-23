@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   IconLayers, IconMoon, IconSun, IconMap, IconSatellite, IconMountain,
-  IconChevronUp, IconChevronDown, IconCheck,
+  IconChevronLeft, IconChevronRight, IconCheck,
 } from './Icons'
 
 const BASEMAP_ICON = {
@@ -11,17 +11,34 @@ const BASEMAP_ICON = {
   streets: IconMap,
   satellite: IconSatellite,
   topo: IconMountain,
-  google: IconMap,
-  'google-sat': IconSatellite,
 }
 
 export default function BasemapSwitcher({ current, onChange, options, theme = 'dark' }) {
   const [expanded, setExpanded] = useState(false)
+  const rootRef = useRef(null)
   const currentOption = options.find(option => option.id === current) ?? null
   const CurrentIcon = BASEMAP_ICON[currentOption?.id] ?? IconLayers
 
+  useEffect(() => {
+    if (!expanded) return undefined
+    const onPointerDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setExpanded(false)
+      }
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpanded(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [expanded])
+
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative z-20">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -54,7 +71,8 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
       {expanded && (
         <div
           className={clsx(
-            'absolute bottom-full right-0 mb-2 max-h-[min(50vh,22rem)] w-40 overflow-y-auto rounded-lg border shadow-2xl divide-y',
+            // Open to the left so the menu never covers Home / zoom (+/−) above.
+            'absolute right-full top-0 mr-2 z-30 max-h-[min(50vh,22rem)] w-40 overflow-y-auto rounded-lg border shadow-2xl divide-y',
             theme === 'dark'
               ? 'bg-gray-900 border-gray-700 divide-gray-800'
               : 'bg-white border-slate-200 divide-slate-200'
@@ -64,12 +82,14 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
               ? { backgroundColor: '#111827', borderColor: '#374151' }
               : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
           }
+          role="menu"
+          aria-label="Basemap options"
         >
           <div className={clsx('flex items-center justify-between px-3 py-2 text-[11px] uppercase tracking-[0.18em]', theme === 'dark' ? 'text-gray-500' : 'text-slate-500')}>
             <span>Basemap</span>
             {expanded
-              ? <IconChevronUp size={11} className={theme === 'dark' ? 'text-gray-500' : 'text-slate-500'} />
-              : <IconChevronDown size={11} className={theme === 'dark' ? 'text-gray-500' : 'text-slate-500'} />
+              ? <IconChevronLeft size={11} className={theme === 'dark' ? 'text-gray-500' : 'text-slate-500'} />
+              : <IconChevronRight size={11} className={theme === 'dark' ? 'text-gray-500' : 'text-slate-500'} />
             }
           </div>
 
@@ -80,6 +100,7 @@ export default function BasemapSwitcher({ current, onChange, options, theme = 'd
               <button
                 key={b.id}
                 type="button"
+                role="menuitem"
                 onClick={() => { onChange(b.id); setExpanded(false) }}
                 className={clsx(
                   'flex w-full items-center gap-2.5 px-3 py-2.5 text-xs transition-colors',

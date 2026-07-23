@@ -1,16 +1,13 @@
 import React, { useMemo } from 'react'
 import clsx from 'clsx'
 import { formatDistance } from '../lib/geo'
-import {
-  RISK_COLOR,
-  RISK_LABEL,
-  SUSCEPTIBILITY_COLOR,
-  SUSCEPTIBILITY_TEXT_COLOR,
+import { RISK_COLOR, RISK_LABEL, SUSCEPTIBILITY_COLOR, SUSCEPTIBILITY_TEXT_COLOR,
   expertActionItems,
   expertPlaceAssessment,
   expertSiteSuitability,
 } from '../lib/riskCopy'
 import { exportIntelligenceReportPdf } from '../lib/exportIntelligenceReportPdf'
+import { HORIZON_KEYS, normalizeHorizons } from '../lib/horizons'
 import { IconAlertTriangle, IconDownload, IconGauge, IconX } from './Icons'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
@@ -28,8 +25,6 @@ const DARK_BADGE = {
   Warning: 'bg-orange-950/70 text-orange-200 border-orange-800',
   Emergency: 'bg-red-950/70 text-red-200 border-red-800',
 }
-
-const HORIZON_KEYS = ['6h', '12h', '24h', '48h', '72h']
 
 function Section({ title, theme, children, action = null }) {
   const dark = theme === 'dark'
@@ -133,7 +128,7 @@ export default function ExpertIntelligenceReport({
   const dark = theme === 'dark'
   const tier = overallRisk || 'Normal'
   const badge = (dark ? DARK_BADGE : LIGHT_BADGE)[tier] || LIGHT_BADGE.Normal
-  const horizons = primaryStation?.prediction?.horizons || {}
+  const horizons = normalizeHorizons(primaryStation?.prediction?.horizons)
   const actions = useMemo(() => expertActionItems(tier), [tier])
   const assessment = useMemo(
     () => expertPlaceAssessment(tier, place?.name, primaryStation?.name),
@@ -430,6 +425,7 @@ export default function ExpertIntelligenceReport({
               <GaugeChart
                 stationId={primaryStation.id}
                 liveReading={liveReadings?.[primaryStation.id]}
+                bankFullM={primaryStation.bank_full_m}
                 theme={theme}
                 mode="readings"
                 hours={24}

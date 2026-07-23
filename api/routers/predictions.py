@@ -8,6 +8,25 @@ router = APIRouter()
 RISK_ORDER = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
 
 
+def _normalize_horizon_keys(horizons: dict) -> dict:
+    """Map \"6\" / 6 → \"6h\" so frontend lookups stay consistent."""
+    out: dict = {}
+    for raw, value in (horizons or {}).items():
+        if value is None:
+            continue
+        key = str(raw).strip().lower()
+        if key.isdigit():
+            key = f"{key}h"
+        elif key.endswith("h") and key[:-1].isdigit():
+            pass
+        else:
+            digits = "".join(ch for ch in key if ch.isdigit())
+            if digits:
+                key = f"{digits}h"
+        out[key] = value
+    return out
+
+
 @router.get("/all/predictions")
 async def get_all_predictions(request: Request):
     """Summary prediction for every station (for Expert gauge console / map).
@@ -71,6 +90,10 @@ async def get_predictions(station_id: int, request: Request):
         result["fallback"] = "heuristic"
         result["ml_error"] = str(exc)
 
+    # Canonical horizon keys: "6h", "12h", … (ML historically returned "6", "12")
+    if isinstance(result.get("horizons"), dict):
+        result["horizons"] = _normalize_horizon_keys(result["horizons"])
+
     # 4) Derive overall risk tier (worst across horizons)
     worst = "Normal"
     for h_data in result.get("horizons", {}).values():
@@ -110,7 +133,7 @@ def _heuristic_prediction(station_id: int, features: dict) -> dict:
     horizons = {}
     for h, bump in ((6, 0.0), (12, 0.02), (24, 0.04), (48, 0.06), (72, 0.08)):
         prob = round(min(0.99, max(0.01, base_prob + bump)), 3)
-        horizons[str(h)] = {
+        horizons[f"{h}h"] = {
             "flood_prob": prob,
             "risk_tier": tier,
             "xgb_prob": prob,

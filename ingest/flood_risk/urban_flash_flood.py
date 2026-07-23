@@ -21,6 +21,8 @@ import logging
 import os
 from datetime import date, timedelta
 
+from db_util import postgres_dsn
+
 log = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -28,13 +30,7 @@ if not logging.getLogger().handlers:
         format="%(asctime)s [urban-flash] %(message)s",
     )
 
-DB_DSN = (
-    f"host={os.getenv('DB_HOST', 'localhost')} "
-    f"port={os.getenv('DB_PORT', '5432')} "
-    f"dbname={os.getenv('DB_NAME', 'flooddb')} "
-    f"user={os.getenv('DB_USER', 'flood')} "
-    f"password={os.getenv('DB_PASSWORD', 'floodpass')}"
-)
+DB_DSN = postgres_dsn()
 
 OPENMETEO_BASE = "https://api.open-meteo.com/v1/forecast"
 SOURCE = "urban_flash_flood"
@@ -51,6 +47,58 @@ SCORE_LIKELY = 0.55
 
 # OpenMeteo allows multiple locations per request via comma-separated coords
 BATCH_SIZE = 50
+# Display geometry: smoothed urban built-up boundary (not hexagons —
+# Flood Hub hexes are gauge aggregates only; urban flash is area polygons).
+BOUNDARY_SMOOTH_DEG = 0.0012   # ~130 m morphological smooth
+BOUNDARY_SIMPLIFY_DEG = 0.0006  # ~65 m outline clean-up
+
+
+def urban_boundary_geojson(geom_geojson, lon: float | None = None, lat: float | None = None) -> dict:
+    """
+    Turn a jagged GEE urban footprint into a defined urban-boundary polygon.
+
+    Morphological close + light simplify removes stair-steps while keeping the
+    real settlement outline (Flood Hub–style area polygon, not a hex hotspot).
+    """
+    import json as _json
+
+    from shapely.geometry import MultiPolygon, Polygon, mapping, shape
+
+    if isinstance(geom_geojson, str):
+        geom_geojson = _json.loads(geom_geojson)
+
+    try:
+        g = shape(geom_geojson)
+        if not g.is_valid:
+            g = g.buffer(0)
+        if g.is_empty:
+            raise ValueError("empty geometry")
+
+        # Close pixel gaps, then reopen slightly so the outline follows the urban edge
+        smoothed = g.buffer(BOUNDARY_SMOOTH_DEG).buffer(-BOUNDARY_SMOOTH_DEG * 0.85)
+        if smoothed.is_empty:
+            smoothed = g
+        smoothed = smoothed.simplify(BOUNDARY_SIMPLIFY_DEG, preserve_topology=True)
+        if smoothed.is_empty:
+            smoothed = g
+
+        if isinstance(smoothed, Polygon):
+            smoothed = MultiPolygon([smoothed])
+        elif not isinstance(smoothed, MultiPolygon):
+            polys = [p for p in getattr(smoothed, "geoms", []) if isinstance(p, Polygon)]
+            if not polys:
+                raise ValueError("no polygons after smooth")
+            smoothed = MultiPolygon(polys)
+        return mapping(smoothed)
+    except Exception:
+        # Last resort: small circular buffer around centroid (still not a hex)
+        from shapely.geometry import Point
+
+        if lon is None or lat is None:
+            c = shape(geom_geojson).centroid
+            lon, lat = float(c.x), float(c.y)
+        disk = Point(lon, lat).buffer(0.02)
+        return mapping(MultiPolygon([disk]))
 
 
 def _get(url: str) -> dict:
@@ -263,14 +311,9 @@ def run():
         footprints = load_footprints(conn)
         if not footprints:
             log.warning(
-                "No urban_footprints in DB — run urban_footprints.py first; "
-                "clearing any stale urban_flash_flood rows"
+                "No urban_footprints in DB — run urban_footprints.py first. "
+                "Leaving existing urban_flash_flood rows unchanged."
             )
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM flood_risk_areas WHERE source = %s", (SOURCE,)
-                )
-            conn.commit()
             return
 
         log.info("Loaded %d urban footprints", len(footprints))
@@ -297,7 +340,13 @@ def run():
                     "id": fp["id"],
                     "name": fp["name"],
                     "state": fp.get("state"),
-                    "geometry": fp["geometry"],
+                    "geometry": urban_boundary_geojson(
+                        fp["geometry"],
+                        fp["centroid_lon"],
+                        fp["centroid_lat"],
+                    ),
+                    "lon": fp["centroid_lon"],
+                    "lat": fp["centroid_lat"],
                     "tier": result["tier"],
                     "score": result["score"],
                 }
@@ -326,9 +375,71 @@ def run():
         conn.close()
 
 
+def reshape_existing_alerts() -> int:
+    """
+    Rewrite existing urban_flash_flood polygons as smoothed urban boundaries
+    without re-running rainfall classification (keeps tiers/scores).
+    """
+    import json
+
+    import psycopg2
+
+    conn = psycopg2.connect(DB_DSN)
+    updated = 0
+    try:
+        footprints = {
+            (f["name"] or "").strip().lower(): f for f in load_footprints(conn)
+        }
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, state, risk_tier, risk_score,
+                       ST_Y(ST_Centroid(geom)) AS lat,
+                       ST_X(ST_Centroid(geom)) AS lon,
+                       ST_AsGeoJSON(geom)::text AS geometry
+                FROM flood_risk_areas
+                WHERE source = %s
+                """,
+                (SOURCE,),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                aid, name, state, tier, score, lat, lon, geom_json = row
+                fp = footprints.get((name or "").strip().lower())
+                if fp:
+                    geom = urban_boundary_geojson(
+                        fp["geometry"], fp["centroid_lon"], fp["centroid_lat"]
+                    )
+                else:
+                    geom = urban_boundary_geojson(geom_json, float(lon), float(lat))
+                cur.execute(
+                    """
+                    UPDATE flood_risk_areas
+                    SET geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)),
+                        updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (json.dumps(geom), aid),
+                )
+                updated += 1
+        conn.commit()
+        log.info("Reshaped %d urban flash polygons into smoothed urban boundaries", updated)
+        return updated
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Short-range urban flash-flood classifier (OpenMeteo)"
     )
-    parser.parse_args()
-    run()
+    parser.add_argument(
+        "--reshape-only",
+        action="store_true",
+        help="Only rewrite alert polygons as smoothed urban boundaries (keep tiers)",
+    )
+    args = parser.parse_args()
+    if args.reshape_only:
+        reshape_existing_alerts()
+    else:
+        run()

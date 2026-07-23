@@ -8,17 +8,15 @@ Local development stack and pointers for the live GCP deployment.
 # Copy the env template and fill in secrets (DB, JWT, GEE, optional SMS)
 cp .env.example .env
 
-# For the Google Earth Engine layers, drop your service-account key JSON
-# into the repo root and point .env at it:
-#   GEE_SERVICE_ACCOUNT_EMAIL=your-sa@your-project.iam.gserviceaccount.com
-#   GEE_SERVICE_ACCOUNT_KEY=./your-key-file.json
+# For Google Earth Engine layers, use project **ggis-flood-watch**:
+#   enable Earth Engine API → create SA + JSON key → register SA in EE →
+#   GEE_SERVICE_ACCOUNT_EMAIL=your-sa@ggis-flood-watch.iam.gserviceaccount.com
+#   GEE_SERVICE_ACCOUNT_KEY=./ggis-flood-watch-gee.json
 #
-# For fresher place search + nearby towns/villages, enable **Places API**
-# (legacy Text Search / Nearby Search) in Google Cloud and set:
-#   GOOGLE_MAPS_API_KEY=your-key
-# Optional: enable **Geocoding API** (better reverse) and **Map Tiles API**
-# (Google roadmap / satellite basemap in the map switcher).
-# When unset, place search falls back to Nominatim / OSM.
+# Optional place **text search**: create a Maps key on ggis-flood-watch with
+# Places API (legacy Text Search) only, then set GOOGLE_MAPS_API_KEY.
+# Nearby settlements always use OSM / Nominatim. Google basemaps are not used.
+# When the key is unset, search falls back to Nominatim.
 ```
 
 > **Note for fresh clones:** `.env` and the GEE `*.json` key files are
@@ -50,15 +48,42 @@ open http://localhost:5173
 
 ## Live GCP deployment (temporary URLs)
 
-Production project **`ggis-flood-watch`** (`europe-west1`) is up on temporary endpoints while custom domains (`gfw.ggis.africa` / `api.gfw.ggis.africa`) are prepared by the web team.
+Production project **`ggis-flood-watch`** (`europe-west1`) is live.
+
+| Surface | URL |
+|---|---|
+| Frontend (Firebase) | https://ggis-flood-watch.web.app |
+| Custom frontend (pending DNS) | https://gfw.ggis.africa |
+| API | https://gfw-api-883584176276.europe-west1.run.app |
+| Custom API (pending DNS) | https://api.gfw.ggis.africa |
+
+Scheduled ingest: Cloud Run Jobs `gfw-ingest-real-data` (daily 02:05 UTC) and `gfw-ingest-urban-flash` (every 3h :35 UTC). Redeploy with `python scripts/deploy_cloud_ingest_jobs.py`. Domain cutover: `scripts/DNS_FOR_WEB_TEAM.txt`.
 
 | Surface | URL |
 |---------|-----|
 | Frontend (Firebase Hosting) | https://ggis-flood-watch.web.app |
 | API (Cloud Run `gfw-api`) | https://gfw-api-883584176276.europe-west1.run.app |
 | API docs | https://gfw-api-883584176276.europe-west1.run.app/docs |
+| Developer API | https://gfw-api-883584176276.europe-west1.run.app/v1/docs |
 | ML (Cloud Run `gfw-ml`) | BentoML behind `BENTOML_URL` on the API |
 | TiTiler (Cloud Run `gfw-titiler`) | COG tiles for susceptibility / inundation history |
+
+### Developer API (third-party apps)
+
+Versioned public contract at `/v1` with free-tier API keys. **Dashboard API tab is Coming soon** (internal preview: `?api_preview=1`).
+
+1. `GET /v1/plans` — Free / Starter / Pro + payment modes (card, bank transfer, USSD)
+2. `POST /v1/subscribe` — free plan returns `gfw_live_…` once; paid plans return `billing_ref` pending payment
+3. Call with header `X-API-Key`
+
+Includes **location intelligence**: `/v1/location/site-assessment`, `/terrain`, `/nearby-settlements`, `/nearby-roads`, `/search`, `/reverse`.
+
+```bash
+curl -s "https://gfw-api-883584176276.europe-west1.run.app/v1/stations" \
+  -H "X-API-Key: gfw_live_YOUR_KEY"
+```
+
+Free limits: **60 req/min**, **10 000/day**. Docs: `/v1/docs`. Dashboard routes stay unauthenticated for the map UI.
 
 | Backend | Resource |
 |---------|----------|

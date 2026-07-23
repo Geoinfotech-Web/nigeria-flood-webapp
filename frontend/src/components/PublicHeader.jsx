@@ -60,7 +60,9 @@ export default function PublicHeader({
               >
                 {mode === 'expert'
                   ? `Gauge console · place exposure · forecasts · ${stationCount} gauges`
-                  : `Public early warning · 72-hour forecasts · ${stationCount} gauges`}
+                  : mode === 'developers'
+                    ? 'Developer API · subscribe · X-API-Key · /v1'
+                    : `Public early warning · 72-hour forecasts · ${stationCount} gauges`}
               </p>
             </div>
           </div>
@@ -124,25 +126,44 @@ export default function PublicHeader({
               )}
             >
               {[
-                { id: 'public', label: 'Public' },
-                { id: 'expert', label: 'Expert' },
-              ].map(({ id, label }) => (
+                { id: 'public', label: 'Public', disabled: false },
+                { id: 'expert', label: 'Expert', disabled: false },
+                { id: 'developers', label: 'API', disabled: true, soon: true },
+              ].map(({ id, label, disabled, soon }) => (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => onModeChange(id)}
+                  disabled={disabled}
+                  title={soon ? 'Developer API — Coming soon' : undefined}
+                  onClick={() => {
+                    if (!disabled) onModeChange(id)
+                  }}
                   className={clsx(
                     'rounded-md px-2 py-1.5 text-[11px] font-semibold transition sm:px-2.5 sm:py-1',
-                    mode === id
+                    disabled && 'cursor-not-allowed opacity-45',
+                    !disabled && mode === id
                       ? dark
                         ? 'bg-sky-600 text-white'
                         : 'bg-sky-700 text-white'
-                      : dark
+                      : !disabled && dark
                         ? 'text-gray-400 hover:text-white'
-                        : 'text-slate-500 hover:text-slate-900',
+                        : !disabled
+                          ? 'text-slate-500 hover:text-slate-900'
+                          : dark
+                            ? 'text-gray-500'
+                            : 'text-slate-400',
                   )}
                 >
-                  {label}
+                  {soon ? (
+                    <span className="inline-flex flex-col items-center leading-tight sm:flex-row sm:gap-1">
+                      <span>{label}</span>
+                      <span className="text-[9px] font-medium uppercase tracking-wide opacity-80">
+                        Soon
+                      </span>
+                    </span>
+                  ) : (
+                    label
+                  )}
                 </button>
               ))}
             </div>

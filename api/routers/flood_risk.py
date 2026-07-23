@@ -257,7 +257,9 @@ async def flood_risk_geojson(
                 """
                 SELECT name, admin_level, state, risk_score, risk_tier,
                        source, valid_from, valid_to,
-                       ST_AsGeoJSON(geom)::json AS geometry
+                       ST_AsGeoJSON(geom)::json AS geometry,
+                       ST_X(ST_Centroid(geom)) AS lon,
+                       ST_Y(ST_Centroid(geom)) AS lat
                 FROM flood_risk_areas
                 WHERE risk_score >= $1 AND source = $2
                 ORDER BY valid_from DESC, risk_score DESC
@@ -279,19 +281,23 @@ async def flood_risk_geojson(
         geom = r["geometry"]
         if isinstance(geom, str):
             geom = json.loads(geom)
+        props = {
+            "name":        r["name"],
+            "admin_level": r["admin_level"],
+            "state":       r["state"],
+            "risk_score":  round(r["risk_score"], 3) if r["risk_score"] is not None else None,
+            "risk_tier":   r["risk_tier"],
+            "source":      r["source"],
+            "valid_from":  str(r["valid_from"]) if r["valid_from"] else None,
+            "valid_to":    str(r["valid_to"]) if r["valid_to"] else None,
+        }
+        if "lon" in r.keys() and r["lon"] is not None:
+            props["lon"] = float(r["lon"])
+            props["lat"] = float(r["lat"])
         features.append({
             "type": "Feature",
             "geometry": geom,
-            "properties": {
-                "name":        r["name"],
-                "admin_level": r["admin_level"],
-                "state":       r["state"],
-                "risk_score":  round(r["risk_score"], 3) if r["risk_score"] is not None else None,
-                "risk_tier":   r["risk_tier"],
-                "source":      r["source"],
-                "valid_from":  str(r["valid_from"]) if r["valid_from"] else None,
-                "valid_to":    str(r["valid_to"]) if r["valid_to"] else None,
-            },
+            "properties": props,
         })
 
     return {"type": "FeatureCollection", "features": features}
@@ -477,7 +483,7 @@ async def urban_flash_summary(request: Request):
     Used by Expert KPI cards so they stay in sync with the map layer even when
     the heavier impact-summary intersection is slow or failing.
     """
-    cache_key = "urban-flash-summary:v1"
+    cache_key = "urban-flash-summary:v2"
     cached = await request.app.state.redis.get(cache_key)
     if cached:
         return json.loads(cached)

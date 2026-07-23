@@ -1,5 +1,7 @@
 /** Build a print-ready HTML report and open the browser Save-as-PDF dialog. */
 
+import { HORIZON_KEYS, normalizeHorizons } from './horizons'
+
 const TIER_STYLE = {
   Normal: { bg: '#f0fdfa', border: '#99f6e4', text: '#0f766e' },
   Watch: { bg: '#fffbeb', border: '#fcd34d', text: '#b45309' },
@@ -64,9 +66,10 @@ export function exportIntelligenceReportPdf({
   const placeTitle = place?.name || 'Selected location'
   const display = place?.display_name || [place?.class, place?.state].filter(Boolean).join(' · ') || ''
 
-  const horizonRows = ['6h', '12h', '24h', '48h', '72h']
+  const normalizedHorizons = normalizeHorizons(horizons)
+  const horizonRows = HORIZON_KEYS
     .map((k) => {
-      const h = horizons[k] || {}
+      const h = normalizedHorizons[k] || {}
       const hTier = h.risk_tier || 'Normal'
       return `<tr>
         <td><strong>${k}</strong></td>

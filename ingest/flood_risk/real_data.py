@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import execute_values
 
+from db_util import postgres_dsn
+
 try:
     import httpx
     def _get(url):
@@ -40,13 +42,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [real-data] %(message)s", force=True)
 log = logging.getLogger(__name__)
 
-DB_DSN = (
-    f"host={os.getenv('DB_HOST','localhost')} "
-    f"port={os.getenv('DB_PORT','5432')} "
-    f"dbname={os.getenv('DB_NAME','flooddb')} "
-    f"user={os.getenv('DB_USER','flood')} "
-    f"password={os.getenv('DB_PASSWORD','floodpass')}"
-)
+DB_DSN = postgres_dsn()
 
 OPENMETEO_BASE = "https://api.open-meteo.com/v1/forecast"
 FLOOD_API_BASE = "https://flood-api.open-meteo.com/v1/flood"
@@ -115,25 +111,31 @@ def fetch_met(station: dict, hours_back: int = MET_HISTORY_HOURS) -> list[dict]:
 
 
 def fetch_river(station: dict) -> list[dict]:
-    """Fetch GloFAS river discharge from OpenMeteo Flood API."""
+    """Fetch GloFAS river discharge from OpenMeteo Flood API (observed past only)."""
     past_days = max(1, min(92, GAUGE_HISTORY_DAYS))
+    # forecast_days=0 — do not store forecast horizons as gauge "history"
     url = (
         f"{FLOOD_API_BASE}"
         f"?latitude={station['lat']}&longitude={station['lon']}"
-        f"&daily=river_discharge&past_days={past_days}&forecast_days=7&timezone=UTC"
+        f"&daily=river_discharge&past_days={past_days}&forecast_days=0&timezone=UTC"
     )
     try:
         data = _get(url)
         daily = data.get("daily", {})
-        rows  = []
+        rows = []
+        now = datetime.now(timezone.utc)
         for t, q in zip(daily.get("time", []), daily.get("river_discharge", [])):
             if q is None:
+                continue
+            ts = datetime.fromisoformat(t).replace(tzinfo=timezone.utc)
+            # Guard against any future timestamps from the API
+            if ts.date() > now.date():
                 continue
             q = float(q)
             # Manning inverse: h = (Q / k) ^ (1 / 1.67)
             level = round((q / MANNING_K) ** (1 / 1.67), 3) if q > 0 else 0.0
             rows.append({
-                "time":          datetime.fromisoformat(t).replace(tzinfo=timezone.utc),
+                "time":          ts,
                 "flow_rate_m3s": round(q, 2),
                 "water_level_m": level,
             })

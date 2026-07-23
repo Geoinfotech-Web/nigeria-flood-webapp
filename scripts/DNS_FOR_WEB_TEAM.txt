@@ -1,0 +1,48 @@
+DNS + domain ownership checklist for gfw.ggis.africa / api.gfw.ggis.africa
+=======================================================================
+Project: ggis-flood-watch
+GCP account that must own verification: geoinfotechenterprise@gmail.com
+(or add that account as an owner in Search Console)
+
+CURRENT STATE (2026-07-23 afternoon)
+- Public DNS (Google/Cloudflare resolvers):
+    gfw.ggis.africa  CNAME → ggis-flood-watch.web.app   (Firebase IPs)
+    api.gfw.ggis.africa CNAME → ghs.googlehosted.com.   (Google IPs)
+- Some local / Namecheap recursive resolvers still return stale A 199.188.205.18
+  (LiteSpeed). Flush DNS / wait for TTL, and REMOVE any leftover A records.
+- Firebase custom domain gfw.ggis.africa:
+    hostState=HOST_ACTIVE, ownershipState=OWNERSHIP_ACTIVE, cert TEMPORARY active
+- Cloud Run domain mapping api.gfw.ggis.africa:
+    Ready=False, reason=PermissionDenied
+    → Need Search Console ownership of ggis.africa (or api.gfw.ggis.africa)
+      verified by the SAME Google account that owns the GCP project
+      (geoinfotechenterprise@gmail.com), then recreate/wait for mapping.
+
+1) VERIFY DOMAIN OWNERSHIP (required for Cloud Run SSL)
+   Open as geoinfotechenterprise@gmail.com:
+   https://www.google.com/webmasters/verification/verification?domain=ggis.africa
+   Prefer verifying parent domain: ggis.africa (covers all subdomains).
+   Use the TXT record Google gives you, then click Verify.
+   After verify, Cloud Run will issue certificates for api.gfw.ggis.africa.
+
+2) DNS RECORDS (must match — no leftover LiteSpeed A records)
+
+   gfw.ggis.africa  (Firebase Hosting)
+   ------------------------------------
+   REMOVE:  any A pointing at 199.188.205.18
+   KEEP:    CNAME  gfw.ggis.africa  →  ggis-flood-watch.web.app
+            (or Firebase A 199.36.158.100 if CNAME on that label is blocked)
+
+   api.gfw.ggis.africa  (Cloud Run gfw-api)
+   ---------------------------------------
+   REMOVE:  any A pointing at 199.188.205.18
+   KEEP:    CNAME  api.gfw.ggis.africa  →  ghs.googlehosted.com.
+
+3) AFTER Search Console verify + DNS clean
+   - https://gfw.ggis.africa → Flood Watch UI (Firebase)
+   - https://api.gfw.ggis.africa/health → {"status":"ok",...}
+   - Then we switch frontend production env to the custom API host and redeploy.
+
+Until api.gfw SSL is Ready=True, production keeps using:
+  https://ggis-flood-watch.web.app
+  https://gfw-api-883584176276.europe-west1.run.app

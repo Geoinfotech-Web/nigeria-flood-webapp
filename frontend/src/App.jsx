@@ -6,6 +6,7 @@ import ExpertKpiStrip from './components/ExpertKpiStrip'
 import ExpertAnalyticsRow from './components/ExpertAnalyticsRow'
 import StationConsole from './components/StationConsole'
 import AtRiskPlacesPanel from './components/AtRiskPlacesPanel'
+import DevelopersPage from './components/DevelopersPage'
 import PublicHeader from './components/PublicHeader'
 import PlaceBriefPanel from './components/PlaceBriefPanel'
 import ExpertIntelligenceReport from './components/ExpertIntelligenceReport'
@@ -66,12 +67,21 @@ function writePlaceToUrl(place) {
   window.history.replaceState({}, '', url)
 }
 
+function readApiPreviewFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get('api_preview') === '1'
+  } catch {
+    return false
+  }
+}
+
 export default function App() {
   const { stations } = useStations()
   const liveReadings = useGaugeFeed()
   const [theme, setTheme] = useState('light')
   const [basemap, setBasemap] = useState('streets')
-  const [mode, setMode] = useState('public')
+  const [mode, setMode] = useState(() => (readApiPreviewFromUrl() ? 'developers' : 'public'))
+  const apiPreview = readApiPreviewFromUrl()
   const [selected, setSelected] = useState(null)
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
@@ -385,7 +395,9 @@ export default function App() {
         initialTab={reportInitialTab}
       />
 
-      {mode === 'public' ? (
+      {mode === 'developers' && apiPreview ? (
+        <DevelopersPage theme={theme} preview />
+      ) : mode === 'public' ? (
         <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Place brief — bottom sheet on mobile, side panel on desktop */}
           <aside
@@ -556,7 +568,7 @@ export default function App() {
             roadsLoading={roadsLoading}
             siteAssessment={siteAssessment}
             impactSummary={place ? scopedImpactSummary : nationalImpactSummary}
-            urbanFlashSummary={place ? null : nationalUrbanFlashSummary}
+            urbanFlashSummary={nationalUrbanFlashSummary}
             impactLoading={place ? scopedImpactLoading : nationalImpactLoading}
             urbanFlashLoading={urbanFlashLoading}
             rainfallAvgMm={latestAvgMm}

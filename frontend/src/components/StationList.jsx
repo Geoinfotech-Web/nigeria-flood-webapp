@@ -40,7 +40,8 @@ function maxHorizonProb(pred) {
   if (!pred?.horizons) return null
   let best = null
   for (const [h, v] of Object.entries(pred.horizons)) {
-    if (!['24h', '48h', '72h'].includes(h)) continue
+    const key = String(h).endsWith('h') ? String(h) : `${h}h`
+    if (!['24h', '48h', '72h'].includes(key)) continue
     const p = Number(v?.flood_prob)
     if (!Number.isFinite(p)) continue
     if (best == null || p > best) best = p

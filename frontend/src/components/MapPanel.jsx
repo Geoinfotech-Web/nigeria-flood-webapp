@@ -91,17 +91,6 @@ export const BASEMAPS = [
       layers: [{ id: 'topo-tiles', type: 'raster', source: 'opentopomap' }],
     },
   },
-  {
-    id:    'google',
-    label: 'Google',
-    // Resolved at map init from /map/google-style (proxied Map Tiles)
-    styleUrl: 'google-style',
-  },
-  {
-    id:    'google-sat',
-    label: 'Google Sat',
-    styleUrl: 'google-style-sat',
-  },
 ]
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -109,17 +98,6 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 async function resolveBasemapStyle(basemapId) {
   const def = BASEMAPS.find((b) => b.id === basemapId)
   if (!def) return BASEMAPS.find((b) => b.id === 'streets')?.style
-  if (def.style) return def.style
-  if (def.styleUrl === 'google-style') {
-    const r = await fetch(`${API}/map/google-style?map_type=roadmap`)
-    if (!r.ok) throw new Error('Google basemap unavailable')
-    return r.json()
-  }
-  if (def.styleUrl === 'google-style-sat') {
-    const r = await fetch(`${API}/map/google-style?map_type=satellite`)
-    if (!r.ok) throw new Error('Google satellite basemap unavailable')
-    return r.json()
-  }
   return def.style
 }
 const DEFAULT_NIGERIA_BOUNDS = [
@@ -1231,6 +1209,12 @@ export default function MapPanel({
 
     if (map.getSource('urban-flash')) {
       map.getSource('urban-flash').setData(urbanFlashData)
+      if (map.getLayer('urban-flash-glow')) {
+        try { map.removeLayer('urban-flash-glow') } catch { /* ignore */ }
+      }
+      if (map.getSource('urban-flash-points')) {
+        try { map.removeSource('urban-flash-points') } catch { /* ignore */ }
+      }
     } else {
       map.addSource('urban-flash', { type: 'geojson', data: urbanFlashData })
 
@@ -1253,7 +1237,7 @@ export default function MapPanel({
               URBAN_FLASH_COLOR.Likely,
               URBAN_FLASH_COLOR.Likely,
             ],
-            'fill-opacity': urbanFlashOpacity * 0.55,
+            'fill-opacity': urbanFlashOpacity * 0.5,
           },
         },
         beforeId,
@@ -1274,8 +1258,13 @@ export default function MapPanel({
               URBAN_FLASH_COLOR.Likely,
               URBAN_FLASH_COLOR.Likely,
             ],
-            'line-width': 1.4,
-            'line-opacity': urbanFlashOpacity,
+            'line-width': [
+              'interpolate', ['linear'], ['zoom'],
+              5, 0.8,
+              9, 1.6,
+              13, 2.4,
+            ],
+            'line-opacity': urbanFlashOpacity * 0.95,
           },
         },
         beforeId,
@@ -1323,8 +1312,8 @@ export default function MapPanel({
     const vis = urbanFlashVisible ? 'visible' : 'none'
     map.setLayoutProperty('urban-flash-fill', 'visibility', vis)
     map.setLayoutProperty('urban-flash-outline', 'visibility', vis)
-    map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.55)
-    map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity)
+    map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.5)
+    map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity * 0.95)
   }, [mapReady, styleEpoch, urbanFlashVisible, urbanFlashOpacity])
 
   // ── Add / sync independent raster tile layers ─────────────────────────────
@@ -1869,7 +1858,7 @@ export default function MapPanel({
       </div>
       {newsVisible && <FloodNewsLayer theme={theme} onClose={() => setNewsVisible(false)} onArticles={receiveNewsArticles} onFocus={focusNewsArticle} />}
 
-      {/* Home + basemap — below zoom (+/−) only; fullscreen is bottom-right */}
+      {/* Home + basemap — below zoom (+/−); basemap menu opens left to clear controls */}
       <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">
         <button
           type="button"

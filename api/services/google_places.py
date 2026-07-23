@@ -17,6 +17,28 @@ import httpx
 log = logging.getLogger(__name__)
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+# Map Tiles API is billed per tile and can spike cost quickly under pan/zoom.
+# Keep off — app uses Carto / Esri / OpenTopo basemaps instead.
+ENABLE_GOOGLE_MAP_TILES = os.getenv("ENABLE_GOOGLE_MAP_TILES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Places Text Search for header / place search only (when a key is set on ggis-flood-watch).
+ENABLE_GOOGLE_PLACES = os.getenv("ENABLE_GOOGLE_PLACES", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Nearby Search is never used for settlements (OSM / Nominatim only).
+ENABLE_GOOGLE_NEARBY = os.getenv("ENABLE_GOOGLE_NEARBY", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 PLACE_TEXT_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
@@ -27,10 +49,39 @@ _http = httpx.AsyncClient(timeout=15.0, headers={"User-Agent": "GGISFloodWatch/1
 
 # Cache Google Map Tiles sessions: map_type -> {session, expiry, style}
 _tile_sessions: dict[str, dict[str, Any]] = {}
+# Circuit breaker after REQUEST_DENIED / invalid key (unix ts until re-enable)
+_places_disabled_until = 0.0
 
 
 def google_enabled() -> bool:
     return bool(GOOGLE_MAPS_API_KEY)
+
+
+def google_tiles_enabled() -> bool:
+    return google_enabled() and ENABLE_GOOGLE_MAP_TILES
+
+
+def google_places_enabled() -> bool:
+    if not google_enabled() or not ENABLE_GOOGLE_PLACES:
+        return False
+    return time.time() >= _places_disabled_until
+
+
+def _trip_places_breaker(reason: str, minutes: float = 60.0) -> None:
+    global _places_disabled_until
+    _places_disabled_until = time.time() + minutes * 60.0
+    log.warning(
+        "Google Places disabled for %.0f min (%s). Using OSM/Nominatim fallback.",
+        minutes,
+        reason,
+    )
+
+
+def _note_places_status(status: str | None, msg: str | None = None) -> None:
+    if status in ("REQUEST_DENIED", "INVALID_REQUEST"):
+        _trip_places_breaker(f"{status}: {msg or 'no detail'}")
+    elif status == "OVER_QUERY_LIMIT":
+        _trip_places_breaker(f"{status}: {msg or 'quota'}", minutes=30.0)
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -84,7 +135,7 @@ async def search_places(q: str, limit: int = 5, country: str = "ng") -> list[dic
     Also try Geocoding if available.
     Returns None only when Google is disabled or both providers fail hard.
     """
-    if not google_enabled():
+    if not google_places_enabled():
         return None
 
     results: list[dict[str, Any]] = []
@@ -124,6 +175,7 @@ async def search_places(q: str, limit: int = 5, country: str = "ng") -> list[dic
                     }
                 )
             return results
+        _note_places_status(status, payload.get("error_message"))
         log.warning("Google Places Text Search status=%s msg=%s", status, payload.get("error_message"))
     except Exception as exc:
         log.warning("Google Places Text Search failed: %s", exc)
@@ -305,8 +357,11 @@ async def nearby_settlements(
     limit: int = 8,
     exclude_name: str | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Classic Places Nearby Search for localities around a point."""
-    if not google_enabled():
+    """Classic Places Nearby Search for localities around a point.
+
+    Disabled by default (ENABLE_GOOGLE_NEARBY=0). Callers should use OSM.
+    """
+    if not ENABLE_GOOGLE_NEARBY or not google_places_enabled():
         return None
 
     exclude = (exclude_name or "").strip().lower()
@@ -329,13 +384,14 @@ async def nearby_settlements(
             payload = resp.json()
             status = payload.get("status")
             if status not in ("OK", "ZERO_RESULTS"):
+                _note_places_status(status, payload.get("error_message"))
                 log.warning(
                     "Google Nearby Search type=%s status=%s msg=%s",
                     place_type,
                     status,
                     payload.get("error_message"),
                 )
-                continue
+                break
             for r in payload.get("results") or []:
                 loc = (r.get("geometry") or {}).get("location") or {}
                 if "lat" not in loc or "lng" not in loc:
@@ -417,7 +473,7 @@ async def nearby_settlements(
 
 async def _ensure_tile_session(map_type: str) -> str | None:
     """Create or reuse a Map Tiles API session token for map_type."""
-    if not google_enabled():
+    if not google_tiles_enabled():
         return None
 
     map_type = map_type if map_type in ("roadmap", "satellite", "terrain") else "roadmap"

@@ -120,7 +120,7 @@ def predict(features: FeatureInput) -> PredictionOutput:
         if available:
             final_prob = float(np.mean(available))
 
-        horizons_out[str(h)] = {
+        horizons_out[f"{h}h"] = {
             "flood_prob": round(final_prob, 4),
             "risk_tier":  classify_risk(final_prob),
             "xgb_prob":   round(xgb_prob, 4) if xgb_prob is not None else None,

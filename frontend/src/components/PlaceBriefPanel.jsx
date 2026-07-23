@@ -851,6 +851,7 @@ export default function PlaceBriefPanel({
                 <GaugeChart
                   stationId={primaryStation.id}
                   liveReading={liveReadings?.[primaryStation.id]}
+                  bankFullM={primaryStation.bank_full_m}
                   theme={theme}
                 />
                 <RainfallChart

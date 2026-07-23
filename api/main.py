@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -41,7 +42,13 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
+
+from developer.keys import API_FREE_DAILY_QUOTA, API_FREE_RPM, ensure_developer_tables
+from developer.middleware import DeveloperApiMiddleware
 from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure, boundaries, incidents, news, routing
+from routers.v1 import router as v1_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
@@ -89,18 +96,63 @@ CORS_ORIGINS = (
 
 
 class _NullRedis:
-    """No-op async Redis stand-in when REDIS_URL is unset (e.g. first Cloud Run launch)."""
+    """In-process TTL cache when REDIS_URL is unset (single Cloud Run instance)."""
+
+    def __init__(self):
+        self._store: dict[str, tuple[float, str | int]] = {}
 
     async def get(self, key):
-        return None
+        item = self._store.get(key)
+        if not item:
+            return None
+        expires_at, value = item
+        if expires_at and expires_at < time.time():
+            self._store.pop(key, None)
+            return None
+        return value
 
     async def set(self, key, value, ex=None, **kwargs):
+        ttl = float(ex) if ex is not None else 300.0
+        self._store[key] = (time.time() + ttl, value)
         return True
 
-    async def setex(self, key, time, value):
+    async def setex(self, key, time_seconds, value):
+        return await self.set(key, value, ex=time_seconds)
+
+    async def incr(self, key):
+        item = self._store.get(key)
+        now = time.time()
+        if not item or (item[0] and item[0] < now):
+            self._store[key] = (now + 60.0, 1)
+            return 1
+        expires_at, value = item
+        try:
+            count = int(value) + 1
+        except (TypeError, ValueError):
+            count = 1
+        self._store[key] = (expires_at, count)
+        return count
+
+    async def expire(self, key, seconds):
+        item = self._store.get(key)
+        if not item:
+            return False
+        _, value = item
+        self._store[key] = (time.time() + float(seconds), value)
         return True
+
+    async def ttl(self, key):
+        item = self._store.get(key)
+        if not item:
+            return -2
+        expires_at, _ = item
+        if not expires_at:
+            return -1
+        left = int(expires_at - time.time())
+        return left if left > 0 else -2
 
     async def aclose(self):
+        self._store.clear()
         return None
 
 
@@ -116,9 +168,17 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    description=(
+        "Dashboard backend for GGIS Flood Watch. "
+        "Third-party integrations should use the versioned Developer API at `/v1` "
+        f"(free tier: {API_FREE_RPM} req/min, {API_FREE_DAILY_QUOTA}/day). "
+        "See `/v1/docs`."
+    ),
 )
 os.makedirs("/app/uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
+# Developer API auth/rate-limit must run before CORS response finalization
+app.add_middleware(DeveloperApiMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -177,6 +237,7 @@ async def startup():
             CREATE INDEX IF NOT EXISTS idx_flood_incident_verifications_incident
                 ON flood_incident_verifications (incident_id, created_at DESC);
         """)
+        await ensure_developer_tables(conn)
     log.info("DB pool ready (Cloud SQL socket=%s)", bool(INSTANCE_CONNECTION_NAME or DB_HOST.startswith("/cloudsql/")))
 
 
@@ -219,6 +280,80 @@ app.include_router(incidents.router,   prefix="/incidents", tags=["community inc
 app.include_router(news.router,        prefix="/news", tags=["live flood news"])
 app.include_router(routing.router,     prefix="/routing", tags=["flood-aware routing"])
 app.include_router(boundaries.router,  prefix="/boundaries", tags=["boundaries"])
+app.include_router(v1_router, prefix="/v1")
+
+
+def _v1_openapi_schema() -> dict:
+    """OpenAPI limited to the stable Developer API (/v1) contract."""
+    schema = app.openapi()
+    paths = {
+        path: item
+        for path, item in (schema.get("paths") or {}).items()
+        if path.startswith("/v1")
+    }
+    return {
+        "openapi": schema.get("openapi", "3.1.0"),
+        "info": {
+            "title": "GGIS Flood Watch Developer API",
+            "version": "1.0.0",
+            "description": (
+                "Public flood intelligence API for Nigeria. Authenticate with header "
+                "`X-API-Key` (subscribe via `POST /v1/subscribe`). Free tier: "
+                f"{API_FREE_RPM} requests/minute and {API_FREE_DAILY_QUOTA}/day. "
+                "Forecasts are approximate — confirm with NIHSA before operational use."
+            ),
+        },
+        "paths": paths,
+        "components": {
+            **(schema.get("components") or {}),
+            "securitySchemes": {
+                "ApiKeyAuth": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-API-Key",
+                }
+            },
+        },
+        "security": [{"ApiKeyAuth": []}],
+        "tags": [{"name": "Developer API"}],
+    }
+
+
+@app.get("/v1/openapi.json", include_in_schema=False)
+async def v1_openapi():
+    return JSONResponse(_v1_openapi_schema())
+
+
+@app.get("/v1/docs", include_in_schema=False)
+async def v1_swagger():
+    return get_swagger_ui_html(
+        openapi_url="/v1/openapi.json",
+        title="GGIS Flood Watch Developer API",
+    )
+
+
+@app.get("/v1/redoc", include_in_schema=False)
+async def v1_redoc():
+    return get_redoc_html(
+        openapi_url="/v1/openapi.json",
+        title="GGIS Flood Watch Developer API",
+    )
+
+
+@app.get("/v1", include_in_schema=False)
+async def v1_root():
+    return {
+        "name": "GGIS Flood Watch Developer API",
+        "version": "1.0.0",
+        "docs": "/v1/docs",
+        "subscribe": "POST /v1/subscribe",
+        "auth": "X-API-Key",
+        "limits": {
+            "plan": "free",
+            "requests_per_min": API_FREE_RPM,
+            "daily_quota": API_FREE_DAILY_QUOTA,
+        },
+    }
 
 
 # ── WebSocket: live gauge readings ────────────────────────────────────────────

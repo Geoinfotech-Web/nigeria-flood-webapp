@@ -288,18 +288,12 @@ async def nearby_settlements(
     """
     Neighbouring cities/towns/villages within a radius.
 
-    Prefers Google Places Nearby Search when GOOGLE_MAPS_API_KEY is set,
-    then merges/dedupes with the static OSM exposure layer (and Nominatim
-    if needed). Results are enriched with GEE flood susceptibility.
+    Uses OpenStreetMap only (static places layer, then Nominatim).
+    Google Nearby Search is intentionally not used (billing / project shutdown).
+    Results are enriched with GEE flood susceptibility.
     """
-    from services import google_places
-
     exclude = (exclude_name or "").strip().lower()
     class_rank = {"City": 0, "Town": 1, "Village": 2}
-
-    google_results = await google_places.nearby_settlements(
-        lat, lon, radius_km=radius_km, limit=limit, exclude_name=exclude_name
-    )
 
     osm_results: list[dict] = []
     try:
@@ -349,18 +343,13 @@ async def nearby_settlements(
             seen.add(key)
             results.append(row)
 
-    if google_results:
-        _push(google_results)
-        # Top up with OSM if Google returned few hits
-        if len(results) < limit:
-            _push(osm_results)
-    else:
-        _push(osm_results)
-        if not results:
-            nominatim_rows = await _nearby_from_nominatim(lat, lon, radius_km, limit, exclude)
-            for row in nominatim_rows:
-                row.setdefault("source", "nominatim")
-            _push(nominatim_rows)
+    osm_results.sort(key=lambda r: (class_rank.get(r["class"], 9), r["distance_km"]))
+    _push(osm_results)
+    if len(results) < limit:
+        nominatim_rows = await _nearby_from_nominatim(lat, lon, radius_km, limit, exclude)
+        for row in nominatim_rows:
+            row.setdefault("source", "nominatim")
+        _push(nominatim_rows)
 
     results.sort(key=lambda row: (row["distance_km"], class_rank.get(row["class"], 9)))
     results = results[:limit]

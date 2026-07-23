@@ -1,4 +1,7 @@
-"""Geocoding proxy — Google Geocoding (preferred) with Nominatim fallback."""
+"""Geocoding proxy — Google Places Text Search (optional) with Nominatim fallback.
+
+Nearby settlements use OSM elsewhere; reverse geocode prefers Nominatim.
+"""
 import httpx
 from fastapi import APIRouter, Query, HTTPException
 
@@ -115,9 +118,9 @@ async def geocode_search(
     limit: int = Query(default=5, le=10),
     country: str = Query(default="ng", description="ISO country code"),
 ):
-    """Search for places. Prefers Google Geocoding; falls back to Nominatim."""
+    """Search for places. Prefers Google Places Text Search when enabled; else Nominatim."""
     google = await google_places.search_places(q, limit=limit, country=country)
-    if google is not None:
+    if google:
         return google
 
     try:
@@ -131,11 +134,7 @@ async def reverse_geocode(
     lat: float = Query(...),
     lon: float = Query(...),
 ):
-    """Reverse geocode a lat/lon. Prefers Google; falls back to Nominatim."""
-    google = await google_places.reverse_geocode(lat, lon)
-    if google is not None:
-        return google
-
+    """Reverse geocode a lat/lon via Nominatim (no Google Nearby / Geocoding bill)."""
     try:
         return await _nominatim_reverse(lat, lon)
     except Exception as exc:

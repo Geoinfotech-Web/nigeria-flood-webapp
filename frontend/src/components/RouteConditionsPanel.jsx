@@ -79,7 +79,7 @@ export default function RouteConditionsPanel({ navigation, stations = [], liveRe
         {primaryGauge && <>
           <Section title="Water level along this route" dark={dark}>
             <div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="flex items-center gap-1.5 font-semibold"><IconWaves size={14} />{primaryGauge.name}</span><span className="text-[10px] text-sky-600">{primaryGauge.routeDistanceKm.toFixed(1)} km from route</span></div>
-            <GaugeChart stationId={primaryGauge.id} liveReading={liveReadings[primaryGauge.id]} theme={theme} />
+            <GaugeChart stationId={primaryGauge.id} liveReading={liveReadings[primaryGauge.id]} bankFullM={primaryGauge.bank_full_m} theme={theme} />
           </Section>
           <Section title="Rainfall affecting this route" dark={dark}>
             <RainfallChart stationId={primaryGauge.id} stationName={primaryGauge.name} theme={theme} />

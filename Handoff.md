@@ -18,7 +18,7 @@ Geospatial flood layers include:
 
 Everything is displayed on an interactive MapLibre map with real-time WebSocket updates, place outlook, exposure (roads/bridges/settlements/buildings), routing, Google roadmap/satellite basemaps (when keyed), community incident reporting, and **peer verification** of reports.
 
-**Public mode** is place-centric early warning (search a town, see outlook and nearby exposure). **Expert mode** is a hydrologist console: network risk overview, gauge triage (search/sort/filter by risk and river), stage vs bankfull, multi-horizon forecasts, hydrographs, and community-report analytics.
+**Public mode** is place-centric early warning (search a town, see outlook and nearby exposure). **Expert mode** is a hydrologist console: network risk overview, gauge triage (search/sort/filter by risk and river), stage vs bankfull, multi-horizon forecasts, hydrographs, and community-report analytics. **API mode** is the Developer API portal: self-serve free keys (`X-API-Key`) for `/v1` endpoints (stations, outlooks, alerts, rainfall, flood-risk, urban flash, affected settlements). Docs: `/v1/docs`.
 
 ---
 
@@ -52,7 +52,14 @@ Everything is displayed on an interactive MapLibre map with real-time WebSocket 
 | GCS rasters | Live | `gs://gfw-flood-rasters-ggis-flood-watch/` |
 | Firebase Hosting | Live | https://ggis-flood-watch.web.app |
 | CORS | Configured | `gfw.ggis.africa` + Firebase origins |
-| Custom domains | Pending | Web team: `gfw.ggis.africa` / `api.gfw.ggis.africa` |
+| Custom domains | Pending DNS | Firebase + Cloud Run mappings created; see `scripts/DNS_FOR_WEB_TEAM.txt` |
+| Cloud ingest | Scheduled | Cloud Run Jobs + Scheduler: real_data daily 02:05 UTC, urban_flash every 3h |
+| Maps / Places | OSM + optional Text Search | `nigeria-flood-dashboard` shut down; no Google basemaps / Nearby Search |
+| GEE | Move to `ggis-flood-watch` | Enable Earth Engine API + new SA on this project |
+
+**Maps policy:** Nearby settlements = OSM/Nominatim only. Header text search may use Google Places Text Search when `GOOGLE_MAPS_API_KEY` is set on `ggis-flood-watch` (Places API only; Map Tiles off). Basemaps = Carto / Esri / OpenTopo.
+
+**GEE cutover:** Create service account on `ggis-flood-watch`, enable Earth Engine API, register the SA at [code.earthengine.google.com/register](https://code.earthengine.google.com/register), put email + JSON path in `.env` / Cloud Run secrets.
 
 ---
 
@@ -124,6 +131,7 @@ Nigeria Flood Dashboard/
 - Frontend: https://ggis-flood-watch.web.app  
 - API: https://gfw-api-883584176276.europe-west1.run.app  
 - Docs: https://gfw-api-883584176276.europe-west1.run.app/docs  
+- Developer API: https://gfw-api-883584176276.europe-west1.run.app/v1/docs  
 
 ### Useful scripts
 
@@ -136,7 +144,9 @@ Nigeria Flood Dashboard/
 | `scripts/deploy_firebase_hosting.py` | Upload `frontend/dist` to Firebase Hosting |
 | `scripts/apply_cloud_sql_init.py` | Apply Cloud SQL schema |
 | `scripts/apply_incident_verification.py` | Add verification columns/table on Cloud SQL |
-| `scripts/api_env.yaml` | Cloud Run env (CORS, BentoML, TiTiler, public API base) |
+| `scripts/deploy_cloud_ingest_jobs.py` | Build/push ingest image; Cloud Run Jobs + Scheduler |
+| `scripts/setup_custom_domains.py` | Attach `gfw.ggis.africa` / `api.gfw.ggis.africa` |
+| `scripts/DNS_FOR_WEB_TEAM.txt` | DNS + Search Console ownership steps |
 
 ### Redeploy API
 
@@ -367,13 +377,13 @@ docker-compose run --rm bentoml python train.py
 
 ## Recommended Next Steps (Priority Order)
 
-### 1. Attach custom domains
-**Effort:** Low (web / DNS team)  
-Map `gfw.ggis.africa` → Firebase, `api.gfw.ggis.africa` → Cloud Run; refresh CORS and frontend env; redeploy.
+### 1. Finish custom domains (web team DNS)
+**Effort:** Low  
+See `scripts/DNS_FOR_WEB_TEAM.txt`. Verify `ggis.africa` in Search Console, point `gfw` → Firebase and `api.gfw` → `ghs.googlehosted.com`, then switch frontend `VITE_API_URL` to `https://api.gfw.ggis.africa`.
 
-### 2. Schedule cloud ingest + monthly GEE re-export
+### 2. Monthly GEE re-export jobs (optional next)
 **Effort:** Medium  
-Cloud Scheduler → Cloud Run jobs for `real_data.py`, `urban_flash_flood.py`, `gee_flood_risk` / inundation; re-upload COGs to GCS.
+Add Cloud Run Jobs for `gee_flood_risk` / inundation / urban footprints + COG upload to GCS.
 
 ### 3. Accumulate real data and retrain quarterly
 **Effort:** Ongoing  
@@ -409,7 +419,9 @@ If the key expires or is rotated, create a new key from the GCP Console under IA
 | GCP hosting runbook | `GCP_HOSTING_RUNBOOK.md` |
 | AWS alternate runbook | `AWS_HOSTING_RUNBOOK.md` |
 | Local API docs | http://localhost:8000/docs |
+| Local Developer API | http://localhost:8000/v1/docs |
 | Live API docs | https://gfw-api-883584176276.europe-west1.run.app/docs |
+| Live Developer API | https://gfw-api-883584176276.europe-west1.run.app/v1/docs |
 | Live app | https://ggis-flood-watch.web.app |
 | MLflow experiments (local) | http://localhost:5000 |
 | MinIO bucket browser (local) | http://localhost:9001 (minioadmin / minioadmin) |

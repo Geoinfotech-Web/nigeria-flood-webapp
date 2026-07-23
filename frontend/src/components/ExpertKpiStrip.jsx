@@ -177,8 +177,14 @@ export default function ExpertKpiStrip({
   const scoped = Boolean(place)
 
   const urban = useMemo(() => {
-    if (scoped) return impactSummary?.urban_flash || null
-    return urbanFlashSummary || impactSummary?.urban_flash || null
+    // Always prefer dedicated urban-flash-summary (map-aligned). Scoped impact
+    // can report 0 nearby zones even when national alerts exist.
+    const fromFlash = urbanFlashSummary
+    const fromImpact = impactSummary?.urban_flash
+    if (!scoped) return fromFlash || fromImpact || null
+    const impactTotal = (fromImpact?.likely || 0) + (fromImpact?.highly_likely || 0)
+    if (impactTotal > 0) return fromImpact
+    return fromFlash || fromImpact || null
   }, [scoped, impactSummary, urbanFlashSummary])
 
   const highly = urban?.highly_likely ?? 0

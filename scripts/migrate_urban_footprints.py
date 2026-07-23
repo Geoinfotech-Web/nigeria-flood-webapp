@@ -1,4 +1,4 @@
-"""Copy inundation + urban flash polygons from local TimescaleDB → Cloud SQL."""
+"""Copy urban_footprints from local TimescaleDB → Cloud SQL."""
 from __future__ import annotations
 
 import shutil
@@ -40,32 +40,32 @@ def secret(name: str) -> str:
 
 
 def main() -> int:
-    dump = Path(tempfile.gettempdir()) / "gfw_flood_risk_areas.sql"
-    print("=== Dump local non-synthetic flood_risk_areas ===")
-    # Export INSERT statements for real vector layers only
-    sql_out = subprocess.check_output(
+    print("=== Dump local urban_footprints ===")
+    tmp = Path(tempfile.gettempdir())
+    csv_host = tmp / "urban_footprints.csv"
+    # Write CSV inside the container then docker cp (avoids Windows encoding issues)
+    subprocess.check_call(
         [
             "docker", "exec", "flood_timescaledb",
-            "psql", "-U", "flood", "-d", "flooddb", "-At", "-c",
+            "bash", "-c",
             """
+            psql -U flood -d flooddb -At -c \"
             COPY (
-              SELECT name, admin_level, state,
-                     ST_AsEWKT(geom), risk_score, risk_tier, source,
-                     valid_from, valid_to
-              FROM flood_risk_areas
-              WHERE source IN ('sar_dem_inundation', 'urban_flash_flood')
+              SELECT name, state, ST_AsEWKT(geom), centroid_lat, centroid_lon,
+                     area_km2, impervious_frac, flat_frac, updated_at
+              FROM urban_footprints
             ) TO STDOUT WITH (FORMAT csv, FORCE_QUOTE *)
+            \" > /tmp/urban_footprints.csv
             """,
-        ],
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        ]
     )
-    dump.write_text(sql_out, encoding="utf-8")
-    lines = [ln for ln in sql_out.splitlines() if ln.strip()]
-    print(f"Exported {len(lines)} rows -> {dump}")
+    subprocess.check_call(
+        ["docker", "cp", "flood_timescaledb:/tmp/urban_footprints.csv", str(csv_host)]
+    )
+    lines = [ln for ln in csv_host.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+    print(f"Exported {len(lines)} rows")
     if not lines:
-        print("Nothing to migrate")
+        print("Nothing to migrate — run urban_footprints.py locally first")
         return 1
 
     db_user = secret("DB_USER")
@@ -78,7 +78,6 @@ def main() -> int:
     if not proxy.exists():
         urllib.request.urlretrieve(PROXY_URL, proxy)
 
-    GetProcess = None
     subprocess.run(
         ["powershell", "-NoProfile", "-Command",
          "Get-Process cloud-sql-proxy -ErrorAction SilentlyContinue | Stop-Process -Force"],
@@ -97,55 +96,63 @@ def main() -> int:
             print(proxy_proc.stdout.read() if proxy_proc.stdout else "proxy exited")
             return 1
 
-        # Load via temp CSV into docker postgres client
-        load_sql = Path(tempfile.gettempdir()) / "gfw_load_risk_areas.sql"
+        load_sql = tmp / "gfw_load_urban_footprints.sql"
         load_sql.write_text(
             """
 BEGIN;
-DELETE FROM flood_risk_areas
- WHERE source IN ('sar_dem_inundation', 'urban_flash_flood');
+CREATE TABLE IF NOT EXISTS urban_footprints (
+    id               SERIAL PRIMARY KEY,
+    name             TEXT NOT NULL,
+    state            TEXT,
+    geom             GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    centroid_lat     DOUBLE PRECISION NOT NULL,
+    centroid_lon     DOUBLE PRECISION NOT NULL,
+    area_km2         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    impervious_frac  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    flat_frac        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_urban_footprints_geom
+    ON urban_footprints USING GIST (geom);
+TRUNCATE urban_footprints RESTART IDENTITY;
 
-CREATE TEMP TABLE _risk_import (
+CREATE TEMP TABLE _uf_import (
   name text,
-  admin_level text,
   state text,
   geom_ewkt text,
-  risk_score double precision,
-  risk_tier text,
-  source text,
-  valid_from date,
-  valid_to date
+  centroid_lat double precision,
+  centroid_lon double precision,
+  area_km2 double precision,
+  impervious_frac double precision,
+  flat_frac double precision,
+  updated_at timestamptz
 );
 
-\\copy _risk_import FROM '/data/flood_risk_areas.csv' WITH (FORMAT csv)
+\\copy _uf_import FROM '/data/urban_footprints.csv' WITH (FORMAT csv)
 
-INSERT INTO flood_risk_areas
-  (name, admin_level, state, geom, risk_score, risk_tier, source, valid_from, valid_to)
+INSERT INTO urban_footprints
+  (name, state, geom, centroid_lat, centroid_lon, area_km2, impervious_frac, flat_frac, updated_at)
 SELECT
-  name, admin_level, state,
+  name, state,
   ST_Multi(ST_GeomFromEWKT(geom_ewkt))::geometry(MultiPolygon,4326),
-  risk_score, risk_tier, source, valid_from, valid_to
-FROM _risk_import;
+  centroid_lat, centroid_lon,
+  COALESCE(area_km2, 0), COALESCE(impervious_frac, 0), COALESCE(flat_frac, 0),
+  updated_at
+FROM _uf_import;
 
-SELECT source, risk_tier, count(*)
-FROM flood_risk_areas
-WHERE source IN ('sar_dem_inundation', 'urban_flash_flood')
-GROUP BY 1,2
-ORDER BY 1,2;
+SELECT count(*) AS footprints FROM urban_footprints;
 COMMIT;
 """,
             encoding="utf-8",
         )
 
-        csv_host = Path(tempfile.gettempdir()) / "flood_risk_areas.csv"
-        csv_host.write_text(sql_out, encoding="utf-8")
-
         print("=== Load into Cloud SQL ===")
-        rc = subprocess.run(
+        return subprocess.run(
             [
                 "docker", "run", "--rm",
+                "--add-host=host.docker.internal:host-gateway",
                 "-e", f"PGPASSWORD={db_password}",
-                "-v", f"{csv_host}:/data/flood_risk_areas.csv:ro",
+                "-v", f"{csv_host}:/data/urban_footprints.csv:ro",
                 "-v", f"{load_sql}:/data/load.sql:ro",
                 "postgres:16",
                 "psql",
@@ -157,7 +164,6 @@ COMMIT;
                 "-f", "/data/load.sql",
             ]
         ).returncode
-        return rc
     finally:
         proxy_proc.terminate()
         try:

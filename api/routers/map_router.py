@@ -35,8 +35,15 @@ async def google_basemap_style(
     """MapLibre style using Google Map Tiles (tiles proxied; API key stays server-side)."""
     if map_type not in ("roadmap", "satellite", "terrain"):
         raise HTTPException(status_code=400, detail="map_type must be roadmap, satellite, or terrain")
-    if not google_places.google_enabled():
-        raise HTTPException(status_code=503, detail="GOOGLE_MAPS_API_KEY is not configured")
+    if not google_places.google_tiles_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Google Map Tiles are disabled (ENABLE_GOOGLE_MAP_TILES). "
+                "Use Streets / Light / Dark basemaps, or enable tiles after "
+                "setting Map Tiles API quotas in Google Cloud."
+            ),
+        )
 
     # Absolute URL so the browser hits the API host, not the Vite frontend origin.
     base = _public_base_url(request)
@@ -66,8 +73,11 @@ async def google_basemap_tile(
     """Proxy a single Google Map tile (keeps the API key off the client)."""
     if map_type not in ("roadmap", "satellite", "terrain"):
         raise HTTPException(status_code=400, detail="map_type must be roadmap, satellite, or terrain")
-    if not google_places.google_enabled():
-        raise HTTPException(status_code=503, detail="GOOGLE_MAPS_API_KEY is not configured")
+    if not google_places.google_tiles_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Google Map Tiles are disabled (ENABLE_GOOGLE_MAP_TILES).",
+        )
     if z < 0 or z > 22 or x < 0 or y < 0:
         raise HTTPException(status_code=400, detail="Invalid tile coordinates")
 
@@ -98,7 +108,8 @@ async def risk_map(request: Request):
         if cached:
             pred = json.loads(cached)
             risk = pred.get("overall_risk", "Normal")
-            prob_24h = pred.get("horizons", {}).get("24h", {}).get("flood_prob", 0)
+            h24 = (pred.get("horizons") or {}).get("24h") or (pred.get("horizons") or {}).get("24") or {}
+            prob_24h = h24.get("flood_prob", 0)
         else:
             risk = "Normal"
             prob_24h = 0.0

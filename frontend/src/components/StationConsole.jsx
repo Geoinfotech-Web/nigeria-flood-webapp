@@ -203,7 +203,17 @@ export default function StationConsole({
           const total = rows.reduce((a, row) => a + (Number(row.total_rain_mm) || 0), 0)
           setRainToday(total)
         })
-        .catch(() => setRainToday(null))
+        .catch(async () => {
+          // Cloud met ingest may lag: days=1 can 404 while the 7-day chart still has data.
+          try {
+            const r = await axios.get(`${API}/stations/${stationId}/rainfall?days=7`)
+            const rows = Array.isArray(r.data) ? r.data : []
+            const last = rows[rows.length - 1]
+            setRainToday(last != null ? Number(last.total_rain_mm) || 0 : null)
+          } catch {
+            setRainToday(null)
+          }
+        })
     loadPred()
     loadReadings()
     loadLatest()
@@ -493,10 +503,11 @@ export default function StationConsole({
             <GaugeChart
               stationId={stationId}
               liveReading={effectiveReading}
+              bankFullM={station?.bank_full_m}
               theme={theme}
               mode="readings"
               hours={24}
-              title="Water Level — 24 Hours"
+              title="Water Level — recent (daily)"
               height={150}
             />
 
@@ -546,6 +557,7 @@ export default function StationConsole({
           <GaugeChart
             stationId={stationId}
             liveReading={effectiveReading}
+            bankFullM={station?.bank_full_m}
             theme={theme}
             mode="history"
             days={30}

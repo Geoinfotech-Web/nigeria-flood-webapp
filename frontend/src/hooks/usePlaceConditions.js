@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { nearestStations } from '../lib/geo'
+import { normalizeHorizons } from '../lib/horizons'
 import { RISK_ORDER, worstRisk } from '../lib/riskCopy'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -38,7 +39,11 @@ export function usePlaceConditions(place, stations) {
           nearby.map(async (s) => {
             try {
               const { data } = await axios.get(`${API}/stations/${s.id}/predictions`)
-              return [s.id, data]
+              if (!data) return [s.id, null]
+              return [
+                s.id,
+                { ...data, horizons: normalizeHorizons(data.horizons) },
+              ]
             } catch {
               return [s.id, null]
             }

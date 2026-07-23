@@ -42,10 +42,13 @@ export function useImpactSummary({ enabled = true, stationId = null } = {}) {
         })
     }
 
-    load()
+    // Defer heavy national impact so urban-flash KPIs / map paint first.
+    const delayMs = stationId ? 0 : 250
+    const startId = setTimeout(load, delayMs)
     const id = setInterval(load, 300_000)
     return () => {
       cancelled = true
+      clearTimeout(startId)
       clearInterval(id)
     }
   }, [enabled, stationId])
