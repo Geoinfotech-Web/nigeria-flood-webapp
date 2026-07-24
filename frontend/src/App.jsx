@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import MapPanel from './components/MapPanel'
 import ExpertOverviewPanel from './components/ExpertOverviewPanel'
@@ -111,6 +111,7 @@ export default function App() {
     placeClass: 'All',
     riskTier: 'All',
   })
+  const mapCaptureRef = useRef(null)
 
   const handleBuildingsViewportChange = useCallback((payload) => {
     setViewportBuildings(payload)
@@ -688,6 +689,7 @@ export default function App() {
                 bottomSheetOverlay={Boolean(
                   selectedStation || place || expertMobileConsoleOpen,
                 )}
+                mapCaptureRef={mapCaptureRef}
               />
             </main>
 
@@ -759,6 +761,7 @@ export default function App() {
                   loading={placeConditions.loading}
                   liveReadings={liveReadings}
                   theme={theme}
+                  captureMapSnapshot={() => mapCaptureRef.current?.() ?? Promise.resolve(null)}
                   onClose={() => {
                     clearPlace()
                     setExpertMobileConsoleOpen(false)

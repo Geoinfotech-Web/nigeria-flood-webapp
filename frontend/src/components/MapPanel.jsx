@@ -7,6 +7,7 @@ import FloodRiskLegend from './FloodRiskLegend'
 import LayersPanel from './LayersPanel'
 import { IconHome } from './Icons'
 import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
+import { captureMapSnapshot } from '../lib/captureMapSnapshot'
 
 const RISK_COLOR = {
   Normal:    '#22c55e',
@@ -751,6 +752,8 @@ export default function MapPanel({
   navigation = null,
   highlightSelectedBasin = false,
   bottomSheetOverlay = false,
+  /** Parent ref assigned a () => Promise<dataUrl|null> capture helper. */
+  mapCaptureRef = null,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -1066,6 +1069,8 @@ export default function MapPanel({
       center: [8.0, 9.0],
       zoom: 5.5,
       minZoom: 4,
+      // Required so PDF / report snapshots can read the WebGL canvas.
+      preserveDrawingBuffer: true,
     })
     mapObj.current = map
     map.addControl(
@@ -1089,6 +1094,21 @@ export default function MapPanel({
       setMapReady(false)
     }
   }, [])
+
+  // Expose viewport capture for intelligence PDF exports
+  useEffect(() => {
+    if (!mapCaptureRef) return undefined
+    mapCaptureRef.current = () =>
+      captureMapSnapshot(mapObj.current, {
+        markers:
+          placeFocus && Number.isFinite(Number(placeFocus.lon)) && Number.isFinite(Number(placeFocus.lat))
+            ? [{ lon: Number(placeFocus.lon), lat: Number(placeFocus.lat), kind: 'place' }]
+            : [],
+      })
+    return () => {
+      mapCaptureRef.current = null
+    }
+  }, [mapCaptureRef, mapReady, placeFocus])
 
   // Swap basemap via setStyle. Never flip mapReady off here — that cancelled the
   // style.load handler (effect cleanup) and left the map stuck until refresh.

@@ -122,6 +122,7 @@ export default function ExpertIntelligenceReport({
   loading = false,
   liveReadings = {},
   theme = 'dark',
+  captureMapSnapshot = null,
   onClose,
   onSelectStation,
 }) {
@@ -158,7 +159,13 @@ export default function ExpertIntelligenceReport({
   const roadsAtRisk = roadSummary?.at_risk ?? 0
   const placeMeta = [place?.class, place?.state].filter(Boolean).join(' · ')
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    let mapImage = null
+    try {
+      mapImage = (await captureMapSnapshot?.()) || null
+    } catch {
+      mapImage = null
+    }
     exportIntelligenceReportPdf({
       place,
       overallRisk: tier,
@@ -171,6 +178,7 @@ export default function ExpertIntelligenceReport({
       roads: nearbyRoads,
       settlements: nearbySettlements,
       gauges: nearby,
+      mapImage,
     })
   }
 

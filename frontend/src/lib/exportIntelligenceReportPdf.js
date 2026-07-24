@@ -56,6 +56,7 @@ export function exportIntelligenceReportPdf({
   roads = [],
   settlements = [],
   gauges = [],
+  mapImage = null,
 }) {
   const when = new Date().toLocaleString(undefined, {
     dateStyle: 'medium',
@@ -240,6 +241,43 @@ export function exportIntelligenceReportPdf({
       padding: 12px 14px;
       margin-bottom: 14px;
     }
+    .map-shot {
+      margin: 0 0 14px;
+      page-break-inside: avoid;
+    }
+    .map-shot h3 {
+      margin: 0 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #334155;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
+    }
+    .map-shot figure {
+      margin: 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #e2e8f0;
+    }
+    .map-shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 320px;
+      object-fit: cover;
+      object-position: center;
+    }
+    .map-shot figcaption {
+      margin: 0;
+      padding: 6px 10px;
+      font-size: 9.5px;
+      color: #64748b;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+    }
     .place-block h2 {
       margin: 0;
       font-size: 16px;
@@ -397,6 +435,18 @@ export function exportIntelligenceReportPdf({
         <div>${badgeHtml(`Site · ${verdictTier}`, verdictTier)}</div>
       </div>
     </section>
+
+    ${
+      mapImage
+        ? `<section class="map-shot">
+      <h3>Map area of interest</h3>
+      <figure>
+        <img src="${mapImage}" alt="Map snapshot of ${esc(placeTitle)}" />
+        <figcaption>Viewport at report generation · ${esc(placeTitle)}${display ? ` · ${esc(display)}` : ''}</figcaption>
+      </figure>
+    </section>`
+        : ''
+    }
 
     <section class="section">
       <h3>This location — site suitability</h3>
