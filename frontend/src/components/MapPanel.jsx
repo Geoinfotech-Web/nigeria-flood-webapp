@@ -5,7 +5,6 @@ import SearchBar from './SearchBar'
 import BasemapSwitcher from './BasemapSwitcher'
 import FloodRiskLegend from './FloodRiskLegend'
 import LayersPanel from './LayersPanel'
-import FloodNewsLayer from './FloodNewsLayer'
 import { IconHome } from './Icons'
 import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
 
@@ -885,11 +884,10 @@ export default function MapPanel({
 
   const newsLayerOn = newsVisible || externalNewsVisible
 
-  // Expert (and any mode without the popup list): load news for map symbols when layer is on
+  // Load news for map symbols when the layer is on (list UIs live in dock / analytics)
   useEffect(() => {
-    const popupProvidesArticles = publicMode && newsVisible && !externalNewsVisible
     const parentProvidesArticles = Boolean(externalNewsArticles)
-    if (!newsLayerOn || popupProvidesArticles || parentProvidesArticles) return undefined
+    if (!newsLayerOn || parentProvidesArticles) return undefined
 
     let cancelled = false
     const load = async () => {
@@ -908,14 +906,7 @@ export default function MapPanel({
       cancelled = true
       clearInterval(timer)
     }
-  }, [
-    newsLayerOn,
-    publicMode,
-    newsVisible,
-    externalNewsVisible,
-    externalNewsArticles,
-    receiveNewsArticles,
-  ])
+  }, [newsLayerOn, externalNewsArticles, receiveNewsArticles])
 
   useEffect(() => {
     if (!newsFocus) return
@@ -2151,15 +2142,6 @@ export default function MapPanel({
           </div>
         )}
       </div>
-      {publicMode && newsVisible && !externalNewsVisible && (
-        <FloodNewsLayer
-          theme={theme}
-          onClose={() => setNewsVisible(false)}
-          onArticles={receiveNewsArticles}
-          onFocus={focusNewsArticle}
-        />
-      )}
-
       {/* Home + basemap — below zoom (+/−); basemap menu opens left to clear controls */}
       <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">
         <button
