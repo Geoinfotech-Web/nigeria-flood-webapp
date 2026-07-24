@@ -1,6 +1,6 @@
-# GGIS Flood Watch Deployment Guide
+# Flood Watch Deployment Guide
 
-This document is for the web team deploying **GGIS Flood Watch** to the public domain:
+This document is for the web team deploying **Flood Watch** to the public domain:
 
 - Public app: `https://gfw.ggis.africa`
 - API: `https://api.gfw.ggis.africa`
@@ -331,4 +331,4 @@ The deployment team will need the following from the product owner:
 
 ## Short Handoff Summary
 
-GGIS Flood Watch should be deployed on AWS as a multi-service web application, with the frontend on CloudFront/S3, the API on ECS behind an ALB, the database on RDS, Redis on ElastiCache, tiles/uploads on S3, and scheduled ingest jobs via EventBridge-triggered ECS tasks. The production public URL should be `https://gfw.ggis.africa`, with the API at `https://api.gfw.ggis.africa`. The deployment must use production environment variables, server-side Google and GEE credentials, private internal services, TLS, restricted CORS, and working WebSocket support.
+Flood Watch should be deployed on AWS as a multi-service web application, with the frontend on CloudFront/S3, the API on ECS behind an ALB, the database on RDS, Redis on ElastiCache, tiles/uploads on S3, and scheduled ingest jobs via EventBridge-triggered ECS tasks. The production public URL should be `https://gfw.ggis.africa`, with the API at `https://api.gfw.ggis.africa`. The deployment must use production environment variables, server-side Google and GEE credentials, private internal services, TLS, restricted CORS, and working WebSocket support.

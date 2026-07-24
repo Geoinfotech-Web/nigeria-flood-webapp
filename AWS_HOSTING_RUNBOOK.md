@@ -1,6 +1,6 @@
-# GGIS Flood Watch AWS Hosting Runbook
+# Flood Watch AWS Hosting Runbook
 
-This is the step-by-step deployment guide for the web/DevOps team to host GGIS Flood Watch on AWS.
+This is the step-by-step deployment guide for the web/DevOps team to host Flood Watch on AWS.
 
 ## Target Endpoints
 
@@ -13,7 +13,7 @@ This is the step-by-step deployment guide for the web/DevOps team to host GGIS F
 
 ## 1. What Is Being Deployed
 
-GGIS Flood Watch is a multi-service application, not just a static frontend.
+Flood Watch is a multi-service application, not just a static frontend.
 
 Required production services:
 

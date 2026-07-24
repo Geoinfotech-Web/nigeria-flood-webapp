@@ -1,4 +1,4 @@
-# GGIS Flood Watch — Developer Handoff
+# Flood Watch — Developer Handoff
 
 **Date:** 22 July 2026  
 **Status:** Local stack operational. **GCP staging live** on temporary URLs (Firebase + Cloud Run + Cloud SQL). Real OpenMeteo/GloFAS data on cloud; colleague community-report verification merged and deployed.
@@ -7,7 +7,7 @@
 
 ## What This System Does
 
-A full-stack flood prediction and monitoring dashboard for Nigeria (product name **GGIS Flood Watch**). It pulls live river discharge data from GloFAS (via OpenMeteo) and meteorological data from OpenMeteo for 26 gauge stations and 29 met stations distributed across all major Nigerian river basins. Machine learning models (XGBoost + LSTM) forecast flood probability at 6, 12, 24, 48, and 72 hour horizons.
+A full-stack flood prediction and monitoring dashboard for Nigeria (product name **Flood Watch**). It pulls live river discharge data from GloFAS (via OpenMeteo) and meteorological data from OpenMeteo for 26 gauge stations and 29 met stations distributed across all major Nigerian river basins. Machine learning models (XGBoost + LSTM) forecast flood probability at 6, 12, 24, 48, and 72 hour horizons.
 
 Geospatial flood layers include:
 

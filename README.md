@@ -1,4 +1,4 @@
-# GGIS Flood Watch (Nigeria Flood Dashboard)
+# Flood Watch (Nigeria Flood Dashboard)
 
 Local development stack and pointers for the live GCP deployment.
 

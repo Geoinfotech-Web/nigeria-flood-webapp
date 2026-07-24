@@ -1,4 +1,4 @@
-"""GGIS Flood Watch Developer API v1 routers."""
+"""Flood Watch Developer API v1 routers."""
 from fastapi import APIRouter
 
 from routers.v1 import catalog, subscribe

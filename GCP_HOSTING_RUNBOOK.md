@@ -1,6 +1,6 @@
-# GGIS Flood Watch GCP Hosting Runbook
+# Flood Watch GCP Hosting Runbook
 
-This is the step-by-step deployment guide for hosting GGIS Flood Watch on Google Cloud Platform.
+This is the step-by-step deployment guide for hosting Flood Watch on Google Cloud Platform.
 
 ## Target Endpoints
 
@@ -13,7 +13,7 @@ This is the step-by-step deployment guide for hosting GGIS Flood Watch on Google
 
 ## 1. What Is Being Deployed
 
-GGIS Flood Watch is a multi-service application, not just a static site.
+Flood Watch is a multi-service application, not just a static site.
 
 Required production services:
 

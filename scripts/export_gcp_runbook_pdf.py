@@ -169,7 +169,7 @@ def build():
         rightMargin=16 * mm,
         topMargin=16 * mm,
         bottomMargin=16 * mm,
-        title="GGIS Flood Watch GCP Hosting Runbook",
+        title="Flood Watch GCP Hosting Runbook",
         author="Cursor",
     )
     doc.build(story)

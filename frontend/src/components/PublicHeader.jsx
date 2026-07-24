@@ -49,8 +49,7 @@ export default function PublicHeader({
             </div>
             <div className="min-w-0">
               <h1 className="font-display truncate text-sm font-semibold tracking-tight sm:text-lg">
-                <span className="sm:hidden">GGIS Flood</span>
-                <span className="hidden sm:inline">GGIS Flood Watch</span>
+                Flood Watch
               </h1>
               <p
                 className={clsx(

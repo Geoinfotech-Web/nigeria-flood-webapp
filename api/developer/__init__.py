@@ -1,1 +1,1 @@
-"""GGIS Flood Watch Developer API package."""
+"""Flood Watch Developer API package."""

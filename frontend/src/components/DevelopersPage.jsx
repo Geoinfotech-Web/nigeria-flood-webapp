@@ -150,7 +150,7 @@ export default function DevelopersPage({ theme = 'light', preview = false }) {
           Developer API
         </p>
         <h2 className="font-display mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          GGIS Flood Watch API
+          Flood Watch API
         </h2>
         <p className={clsx('mt-3 max-w-2xl text-sm leading-relaxed sm:text-base', dark ? 'text-slate-300' : 'text-slate-600')}>
           Gauges, outlooks, flood risk, and location intelligence (site assessment, terrain,

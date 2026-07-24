@@ -164,12 +164,12 @@ def _redis_enabled() -> bool:
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Nigeria Flood Prediction API",
+    title="Flood Watch API",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     description=(
-        "Dashboard backend for GGIS Flood Watch. "
+        "Dashboard backend for Flood Watch. "
         "Third-party integrations should use the versioned Developer API at `/v1` "
         f"(free tier: {API_FREE_RPM} req/min, {API_FREE_DAILY_QUOTA}/day). "
         "See `/v1/docs`."
@@ -294,7 +294,7 @@ def _v1_openapi_schema() -> dict:
     return {
         "openapi": schema.get("openapi", "3.1.0"),
         "info": {
-            "title": "GGIS Flood Watch Developer API",
+            "title": "Flood Watch Developer API",
             "version": "1.0.0",
             "description": (
                 "Public flood intelligence API for Nigeria. Authenticate with header "
@@ -328,7 +328,7 @@ async def v1_openapi():
 async def v1_swagger():
     return get_swagger_ui_html(
         openapi_url="/v1/openapi.json",
-        title="GGIS Flood Watch Developer API",
+        title="Flood Watch Developer API",
     )
 
 
@@ -336,14 +336,14 @@ async def v1_swagger():
 async def v1_redoc():
     return get_redoc_html(
         openapi_url="/v1/openapi.json",
-        title="GGIS Flood Watch Developer API",
+        title="Flood Watch Developer API",
     )
 
 
 @app.get("/v1", include_in_schema=False)
 async def v1_root():
     return {
-        "name": "GGIS Flood Watch Developer API",
+        "name": "Flood Watch Developer API",
         "version": "1.0.0",
         "docs": "/v1/docs",
         "subscribe": "POST /v1/subscribe",

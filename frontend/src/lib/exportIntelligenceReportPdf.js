@@ -157,7 +157,7 @@ export function exportIntelligenceReportPdf({
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GGIS Flood Watch — ${esc(placeTitle)} Intelligence Report</title>
+  <title>Flood Watch — ${esc(placeTitle)} Intelligence Report</title>
   <style>
     @page {
       size: A4;
@@ -415,7 +415,7 @@ export function exportIntelligenceReportPdf({
 
     <header class="header">
       <div>
-        <p class="brand-kicker">GGIS Flood Watch</p>
+        <p class="brand-kicker">Flood Watch</p>
         <h1 class="brand-title">Location Intelligence Report</h1>
       </div>
       <div class="doc-meta">
@@ -559,7 +559,7 @@ export function exportIntelligenceReportPdf({
     </section>
 
     <footer class="foot">
-      <strong>Disclaimer.</strong> GGIS Flood Watch location intelligence combines nearest-gauge forecasts,
+      <strong>Disclaimer.</strong> Flood Watch location intelligence combines nearest-gauge forecasts,
       flood susceptibility, terrain (SRTM), and mapped hazard zones. This is an advisory screening product only —
       not a substitute for formal flood risk surveys, engineering assessment, NIHSA guidance, or legal due diligence.
     </footer>
@@ -572,7 +572,7 @@ export function exportIntelligenceReportPdf({
 </body>
 </html>`
 
-  const filenameBase = `GGIS-Flood-Watch-${String(placeTitle).replace(/[^\w\-]+/g, '_').slice(0, 48)}-report`
+  const filenameBase = `Flood-Watch-${String(placeTitle).replace(/[^\w\-]+/g, '_').slice(0, 48)}-report`
 
   const win = window.open('', '_blank', 'noopener,noreferrer,width=920,height=780')
   if (!win) {
