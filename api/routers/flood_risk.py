@@ -85,22 +85,23 @@ OVERLAY_METADATA = {
             "title": "Flood Susceptibility",
             "subtitle": "JRC occurrence + HAND + distance to drainage + slope",
             "items": [
-                {"label": "Highly Susceptible", "color": "#800026", "range": "> 75"},
-                {"label": "High", "color": "#e31a1c", "range": "51-75"},
-                {"label": "Moderate", "color": "#fd8d3c", "range": "26-50"},
-                {"label": "Low", "color": "#ffffb2", "range": "0-25"},
+                {"label": "Highly Susceptible", "color": "#0A3D62", "range": "> 75"},
+                {"label": "High", "color": "#2B6CB0", "range": "51-75"},
+                {"label": "Moderate", "color": "#fff600", "range": "26-50"},
+                {"label": "Low", "color": "#c46210", "range": "0-25"},
             ],
         },
         "render": {
             "bidx": "1",
             "resampling": "nearest",
             # Discrete class values 1-4 — do NOT rescale (breaks colormap lookup)
+            # Water blues for high flood susceptibility; bright yellow moderate; orange for low
             "colormap": json.dumps(
                 {
-                    "1": [255, 255, 178, 255],  # Low — pale yellow
-                    "2": [253, 141, 60, 255],   # Moderate — orange
-                    "3": [227, 26, 28, 255],    # High
-                    "4": [128, 0, 38, 255],     # Highly Susceptible
+                    "1": [196, 98, 16, 255],    # Low — #c46210
+                    "2": [255, 246, 0, 255],    # Moderate — #fff600
+                    "3": [43, 108, 176, 255],   # High — mid water blue
+                    "4": [10, 61, 98, 255],     # Highly Susceptible — deep water
                 },
                 separators=(",", ":"),
             ),
@@ -385,10 +386,10 @@ async def list_tile_layers(request: Request):
 # ── TiTiler tile proxy ────────────────────────────────────────────────────────
 _SUSCEPTIBILITY_COLORMAP = json.dumps(
     {
-        "1": [255, 255, 178, 255],
-        "2": [253, 141, 60, 255],
-        "3": [227, 26, 28, 255],
-        "4": [128, 0, 38, 255],
+        "1": [196, 98, 16, 255],    # Low — #c46210
+        "2": [255, 246, 0, 255],    # Moderate — #fff600
+        "3": [43, 108, 176, 255],   # High — mid water blue
+        "4": [10, 61, 98, 255],     # Highly Susceptible — deep water
     },
     separators=(",", ":"),
 )

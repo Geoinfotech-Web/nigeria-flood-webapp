@@ -29,18 +29,18 @@ export const SUSCEPTIBILITY_ORDER = {
 }
 
 export const SUSCEPTIBILITY_COLOR = {
-  Low: '#ffffb2',
-  Moderate: '#fd8d3c',
-  High: '#e31a1c',
-  'Highly Susceptible': '#800026',
+  Low: '#c46210',
+  Moderate: '#fff600',
+  High: '#2B6CB0',
+  'Highly Susceptible': '#0A3D62',
 }
 
-/** Darker text colours for Low (pale yellow is hard to read as text). */
+/** Text colours tuned for the water↔yellow↔orange susceptibility ramp. */
 export const SUSCEPTIBILITY_TEXT_COLOR = {
-  Low: '#a16207',
-  Moderate: '#c2410c',
-  High: '#e31a1c',
-  'Highly Susceptible': '#800026',
+  Low: '#9a4a0c',
+  Moderate: '#a16207',
+  High: '#1a4f82',
+  'Highly Susceptible': '#062840',
 }
 
 export function worstRisk(tiers) {

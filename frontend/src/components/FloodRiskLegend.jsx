@@ -44,10 +44,10 @@ const EXPOSURE_SYMBOLS = {
     { label: 'Village', color: '#94a3b8', stroke: '#0f172a', type: 'circle' },
   ],
   buildings: [
-    { label: 'Highly Susceptible', color: '#800026', stroke: '#4a0016', type: 'circle' },
-    { label: 'High', color: '#e31a1c', stroke: '#7f1d1d', type: 'circle' },
-    { label: 'Moderate', color: '#fd8d3c', stroke: '#9a3412', type: 'circle' },
-    { label: 'Low', color: '#ffffb2', stroke: '#a16207', type: 'circle' },
+    { label: 'Highly Susceptible', color: '#0A3D62', stroke: '#062840', type: 'circle' },
+    { label: 'High', color: '#2B6CB0', stroke: '#1a4f82', type: 'circle' },
+    { label: 'Moderate', color: '#fff600', stroke: '#a16207', type: 'circle' },
+    { label: 'Low', color: '#c46210', stroke: '#9a4a0c', type: 'circle' },
   ],
 }
 
