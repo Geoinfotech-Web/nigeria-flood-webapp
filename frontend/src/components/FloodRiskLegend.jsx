@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { IconChevronDown, IconChevronUp } from './Icons'
+import { IconChevronDown, IconChevronUp, IconNewspaper } from './Icons'
 
 /** Inundation probability — darker blue = higher chance. */
 const PROBABILITY_ITEMS = [
@@ -13,6 +13,12 @@ const PROBABILITY_ITEMS = [
 const URBAN_FLASH_ITEMS = [
   { label: 'Highly likely', color: '#86198f' },
   { label: 'Likely', color: '#f97316' },
+]
+
+/** Warning+ at-risk settlements by outlook risk tier (ESRI-style point). */
+const AT_RISK_PLACE_ITEMS = [
+  { label: 'Emergency', color: '#ef4444', stroke: '#000000' },
+  { label: 'Warning', color: '#f97316', stroke: '#000000' },
 ]
 
 /** JRC Landsat inundation history wet classes. */
@@ -101,6 +107,8 @@ function CategoryItems({ items, theme }) {
 export default function FloodRiskLegend({
   showProbability = false,
   showUrbanFlash = false,
+  showAtRiskPlaces = false,
+  showNews = false,
   showHistory = false,
   historyLegend = null,
   susceptibilityLegend = null,
@@ -124,6 +132,8 @@ export default function FloodRiskLegend({
   const hasContent =
     showProbability ||
     showUrbanFlash ||
+    showAtRiskPlaces ||
+    showNews ||
     showHistory ||
     susceptibilityLegend ||
     showGauges ||
@@ -190,6 +200,58 @@ export default function FloodRiskLegend({
                 Short-range rainfall over built-up areas. Darker = higher chance.
               </p>
               <CategoryItems items={URBAN_FLASH_ITEMS} theme={theme} />
+            </div>
+          )}
+
+          {showAtRiskPlaces && (
+            <div>
+              <SectionTitle theme={theme}>Places at risk</SectionTitle>
+              <div className="space-y-1.5">
+                {AT_RISK_PLACE_ITEMS.map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{
+                        background: item.color,
+                        border: `1.5px solid ${item.stroke}`,
+                      }}
+                      aria-hidden
+                    />
+                    <span
+                      className={clsx(
+                        'text-[11px] font-medium',
+                        theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showNews && (
+            <div className="flex items-center gap-2">
+              <span
+                className={clsx(
+                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                  theme === 'dark'
+                    ? 'border-black bg-sky-500 text-white'
+                    : 'border-black bg-sky-500 text-white',
+                )}
+                aria-hidden
+              >
+                <IconNewspaper size={11} />
+              </span>
+              <span
+                className={clsx(
+                  'text-[11px] font-medium',
+                  theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
+                )}
+              >
+                News report
+              </span>
             </div>
           )}
 

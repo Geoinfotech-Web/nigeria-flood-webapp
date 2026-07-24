@@ -32,7 +32,7 @@ import { useTerrain } from './hooks/useTerrain'
 import { useSiteAssessment } from './hooks/useSiteAssessment'
 import { useAffectedSettlements } from './hooks/useAffectedSettlements'
 import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
-import AffectedPlacesStat from './components/AffectedPlacesStat'
+import PublicListsDock from './components/PublicListsDock'
 import RouteConditionsPanel from './components/RouteConditionsPanel'
 
 function readPlaceFromUrl() {
@@ -87,6 +87,15 @@ export default function App() {
   const [place, setPlace] = useState(() => readPlaceFromUrl())
   const [zoneFocus, setZoneFocus] = useState(null)
   const [communityReportFocus, setCommunityReportFocus] = useState(null)
+  const [newsFocus, setNewsFocus] = useState(null)
+  const [dockNewsArticles, setDockNewsArticles] = useState(null)
+  const [publicLists, setPublicLists] = useState({
+    places: false,
+    news: false,
+    community: false,
+  })
+  const publicListCount =
+    (publicLists.places ? 1 : 0) + (publicLists.news ? 1 : 0) + (publicLists.community ? 1 : 0)
   const [highlightedRoad, setHighlightedRoad] = useState(null)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportInitialTab, setReportInitialTab] = useState(null)
@@ -399,16 +408,23 @@ export default function App() {
         <DevelopersPage theme={theme} preview />
       ) : mode === 'public' ? (
         <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
-          {/* Place brief — bottom sheet on mobile, side panel on desktop */}
+          {/* Browse lists / place brief — bottom sheet on mobile, side panel on desktop */}
           <aside
             className={clsx(
-              'z-20 order-2 w-full shrink-0 md:order-1 md:flex md:w-[22rem] md:flex-col lg:w-[24rem]',
+              'z-20 order-2 flex w-full shrink-0 flex-col overflow-hidden md:order-1',
               navigation || place || selectedStation
-                ? 'flex h-[min(48vh,26rem)] flex-col overflow-hidden rounded-t-2xl border-t md:h-full md:max-h-none md:overflow-hidden md:rounded-none md:border-t-0'
-                : 'hidden md:h-full',
-              (navigation || place || selectedStation) && (
-                theme === 'dark' ? 'border-gray-800 bg-gray-950/95' : 'border-slate-200 bg-white'
-              ),
+                ? 'h-[min(48vh,26rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:rounded-none md:border-t-0'
+                : 'h-[min(46vh,28rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:rounded-none md:border-t-0',
+              !navigation && !place && !selectedStation
+                ? publicListCount >= 3
+                  ? 'md:w-[min(48rem,52vw)] lg:w-[48rem]'
+                  : publicListCount === 2
+                    ? 'md:w-[min(36rem,46vw)] lg:w-[36rem]'
+                    : 'md:w-[22rem] lg:w-[24rem]'
+                : 'md:w-[22rem] lg:w-[24rem]',
+              theme === 'dark'
+                ? 'border-gray-800 bg-gray-950/95'
+                : 'border-slate-200 bg-white',
             )}
           >
             {navigation ? (
@@ -462,64 +478,17 @@ export default function App() {
                 />
               </div>
             ) : (
-              <div
-                className={clsx(
-                  'm-3 mr-0 hidden h-[calc(100%-1.5rem)] flex-col justify-between rounded-2xl border p-5 md:flex',
-                  theme === 'dark'
-                    ? 'border-gray-800 bg-gray-900/70'
-                    : 'border-slate-200 bg-white/80',
-                )}
-              >
-                <div>
-                  <p
-                    className={clsx(
-                      'text-[10px] font-semibold uppercase tracking-[0.16em]',
-                      theme === 'dark' ? 'text-sky-400/80' : 'text-sky-700',
-                    )}
-                  >
-                    Early warning
-                  </p>
-                  <h2 className="font-display mt-2 text-2xl font-semibold tracking-tight leading-snug">
-                    Check flood risk for any place in Nigeria
-                  </h2>
-                  <p
-                    className={clsx(
-                      'mt-3 text-sm leading-relaxed',
-                      theme === 'dark' ? 'text-gray-400' : 'text-slate-600',
-                    )}
-                  >
-                    Search a city or town to see the nearest river-gauge forecast for the next
-                    72 hours, nearby towns at flood susceptibility risk, major roads at risk,
-                    and buildings inside flood zones. Use separate toggles for Inundation
-                    probability, Inundation history, and Flood Susceptibility.
-                  </p>
-                  <div className="mt-4">
-                    <AffectedPlacesStat
-                      summary={
-                        place
-                          ? localSummary
-                          : nationalAffectedSummary
-                      }
-                      loading={place ? settlementsLoading : affectedLoading}
-                      theme={theme}
-                      scope={place ? 'local' : 'nationwide'}
-                      placeName={place?.name}
-                      onSelectPlace={handlePlaceSelect}
-                    />
-                  </div>
-                </div>
-                <ul
-                  className={clsx(
-                    'mt-6 space-y-2 text-xs',
-                    theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
-                  )}
-                >
-                  <li>Allow location, or search a city like Lokoja</li>
-                  <li>Open the highly-likely list and tap a place</li>
-                  <li>Tap an active alert chip above to jump there</li>
-                  <li>Switch to Expert for the full station console</li>
-                </ul>
-              </div>
+              <PublicListsDock
+                theme={theme}
+                placesSummary={nationalAffectedSummary}
+                placesLoading={affectedLoading}
+                active={publicLists}
+                onActiveChange={setPublicLists}
+                onSelectPlace={handlePlaceSelect}
+                onNewsArticles={setDockNewsArticles}
+                onFocusNews={(article) => setNewsFocus({ ...article, focusKey: Date.now() })}
+                onFocusCommunityReport={focusCommunityReport}
+              />
             )}
           </aside>
 
@@ -548,9 +517,15 @@ export default function App() {
               theme={theme}
               variant="public"
               placeFocus={place}
+              communityReportFocus={communityReportFocus}
               roadHighlight={highlightedRoad}
               forceBuildingsLayer={buildingsTabActive}
               onBuildingsViewportChange={handleBuildingsViewportChange}
+              onPlaceSelect={handlePlaceSelect}
+              atRiskPlaces={nationalAffectedSummary?.places}
+              externalNewsVisible={publicLists.news}
+              externalNewsArticles={dockNewsArticles}
+              newsFocus={newsFocus}
               showSearch={false}
               navigation={navigation}
               highlightSelectedBasin={showSelectedBasin}
@@ -704,6 +679,9 @@ export default function App() {
                 communityReportFocus={communityReportFocus}
                 roadHighlight={highlightedRoad}
                 onPlaceSelect={handlePlaceSelect}
+                atRiskPlaces={affectedSettlements?.places}
+                externalNewsArticles={dockNewsArticles}
+                newsFocus={newsFocus}
                 showSearch={false}
                 navigation={navigation}
                 highlightSelectedBasin={showSelectedBasin}
@@ -810,6 +788,8 @@ export default function App() {
             onSelectStation={handleSelectStation}
             onSelectUrbanFlash={handleSelectUrbanFlash}
             onViewReports={focusCommunityReport}
+            onFocusNews={(article) => setNewsFocus({ ...article, focusKey: Date.now() })}
+            onNewsArticles={setDockNewsArticles}
             collapsed={analyticsCollapsed}
             onToggleCollapsed={() => setAnalyticsCollapsed((v) => !v)}
           />

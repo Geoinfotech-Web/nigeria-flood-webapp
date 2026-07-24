@@ -128,15 +128,15 @@ function KpiCard({ label, value, detail, accent, theme }) {
       <div className={clsx('absolute inset-y-0 left-0 w-1', accent.bar)} aria-hidden />
       <p
         className={clsx(
-          'pl-1.5 text-[9px] font-semibold uppercase tracking-[0.12em]',
-          dark ? 'text-gray-400' : 'text-slate-500',
+          'pl-1.5 text-[10px] font-semibold uppercase tracking-widest',
+          dark ? 'text-gray-500' : 'text-slate-500',
         )}
       >
         {label}
       </p>
       <p
         className={clsx(
-          'mt-0.5 pl-1.5 font-display text-xl font-semibold tabular-nums leading-none tracking-tight sm:text-2xl',
+          'mt-0.5 pl-1.5 text-xl font-bold tabular-nums leading-none tracking-tight sm:text-2xl',
           dark ? accent.valueDark : accent.valueLight,
         )}
       >

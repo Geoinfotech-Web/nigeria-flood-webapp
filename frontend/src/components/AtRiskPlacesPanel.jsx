@@ -4,6 +4,57 @@ import { IconSearch, IconX } from './Icons'
 
 const RISK_FILTERS = ['All', 'Emergency', 'Warning', 'Watch']
 
+/** Match map / legend ESRI-style point fills (solid + black outline). */
+const RISK_SYMBOL = {
+  Emergency: '#ef4444',
+  Warning: '#f97316',
+  Watch: '#eab308',
+}
+
+const RISK_STYLE = {
+  Watch: {
+    dark: {
+      badge: 'border-yellow-600 bg-yellow-900 text-yellow-100',
+    },
+    light: {
+      badge: 'border-yellow-400 bg-yellow-100 text-yellow-900',
+    },
+  },
+  Warning: {
+    dark: {
+      badge: 'border-orange-600 bg-orange-900 text-orange-100',
+    },
+    light: {
+      badge: 'border-orange-400 bg-orange-100 text-orange-900',
+    },
+  },
+  Emergency: {
+    dark: {
+      badge: 'border-red-500 bg-red-800 text-red-50',
+    },
+    light: {
+      badge: 'border-red-400 bg-red-100 text-red-900',
+    },
+  },
+}
+
+function RiskPoint({ tier, size = 10 }) {
+  const fill = RISK_SYMBOL[tier] || RISK_SYMBOL.Warning
+  return (
+    <span
+      className="shrink-0 rounded-full"
+      style={{
+        width: size,
+        height: size,
+        background: fill,
+        border: '1.5px solid #000000',
+        boxSizing: 'border-box',
+      }}
+      aria-hidden
+    />
+  )
+}
+
 /** Full Nigeria states + FCT for the Expert places filter (not only currently at-risk). */
 const NIGERIA_STATES = [
   'Abia',
@@ -44,39 +95,6 @@ const NIGERIA_STATES = [
   'Zamfara',
   'FCT',
 ]
-
-const RISK_STYLE = {
-  Watch: {
-    dark: {
-      dot: 'bg-yellow-400',
-      badge: 'border-yellow-600 bg-yellow-900 text-yellow-100',
-    },
-    light: {
-      dot: 'bg-yellow-500',
-      badge: 'border-yellow-400 bg-yellow-100 text-yellow-900',
-    },
-  },
-  Warning: {
-    dark: {
-      dot: 'bg-orange-400',
-      badge: 'border-orange-600 bg-orange-900 text-orange-100',
-    },
-    light: {
-      dot: 'bg-orange-500',
-      badge: 'border-orange-400 bg-orange-100 text-orange-900',
-    },
-  },
-  Emergency: {
-    dark: {
-      dot: 'bg-red-400',
-      badge: 'border-red-500 bg-red-800 text-red-50',
-    },
-    light: {
-      dot: 'bg-red-500',
-      badge: 'border-red-400 bg-red-100 text-red-900',
-    },
-  },
-}
 
 function selectClass(dark) {
   return clsx(
@@ -131,7 +149,6 @@ export default function AtRiskPlacesPanel({
     <div className="flex h-full flex-col p-3">
       <div className="mb-2 flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2">
-          <span className={clsx('h-2 w-2 rounded-full', dark ? 'bg-sky-400' : 'bg-sky-600')} />
           <p
             className={clsx(
               'text-[10px] font-semibold uppercase tracking-widest',
@@ -270,7 +287,7 @@ export default function AtRiskPlacesPanel({
               )}
             >
               <div className="flex items-center gap-2.5">
-                <span className={clsx('h-2 w-2 shrink-0 rounded-full', color.dot)} />
+                <RiskPoint tier={risk} size={10} />
                 <span className={clsx('truncate text-[13px] font-medium', dark ? 'text-gray-200' : 'text-slate-800')}>
                   {place.name}
                 </span>

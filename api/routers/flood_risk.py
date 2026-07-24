@@ -262,6 +262,11 @@ async def flood_risk_geojson(
                        ST_Y(ST_Centroid(geom)) AS lat
                 FROM flood_risk_areas
                 WHERE risk_score >= $1 AND source = $2
+                  AND (
+                    $2 <> 'urban_flash_flood'
+                    OR valid_to IS NULL
+                    OR valid_to >= CURRENT_DATE
+                  )
                 ORDER BY valid_from DESC, risk_score DESC
                 """,
                 min_risk,
@@ -483,7 +488,7 @@ async def urban_flash_summary(request: Request):
     Used by Expert KPI cards so they stay in sync with the map layer even when
     the heavier impact-summary intersection is slow or failing.
     """
-    cache_key = "urban-flash-summary:v2"
+    cache_key = "urban-flash-summary:v3"
     cached = await request.app.state.redis.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -506,6 +511,7 @@ async def urban_flash_summary(request: Request):
             FROM flood_risk_areas
             WHERE source = 'urban_flash_flood'
               AND risk_tier = ANY($1::text[])
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
             ORDER BY name, admin_level, risk_tier, valid_from DESC, risk_score DESC
             """,
             ["Likely", "Highly Likely"],

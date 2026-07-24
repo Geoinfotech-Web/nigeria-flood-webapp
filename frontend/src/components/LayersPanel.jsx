@@ -76,6 +76,8 @@ export default function LayersPanel({
   onToggleUrbanFlash,
   urbanFlashOpacity = 0.6,
   onUrbanFlashOpacity,
+  atRiskPlacesVisible = false,
+  onToggleAtRiskPlaces,
   // Independent raster overlays (history, susceptibility, …)
   tileLayers = [],
   tileVisibility = {},
@@ -196,6 +198,13 @@ export default function LayersPanel({
                 />
               </div>
             </Row>
+
+            <Row
+              label="Places at risk"
+              on={atRiskPlacesVisible}
+              onToggle={onToggleAtRiskPlaces}
+              theme={theme}
+            />
 
             {tileLayers.map((layer) => (
               <Row

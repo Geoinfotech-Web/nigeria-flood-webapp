@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { IconChevronDown, IconChevronUp } from './Icons'
+import { IconChevronDown, IconChevronUp, IconNewspaper } from './Icons'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -156,26 +156,121 @@ function StateRankPanel({ stations, liveReadings, theme }) {
   )
 }
 
-function FloodNewsPanel({ theme }) {
+function FloodNewsPanel({ theme, onFocusNews, onArticles }) {
   const dark = theme === 'dark'
   const [articles, setArticles] = useState([])
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState({ located: 'All', sort: 'newest', date: 'All' })
 
   useEffect(() => {
     const load = () =>
-      fetch(`${API}/news?limit=5`, { cache: 'no-store' })
+      fetch(`${API}/news?limit=20`, { cache: 'no-store' })
         .then((response) => (response.ok ? response.json() : { articles: [] }))
-        .then((data) => setArticles(Array.isArray(data.articles) ? data.articles : []))
-        .catch(() => setArticles([]))
+        .then((data) => {
+          const next = Array.isArray(data.articles) ? data.articles : []
+          setArticles(next)
+          onArticles?.(next)
+        })
+        .catch(() => {
+          setArticles([])
+          onArticles?.([])
+        })
         .finally(() => setLoading(false))
     load()
     const id = setInterval(load, 60_000)
     return () => clearInterval(id)
-  }, [])
+  }, [onArticles])
+
+  const filtered = useMemo(() => {
+    let rows = [...articles]
+    const now = Date.now()
+    const toTime = (value) => {
+      const t = new Date(value || 0).getTime()
+      return Number.isFinite(t) ? t : 0
+    }
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    const todayMs = startOfToday.getTime()
+
+    if (filter.located === 'Located') {
+      rows = rows.filter((a) => Number.isFinite(a.lat) && Number.isFinite(a.lon))
+    } else if (filter.located === 'Unlocated') {
+      rows = rows.filter((a) => !(Number.isFinite(a.lat) && Number.isFinite(a.lon)))
+    }
+
+    if (filter.date === 'Today') {
+      rows = rows.filter((a) => toTime(a.published_at) >= todayMs)
+    } else if (filter.date === '24h') {
+      rows = rows.filter((a) => toTime(a.published_at) >= now - 24 * 60 * 60 * 1000)
+    } else if (filter.date === '7d') {
+      rows = rows.filter((a) => toTime(a.published_at) >= now - 7 * 24 * 60 * 60 * 1000)
+    } else if (filter.date === '30d') {
+      rows = rows.filter((a) => toTime(a.published_at) >= now - 30 * 24 * 60 * 60 * 1000)
+    }
+
+    rows.sort((a, b) => {
+      if (filter.sort === 'oldest') return toTime(a.published_at) - toTime(b.published_at)
+      if (filter.sort === 'source') {
+        const bySource = (a.source || '').localeCompare(b.source || '')
+        return bySource || toTime(b.published_at) - toTime(a.published_at)
+      }
+      return toTime(b.published_at) - toTime(a.published_at)
+    })
+    return rows
+  }, [articles, filter])
+
+  const selectClass = clsx(
+    'min-w-0 flex-1 rounded-md border px-1.5 py-1 text-[9px] font-medium',
+    dark
+      ? 'border-gray-700 bg-gray-950 text-gray-200'
+      : 'border-slate-200 bg-white text-slate-700',
+  )
 
   return (
-    <PanelShell title="Flood News Reports" theme={theme}>
-      <ul className="max-h-[140px] space-y-1.5 overflow-y-auto">
+    <PanelShell
+      title="Flood News Reports"
+      theme={theme}
+      action={(
+        <span className={clsx('tabular-nums text-[9px]', dark ? 'text-gray-600' : 'text-slate-400')}>
+          {loading ? '…' : `${filtered.length}/${articles.length}`}
+        </span>
+      )}
+    >
+      <div className="mb-1.5 flex flex-wrap gap-1.5">
+        <select
+          aria-label="Filter news by location"
+          value={filter.located}
+          onChange={(e) => setFilter((f) => ({ ...f, located: e.target.value }))}
+          className={selectClass}
+        >
+          <option value="All">All reports</option>
+          <option value="Located">Located only</option>
+          <option value="Unlocated">Unlocated</option>
+        </select>
+        <select
+          aria-label="Filter news by date"
+          value={filter.date}
+          onChange={(e) => setFilter((f) => ({ ...f, date: e.target.value }))}
+          className={selectClass}
+        >
+          <option value="All">All dates</option>
+          <option value="Today">Today</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+        <select
+          aria-label="Sort news"
+          value={filter.sort}
+          onChange={(e) => setFilter((f) => ({ ...f, sort: e.target.value }))}
+          className={selectClass}
+        >
+          <option value="newest">Sort: newest</option>
+          <option value="oldest">Sort: oldest</option>
+          <option value="source">Sort: source</option>
+        </select>
+      </div>
+      <ul className="max-h-[118px] space-y-1.5 overflow-y-auto">
         {loading && (
           <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>
             Loading flood news…
@@ -186,29 +281,67 @@ function FloodNewsPanel({ theme }) {
             No recent flood news
           </li>
         )}
-        {articles.map((article) => (
-          <li key={article.url}>
-            <a
-              href={article.url}
-              target="_blank"
-              rel="noreferrer"
-              className={clsx(
-                'block rounded-lg border px-2 py-1.5 transition',
-                dark
-                  ? 'border-gray-800 bg-gray-950/40 hover:border-sky-700 hover:bg-gray-900'
-                  : 'border-slate-100 bg-slate-50 hover:border-sky-300 hover:bg-white',
-              )}
-            >
-              <p className={clsx('line-clamp-2 text-[10px] font-medium leading-snug', dark ? 'text-gray-100' : 'text-slate-800')}>
-                {article.title}
-              </p>
-              <p className={clsx('mt-1 flex justify-between gap-2 text-[9px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                <span className="truncate text-sky-500">{article.source}</span>
-                <span className="shrink-0">{timeAgo(article.published_at)}</span>
-              </p>
-            </a>
+        {!loading && articles.length > 0 && filtered.length === 0 && (
+          <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>
+            No reports match these filters
           </li>
-        ))}
+        )}
+        {filtered.map((article) => {
+          const located = Number.isFinite(article.lat) && Number.isFinite(article.lon)
+          return (
+            <li key={article.url}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (located && onFocusNews) onFocusNews(article)
+                  else if (article.url) window.open(article.url, '_blank', 'noopener,noreferrer')
+                }}
+                className={clsx(
+                  'flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition',
+                  dark
+                    ? 'border-gray-800 bg-gray-950/40 hover:border-sky-700 hover:bg-gray-900'
+                    : 'border-slate-100 bg-slate-50 hover:border-sky-300 hover:bg-white',
+                )}
+              >
+                <span
+                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-black bg-sky-500 text-white"
+                  aria-hidden
+                >
+                  <IconNewspaper size={10} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <p
+                    className={clsx(
+                      'line-clamp-2 text-[10px] font-medium leading-snug',
+                      dark ? 'text-gray-100' : 'text-slate-800',
+                    )}
+                  >
+                    {article.title}
+                  </p>
+                  <p
+                    className={clsx(
+                      'mt-1 flex justify-between gap-2 text-[9px]',
+                      dark ? 'text-gray-500' : 'text-slate-500',
+                    )}
+                  >
+                    <span className="truncate text-sky-500">{article.source}</span>
+                    <span className="shrink-0">{timeAgo(article.published_at)}</span>
+                  </p>
+                  <p
+                    className={clsx(
+                      'mt-0.5 text-[8px]',
+                      located ? 'text-emerald-500' : dark ? 'text-gray-600' : 'text-slate-400',
+                    )}
+                  >
+                    {located
+                      ? `${article.location || 'Located'} · tap to map`
+                      : 'Location not identified · open report'}
+                  </p>
+                </span>
+              </button>
+            </li>
+          )
+        })}
       </ul>
     </PanelShell>
   )
@@ -431,6 +564,8 @@ export default function ExpertAnalyticsRow({
   onSelectStation,
   onSelectUrbanFlash,
   onViewReports,
+  onFocusNews,
+  onNewsArticles,
   collapsed = false,
   onToggleCollapsed,
 }) {
@@ -467,7 +602,11 @@ export default function ExpertAnalyticsRow({
       </div>
       {!collapsed && (
         <div className="grid grid-cols-4 gap-2 px-3 pb-2.5">
-          <FloodNewsPanel theme={theme} />
+          <FloodNewsPanel
+            theme={theme}
+            onFocusNews={onFocusNews}
+            onArticles={onNewsArticles}
+          />
           <UrbanFlashPanel urbanFlash={urbanFlash} theme={theme} onSelectArea={onSelectUrbanFlash} />
           <AlertsPanel theme={theme} onSelectStation={onSelectStation} stations={stations} />
           <CommunityReportsPanel theme={theme} onViewAll={onViewReports} />

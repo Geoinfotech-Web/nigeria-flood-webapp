@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { IconAlertTriangle, IconX } from './Icons'
+import { IconAlertTriangle, IconNewspaper, IconX } from './Icons'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -41,32 +41,141 @@ export default function FloodNewsLayer({ theme, onClose, onArticles, onFocus }) 
   }, [load])
 
   return (
-    <aside className={clsx('absolute left-3 right-3 top-16 z-10 flex max-h-[min(72vh,38rem)] w-auto flex-col overflow-hidden rounded-xl border shadow-2xl sm:left-[17rem] sm:right-auto sm:top-3 sm:w-[23rem]', dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white')}>
-      <header className={clsx('flex items-start justify-between border-b px-3.5 py-3', dark ? 'border-gray-800' : 'border-slate-100')}>
+    <aside
+      className={clsx(
+        'absolute left-3 right-3 top-16 z-10 flex max-h-[min(72vh,38rem)] w-auto flex-col overflow-hidden rounded-xl border shadow-2xl sm:left-[17rem] sm:right-auto sm:top-3 sm:w-[23rem]',
+        dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white',
+      )}
+    >
+      <header
+        className={clsx(
+          'flex items-start justify-between border-b px-3.5 py-3',
+          dark ? 'border-gray-800' : 'border-slate-100',
+        )}
+      >
         <div>
-          <div className="flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /><h3 className={clsx('text-xs font-bold', dark ? 'text-white' : 'text-slate-900')}>Flood news reports</h3></div>
-          <p className={clsx('mt-1 text-[9px]', dark ? 'text-gray-500' : 'text-slate-500')}>Nigeria · refreshed every minute · click a report to locate it</p>
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-full border border-black bg-sky-500 text-white"
+              aria-hidden
+            >
+              <IconNewspaper size={11} />
+            </span>
+            <h3 className={clsx('text-xs font-bold', dark ? 'text-white' : 'text-slate-900')}>
+              Flood news reports
+            </h3>
+          </div>
+          <p className={clsx('mt-1 text-[9px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+            Nigeria · refreshed every minute · click a report to locate it
+          </p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close flood news" className={clsx('rounded-md p-1', dark ? 'text-gray-400 hover:bg-gray-800' : 'text-slate-500 hover:bg-slate-100')}><IconX size={14} /></button>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close flood news"
+          className={clsx(
+            'rounded-md p-1',
+            dark ? 'text-gray-400 hover:bg-gray-800' : 'text-slate-500 hover:bg-slate-100',
+          )}
+        >
+          <IconX size={14} />
+        </button>
       </header>
       <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2.5">
-        {loading && <p className={clsx('px-2 py-8 text-center text-[10px]', dark ? 'text-gray-500' : 'text-slate-400')}>Loading recent flood reports…</p>}
-        {!loading && articles.length === 0 && <p className={clsx('px-2 py-8 text-center text-[10px]', dark ? 'text-gray-500' : 'text-slate-400')}>{unavailable ? 'News sources are temporarily unavailable.' : 'No recent flood reports found.'}</p>}
+        {loading && (
+          <p className={clsx('px-2 py-8 text-center text-[10px]', dark ? 'text-gray-500' : 'text-slate-400')}>
+            Loading recent flood reports…
+          </p>
+        )}
+        {!loading && articles.length === 0 && (
+          <p className={clsx('px-2 py-8 text-center text-[10px]', dark ? 'text-gray-500' : 'text-slate-400')}>
+            {unavailable ? 'News sources are temporarily unavailable.' : 'No recent flood reports found.'}
+          </p>
+        )}
         {articles.map((article) => {
           const located = Number.isFinite(article.lat) && Number.isFinite(article.lon)
-          return <button key={article.url} type="button" onClick={() => onFocus(article)} className={clsx('block w-full rounded-lg border p-2 text-left transition', dark ? 'border-gray-700 bg-gray-800/80 hover:border-sky-600 hover:bg-gray-800' : 'border-slate-200 bg-sky-50/60 hover:border-sky-400 hover:bg-sky-50')}>
-            <div className="flex items-stretch gap-2.5">
-              {article.image_url && article.image_kind === 'report' && <div className={clsx('flex h-[4.75rem] w-20 shrink-0 items-center justify-center overflow-hidden rounded-md', dark ? 'bg-gray-700' : 'bg-slate-200')}><img src={article.image_url} alt="Flood report" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.parentElement.style.display = 'none' }} /></div>}
+          return (
+            <button
+              key={article.url}
+              type="button"
+              onClick={() => onFocus(article)}
+              className={clsx(
+                'flex w-full items-start gap-2.5 rounded-lg border p-2 text-left transition',
+                dark
+                  ? 'border-gray-700 bg-gray-800/80 hover:border-sky-600 hover:bg-gray-800'
+                  : 'border-slate-200 bg-sky-50/60 hover:border-sky-400 hover:bg-sky-50',
+              )}
+            >
+              {article.image_url && article.image_kind === 'report' ? (
+                <div
+                  className={clsx(
+                    'flex h-[4.75rem] w-20 shrink-0 items-center justify-center overflow-hidden rounded-md',
+                    dark ? 'bg-gray-700' : 'bg-slate-200',
+                  )}
+                >
+                  <img
+                    src={article.image_url}
+                    alt="Flood report"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.parentElement.style.display = 'none'
+                    }}
+                  />
+                </div>
+              ) : (
+                <span
+                  className={clsx(
+                    'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
+                    dark
+                      ? 'border-sky-800/60 bg-sky-950/50 text-sky-400'
+                      : 'border-sky-200 bg-sky-50 text-sky-700',
+                  )}
+                  aria-hidden
+                >
+                  <IconNewspaper size={13} />
+                </span>
+              )}
               <div className="min-w-0 flex-1">
-                <p className={clsx('line-clamp-3 text-[10px] font-semibold leading-relaxed', dark ? 'text-gray-100' : 'text-slate-800')}>{article.title}</p>
-                <div className="mt-1.5 flex items-center justify-between gap-2 text-[8px]"><span className="truncate font-semibold text-sky-500">{article.source}</span><span className={dark ? 'text-gray-400' : 'text-slate-400'}>{relativeTime(article.published_at)}</span></div>
-                <div className={clsx('mt-1 text-[8px] font-medium', located ? 'text-emerald-500' : dark ? 'text-gray-500' : 'text-slate-400')}>{located ? `📍 ${article.location} · inferred from headline` : 'Location not identified · open report'}</div>
+                <p
+                  className={clsx(
+                    'line-clamp-3 text-[10px] font-semibold leading-relaxed',
+                    dark ? 'text-gray-100' : 'text-slate-800',
+                  )}
+                >
+                  {article.title}
+                </p>
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-[8px]">
+                  <span className="truncate font-semibold text-sky-500">{article.source}</span>
+                  <span className={dark ? 'text-gray-400' : 'text-slate-400'}>
+                    {relativeTime(article.published_at)}
+                  </span>
+                </div>
+                <div
+                  className={clsx(
+                    'mt-1 text-[8px] font-medium',
+                    located ? 'text-emerald-500' : dark ? 'text-gray-500' : 'text-slate-400',
+                  )}
+                >
+                  {located
+                    ? `${article.location} · inferred from headline`
+                    : 'Location not identified · open report'}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          )
         })}
       </div>
-      <footer className={clsx('flex gap-1.5 border-t px-3 py-2 text-[8px]', dark ? 'border-gray-800 text-gray-500' : 'border-slate-100 text-slate-400')}><IconAlertTriangle size={10} className="shrink-0" />Media reports are unverified and may describe the same event.</footer>
+      <footer
+        className={clsx(
+          'flex gap-1.5 border-t px-3 py-2 text-[8px]',
+          dark ? 'border-gray-800 text-gray-500' : 'border-slate-100 text-slate-400',
+        )}
+      >
+        <IconAlertTriangle size={10} className="shrink-0" />
+        Media reports are unverified and may describe the same event.
+      </footer>
     </aside>
   )
 }

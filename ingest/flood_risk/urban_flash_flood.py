@@ -5,6 +5,10 @@ Loads precomputed ``urban_footprints``, fetches OpenMeteo 24h rainfall
 forecasts at each centroid (batched), and writes Likely / Highly Likely
 polygons into ``flood_risk_areas`` with ``source='urban_flash_flood'``.
 
+Alerts are upserted by place with a rolling ~24h validity window:
+places that still meet thresholds are refreshed; places that no longer
+qualify are cleared; rainfall-fetch failures retain the prior alert.
+
 No GEE dependency — footprints are refreshed monthly by
 ``urban_footprints.py``.
 
@@ -236,18 +240,67 @@ def classify(fp: dict, rain: dict) -> dict | None:
     return None
 
 
-def save_alerts(conn, alerts: list[dict], valid_from: date, valid_to: date):
+# Display validity: rolling ~24h outlook window (DATE columns → today..tomorrow)
+VALIDITY_DAYS = 1
+
+
+def save_alerts(
+    conn,
+    alerts: list[dict],
+    valid_from: date,
+    valid_to: date,
+    *,
+    retain_names: set[str] | None = None,
+):
+    """
+    Upsert urban flash alerts by place name (replace-by-place).
+
+    - Upserts current forecast hits and refreshes valid_from / valid_to (~24h).
+    - Removes places that no longer meet thresholds (not in alerts).
+    - Keeps places in ``retain_names`` (e.g. rainfall fetch failed — don't clear).
+    - Purges expired rows (valid_to < today).
+    """
     import json
 
+    retain = set(retain_names or ())
+    active = {(a.get("name") or "").strip() for a in alerts if (a.get("name") or "").strip()}
+    keep = retain | active
+
     with conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM flood_risk_areas WHERE source = %s", (SOURCE,)
-        )
+        # Drop expired + places that no longer qualify (unless retained)
+        if keep:
+            cur.execute(
+                """
+                DELETE FROM flood_risk_areas
+                WHERE source = %s
+                  AND (
+                    (valid_to IS NOT NULL AND valid_to < CURRENT_DATE)
+                    OR name <> ALL(%s)
+                  )
+                """,
+                (SOURCE, list(keep)),
+            )
+        else:
+            # No active or retained places — clear all urban flash rows
+            cur.execute(
+                "DELETE FROM flood_risk_areas WHERE source = %s",
+                (SOURCE,),
+            )
+
         for a in alerts:
+            name = (a.get("name") or "").strip()
+            if not name:
+                continue
             geom = a["geometry"]
             if isinstance(geom, str):
                 geom = json.loads(geom)
-            # Ensure MultiPolygon WKT via PostGIS from GeoJSON
+            cur.execute(
+                """
+                DELETE FROM flood_risk_areas
+                WHERE source = %s AND name = %s
+                """,
+                (SOURCE, name),
+            )
             cur.execute(
                 """
                 INSERT INTO flood_risk_areas
@@ -260,7 +313,7 @@ def save_alerts(conn, alerts: list[dict], valid_from: date, valid_to: date):
                 )
                 """,
                 (
-                    a["name"],
+                    name,
                     ADMIN_LEVEL,
                     a.get("state"),
                     json.dumps(geom),
@@ -272,7 +325,11 @@ def save_alerts(conn, alerts: list[dict], valid_from: date, valid_to: date):
                 ),
             )
     conn.commit()
-    log.info("Wrote %d urban flash-flood alerts", len(alerts))
+    log.info(
+        "Urban flash upsert — %d active, %d retained (no rain data), deleted non-qualifying/expired",
+        len(active),
+        len(retain - active),
+    )
 
 
 def ensure_table(conn):
@@ -303,7 +360,7 @@ def run():
 
     today = date.today()
     valid_from = today
-    valid_to = today + timedelta(days=1)
+    valid_to = today + timedelta(days=VALIDITY_DAYS)
 
     conn = psycopg2.connect(DB_DSN)
     try:
@@ -328,9 +385,14 @@ def run():
             )
 
         alerts = []
+        retain_names: set[str] = set()
         for fp in footprints:
+            name = (fp.get("name") or "").strip()
             rain = rain_by_id.get(fp["id"])
             if not rain:
+                # Don't clear an existing alert if rainfall fetch failed for this place
+                if name:
+                    retain_names.add(name)
                 continue
             result = classify(fp, rain)
             if not result:
@@ -338,7 +400,7 @@ def run():
             alerts.append(
                 {
                     "id": fp["id"],
-                    "name": fp["name"],
+                    "name": name or fp["name"],
                     "state": fp.get("state"),
                     "geometry": urban_boundary_geojson(
                         fp["geometry"],
@@ -362,14 +424,22 @@ def run():
                 by_id[a["id"]] = a
         alerts = list(by_id.values())
 
-        save_alerts(conn, alerts, valid_from, valid_to)
+        save_alerts(
+            conn,
+            alerts,
+            valid_from,
+            valid_to,
+            retain_names=retain_names,
+        )
         highly = sum(1 for a in alerts if a["tier"] == "Highly Likely")
         likely = sum(1 for a in alerts if a["tier"] == "Likely")
         log.info(
-            "Urban flash flood complete — %d Highly Likely, %d Likely (of %d footprints)",
+            "Urban flash flood complete — %d Highly Likely, %d Likely "
+            "(of %d footprints; retained %d without rain data)",
             highly,
             likely,
             len(footprints),
+            len(retain_names),
         )
     finally:
         conn.close()

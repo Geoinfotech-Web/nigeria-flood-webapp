@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import clsx from 'clsx'
 import SearchBar from './SearchBar'
@@ -111,10 +111,159 @@ const ROAD_LAYER_STYLES = [
   { key: 'tertiary', className: 'Tertiary Road', color: '#cbd5e1', minzoom: 9, dash: [1.4, 1.2], width: [9, 0.5, 12, 1.1, 14, 1.8] },
 ]
 const PLACE_LAYER_STYLES = [
-  { key: 'city', className: 'City', color: '#f8fafc', radius: [5, 3.2, 9, 4.5, 12, 6], minzoom: 5, textSize: [5, 11, 9, 13, 12, 15] },
-  { key: 'town', className: 'Town', color: '#cbd5e1', radius: [7, 2.6, 10, 3.8, 13, 4.8], minzoom: 7, textSize: [7, 10, 10, 12, 13, 13] },
-  { key: 'village', className: 'Village', color: '#94a3b8', radius: [9, 2.2, 12, 3.2, 14, 4], minzoom: 9, textSize: [9, 9, 12, 10, 14, 11] },
+  { key: 'city', className: 'City', color: '#f8fafc', radius: [5, 2, 9, 2.8, 12, 3.6], minzoom: 5, textSize: [5, 10, 9, 12, 12, 13] },
+  { key: 'town', className: 'Town', color: '#cbd5e1', radius: [7, 1.6, 10, 2.2, 13, 2.8], minzoom: 7, textSize: [7, 9, 10, 11, 13, 12] },
+  { key: 'village', className: 'Village', color: '#94a3b8', radius: [9, 1.3, 12, 1.8, 14, 2.2], minzoom: 9, textSize: [9, 8, 12, 9, 14, 10] },
 ]
+
+/** Warning+ at-risk settlements — solid fill by risk tier, black ESRI-style outline. */
+const AT_RISK_PLACE_RADIUS = [4, 2.2, 8, 3, 11, 3.6]
+const AT_RISK_PLACE_LAYER_ID = 'at-risk-places-circle'
+const AT_RISK_PLACE_LEGACY_LAYER_IDS = [
+  'at-risk-places-city-circle',
+  'at-risk-places-town-circle',
+  'at-risk-places-village-circle',
+]
+
+const EMPTY_FC = { type: 'FeatureCollection', features: [] }
+
+const NEWS_MARKER_IMAGE_ID = 'gfw-news-marker'
+
+/** Rasterize a newspaper pin for MapLibre symbol layers. */
+function ensureNewsMarkerImage(map) {
+  if (!map || map.hasImage(NEWS_MARKER_IMAGE_ID)) return Promise.resolve()
+
+  const size = 64
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="#0ea5e9" stroke="#000000" stroke-width="3"/>
+      <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 44h24a3 3 0 0 0 3-3V18a3 3 0 0 0-3-3H26a3 3 0 0 0-3 3v26a3 3 0 0 1-3 3Zm0 0a3 3 0 0 1-3-3V28c0-1.7 1.3-3 3-3h3"/>
+        <path d="M40 34H28M36 40H28M28 22h12v6H28z"/>
+      </g>
+    </svg>
+  `.trim()
+
+  return new Promise((resolve) => {
+    const img = new Image(size, size)
+    img.onload = () => {
+      try {
+        if (!map.hasImage(NEWS_MARKER_IMAGE_ID)) {
+          map.addImage(NEWS_MARKER_IMAGE_ID, img, { pixelRatio: 2 })
+        }
+      } catch {
+        /* style may have changed mid-load */
+      }
+      resolve()
+    }
+    img.onerror = () => resolve()
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  })
+}
+
+function placesToGeoJSON(places) {
+  if (!Array.isArray(places) || places.length === 0) return EMPTY_FC
+  return {
+    type: 'FeatureCollection',
+    features: places
+      .map((place) => {
+        const lon = Number(place?.lon)
+        const lat = Number(place?.lat)
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lon, lat] },
+          properties: {
+            name: place.name || 'Place',
+            class: place.class || 'Town',
+            state: place.state || null,
+            population: place.population ?? null,
+            display_name: place.display_name || null,
+            nearest_station: place.nearest_station || null,
+            station_risk_tier: place.station_risk_tier || 'Warning',
+            distance_km: place.distance_km ?? null,
+            susceptibility_class: place.susceptibility_class ?? null,
+          },
+        }
+      })
+      .filter(Boolean),
+  }
+}
+
+function addAtRiskPlaceLayers(map, sourceId, onPlaceClick) {
+  AT_RISK_PLACE_LEGACY_LAYER_IDS.forEach((id) => {
+    if (map.getLayer(id)) {
+      try { map.removeLayer(id) } catch { /* ignore */ }
+    }
+  })
+
+  if (!map.getLayer(AT_RISK_PLACE_LAYER_ID)) {
+    map.addLayer({
+      id: AT_RISK_PLACE_LAYER_ID,
+      type: 'circle',
+      source: sourceId,
+      minzoom: 4,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], ...AT_RISK_PLACE_RADIUS],
+        'circle-color': [
+          'match',
+          ['get', 'station_risk_tier'],
+          'Emergency',
+          RISK_COLOR.Emergency,
+          'Warning',
+          RISK_COLOR.Warning,
+          'Watch',
+          RISK_COLOR.Watch,
+          RISK_COLOR.Warning,
+        ],
+        'circle-opacity': 1,
+        'circle-stroke-width': 1.25,
+        'circle-stroke-color': '#000000',
+        'circle-stroke-opacity': 1,
+      },
+    })
+
+    map.on('click', AT_RISK_PLACE_LAYER_ID, (e) => {
+      const feature = e.features?.[0]
+      const props = feature?.properties || {}
+      const coords = feature?.geometry?.coordinates
+      const tier = props.station_risk_tier || 'Warning'
+      const tierColor = RISK_COLOR[tier] || RISK_COLOR.Warning
+      new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Unnamed place'}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="color:#6b7280">Risk</span>
+              <span style="font-weight:600;color:${tierColor}">${tier}</span>
+            </div>
+            ${props.class ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Class</span><span>${props.class}</span></div>` : ''}
+            ${props.state ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
+            ${props.nearest_station ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Nearest gauge</span><span>${props.nearest_station}</span></div>` : ''}
+          </div>
+        `)
+        .addTo(map)
+      if (onPlaceClick && Array.isArray(coords) && coords.length >= 2) {
+        onPlaceClick({
+          name: props.name || 'Place',
+          display_name: props.display_name || `${props.name || 'Place'}, Nigeria`,
+          lat: Number(coords[1]),
+          lon: Number(coords[0]),
+          bbox_lnglat: null,
+          class: props.class || null,
+          state: props.state || null,
+          population: props.population ?? null,
+          susceptibility_class: props.susceptibility_class ?? null,
+          nearest_station: props.nearest_station || null,
+          station_risk_tier: props.station_risk_tier || null,
+          distance_km: props.distance_km ?? null,
+        })
+      }
+    })
+    registerPointerCursor(map, AT_RISK_PLACE_LAYER_ID)
+  }
+}
 
 function interpolateWidth(stops) {
   return ['interpolate', ['linear'], ['zoom'], ...stops]
@@ -589,6 +738,13 @@ export default function MapPanel({
   forceBuildingsLayer = false,
   onBuildingsViewportChange = null,
   onPlaceSelect,
+  atRiskPlaces = null,
+  /** When true, show flood-news map markers (e.g. public lists dock). */
+  externalNewsVisible = false,
+  /** Articles supplied by parent (public dock); merges into map news source. */
+  externalNewsArticles = null,
+  /** Focus a news article from outside the map (stamp with focusKey). */
+  newsFocus = null,
   showSearch = true,
   navigation = null,
   highlightSelectedBasin = false,
@@ -603,6 +759,7 @@ export default function MapPanel({
   const [riskAreasVisible, setRiskAreasVisible] = useState(true)
   const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
+  const [atRiskPlacesVisible, setAtRiskPlacesVisible] = useState(true)
   const [gaugesVisible, setGaugesVisible] = useState(true)
   const [newsVisible, setNewsVisible] = useState(false)
   const [newsArticles, setNewsArticles] = useState([])
@@ -617,9 +774,6 @@ export default function MapPanel({
   /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
   const [tileVisibility, setTileVisibility] = useState({})
 
-  useEffect(() => {
-    if (!publicMode) setNewsVisible(false)
-  }, [publicMode])
   const [exposureMeta, setExposureMeta] = useState([])
   const [exposureData, setExposureData] = useState({
     roads: null,
@@ -643,6 +797,11 @@ export default function MapPanel({
   useEffect(() => {
     onPlaceSelectRef.current = onPlaceSelect
   }, [onPlaceSelect])
+
+  const atRiskPlacesGeoJSON = useMemo(
+    () => placesToGeoJSON(atRiskPlaces),
+    [atRiskPlaces],
+  )
 
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
@@ -686,9 +845,9 @@ export default function MapPanel({
   }, [loadCommunityReports])
   const focusNewsArticle = useCallback((article) => {
     const map = mapObj.current
-    if (!map) return
+    if (!map || !article) return
     if (!Number.isFinite(article.lat) || !Number.isFinite(article.lon)) {
-      window.open(article.url, '_blank', 'noopener,noreferrer')
+      if (article.url) window.open(article.url, '_blank', 'noopener,noreferrer')
       return
     }
     map.flyTo({ center: [article.lon, article.lat], zoom: 10.5, duration: 1300 })
@@ -717,23 +876,127 @@ export default function MapPanel({
   }, [theme])
 
   useEffect(() => {
+    if (!externalNewsArticles) return
+    receiveNewsArticles(externalNewsArticles)
+  }, [externalNewsArticles, receiveNewsArticles])
+
+  const newsLayerOn = newsVisible || externalNewsVisible
+
+  // Expert (and any mode without the popup list): load news for map symbols when layer is on
+  useEffect(() => {
+    const popupProvidesArticles = publicMode && newsVisible && !externalNewsVisible
+    const parentProvidesArticles = Boolean(externalNewsArticles)
+    if (!newsLayerOn || popupProvidesArticles || parentProvidesArticles) return undefined
+
+    let cancelled = false
+    const load = async () => {
+      try {
+        const response = await fetch(`${API}/news?limit=20`, { cache: 'no-store' })
+        if (!response.ok) throw new Error('News request failed')
+        const data = await response.json()
+        if (!cancelled) receiveNewsArticles(data.articles || [])
+      } catch {
+        if (!cancelled) receiveNewsArticles([])
+      }
+    }
+    load()
+    const timer = setInterval(load, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [
+    newsLayerOn,
+    publicMode,
+    newsVisible,
+    externalNewsVisible,
+    externalNewsArticles,
+    receiveNewsArticles,
+  ])
+
+  useEffect(() => {
+    if (!newsFocus) return
+    focusNewsArticle(newsFocus)
+  }, [newsFocus, focusNewsArticle])
+
+  useEffect(() => {
     if (!mapReady || !mapObj.current) return
     const map = mapObj.current
-    const data = { type: 'FeatureCollection', features: newsArticles.map((a, index) => Number.isFinite(a.lat) && Number.isFinite(a.lon) ? ({ type: 'Feature', id: index, properties: { index }, geometry: { type: 'Point', coordinates: [a.lon, a.lat] } }) : null).filter(Boolean) }
-    if (map.getSource('flood-news')) map.getSource('flood-news').setData(data)
-    else {
-      map.addSource('flood-news', { type: 'geojson', data })
-      map.addLayer({ id: 'flood-news-points', type: 'circle', source: 'flood-news', paint: { 'circle-radius': 8, 'circle-color': '#ef4444', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.9 } })
-      map.on('mouseenter', 'flood-news-points', () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', 'flood-news-points', () => { map.getCanvas().style.cursor = '' })
-      map.on('click', 'flood-news-points', (event) => {
-        const index = Number(event.features?.[0]?.properties?.index)
-        const article = newsArticlesRef.current[index]
-        if (article) focusNewsArticle(article)
-      })
+    let cancelled = false
+
+    const data = {
+      type: 'FeatureCollection',
+      features: newsArticles
+        .map((a, index) =>
+          Number.isFinite(a.lat) && Number.isFinite(a.lon)
+            ? {
+                type: 'Feature',
+                id: index,
+                properties: { index },
+                geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
+              }
+            : null,
+        )
+        .filter(Boolean),
     }
-    map.setLayoutProperty('flood-news-points', 'visibility', newsVisible ? 'visible' : 'none')
-  }, [mapReady, styleEpoch, newsArticles, newsVisible])
+
+    const syncNewsLayer = async () => {
+      await ensureNewsMarkerImage(map)
+      if (cancelled || !mapObj.current) return
+
+      if (map.getSource('flood-news')) {
+        map.getSource('flood-news').setData(data)
+      } else {
+        map.addSource('flood-news', { type: 'geojson', data })
+      }
+
+      // Prefer symbol (newspaper icon); remove legacy circle if present
+      if (map.getLayer('flood-news-points')) {
+        const layer = map.getLayer('flood-news-points')
+        if (layer?.type === 'circle') {
+          try { map.removeLayer('flood-news-points') } catch { /* ignore */ }
+        }
+      }
+
+      if (!map.getLayer('flood-news-points')) {
+        map.addLayer({
+          id: 'flood-news-points',
+          type: 'symbol',
+          source: 'flood-news',
+          layout: {
+            'icon-image': NEWS_MARKER_IMAGE_ID,
+            'icon-size': 0.55,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+        })
+        map.on('mouseenter', 'flood-news-points', () => {
+          map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', 'flood-news-points', () => {
+          map.getCanvas().style.cursor = ''
+        })
+        map.on('click', 'flood-news-points', (event) => {
+          const index = Number(event.features?.[0]?.properties?.index)
+          const article = newsArticlesRef.current[index]
+          if (article) focusNewsArticle(article)
+        })
+      }
+
+      if (map.getLayer('flood-news-points')) {
+        map.setLayoutProperty(
+          'flood-news-points',
+          'visibility',
+          newsLayerOn ? 'visible' : 'none',
+        )
+      }
+    }
+
+    syncNewsLayer()
+    return () => {
+      cancelled = true
+    }
+  }, [mapReady, styleEpoch, newsArticles, newsLayerOn, focusNewsArticle])
 
   useEffect(() => {
     if (!mapReady || !mapObj.current) return
@@ -1316,6 +1579,33 @@ export default function MapPanel({
     map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity * 0.95)
   }, [mapReady, styleEpoch, urbanFlashVisible, urbanFlashOpacity])
 
+  // ── At-risk places (Warning+ settlements by risk tier) ─────────────────────
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+    if (!map) return
+
+    if (map.getSource('at-risk-places')) {
+      map.getSource('at-risk-places').setData(atRiskPlacesGeoJSON)
+      addAtRiskPlaceLayers(map, 'at-risk-places', (nextPlace) => {
+        onPlaceSelectRef.current?.(nextPlace)
+      })
+    } else {
+      map.addSource('at-risk-places', { type: 'geojson', data: atRiskPlacesGeoJSON })
+      addAtRiskPlaceLayers(map, 'at-risk-places', (nextPlace) => {
+        onPlaceSelectRef.current?.(nextPlace)
+      })
+    }
+
+    if (map.getLayer(AT_RISK_PLACE_LAYER_ID)) {
+      map.setLayoutProperty(
+        AT_RISK_PLACE_LAYER_ID,
+        'visibility',
+        atRiskPlacesVisible ? 'visible' : 'none',
+      )
+    }
+  }, [mapReady, styleEpoch, atRiskPlacesGeoJSON, atRiskPlacesVisible])
+
   // ── Add / sync independent raster tile layers ─────────────────────────────
   useEffect(() => {
     if (!mapReady) return
@@ -1824,14 +2114,16 @@ export default function MapPanel({
           onToggleUrbanFlash={() => setUrbanFlashVisible((v) => !v)}
           urbanFlashOpacity={urbanFlashOpacity}
           onUrbanFlashOpacity={setUrbanFlashOpacity}
+          atRiskPlacesVisible={atRiskPlacesVisible}
+          onToggleAtRiskPlaces={() => setAtRiskPlacesVisible((v) => !v)}
           tileLayers={tileLayers}
           tileVisibility={tileVisibility}
           onToggleTile={toggleTileLayer}
           gaugesVisible={gaugesVisible}
           onToggleGauges={() => setGaugesVisible((v) => !v)}
-          newsVisible={newsVisible}
+          newsVisible={newsLayerOn}
           onToggleNews={() => setNewsVisible((v) => !v)}
-          showNewsControl={publicMode}
+          showNewsControl={!externalNewsVisible}
           exposureLayers={exposureMeta.filter((layer) => layer.available)}
           exposureVisibility={exposureVisible}
           onToggleExposure={toggleExposureLayer}
@@ -1856,7 +2148,14 @@ export default function MapPanel({
           </div>
         )}
       </div>
-      {newsVisible && <FloodNewsLayer theme={theme} onClose={() => setNewsVisible(false)} onArticles={receiveNewsArticles} onFocus={focusNewsArticle} />}
+      {publicMode && newsVisible && !externalNewsVisible && (
+        <FloodNewsLayer
+          theme={theme}
+          onClose={() => setNewsVisible(false)}
+          onArticles={receiveNewsArticles}
+          onFocus={focusNewsArticle}
+        />
+      )}
 
       {/* Home + basemap — below zoom (+/−); basemap menu opens left to clear controls */}
       <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">
@@ -1899,6 +2198,8 @@ export default function MapPanel({
         <FloodRiskLegend
           showProbability={riskAreasVisible}
           showUrbanFlash={urbanFlashVisible}
+          showAtRiskPlaces={atRiskPlacesVisible}
+          showNews={newsLayerOn}
           showHistory={Boolean(tileVisibility.jrc_occurrence)}
           historyLegend={
             tileLayers.find((l) => l.source === 'jrc_occurrence')?.legend ?? null
