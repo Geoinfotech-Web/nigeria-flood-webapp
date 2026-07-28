@@ -76,6 +76,8 @@ export default function LayersPanel({
   onToggleUrbanFlash,
   urbanFlashOpacity = 0.6,
   onUrbanFlashOpacity,
+  historicalHotspotsVisible = false,
+  onToggleHistoricalHotspots,
   atRiskPlacesVisible = false,
   onToggleAtRiskPlaces,
   // Independent raster overlays (history, susceptibility, …)
@@ -198,6 +200,13 @@ export default function LayersPanel({
                 />
               </div>
             </Row>
+
+            <Row
+              label="Flood Hotspot"
+              on={historicalHotspotsVisible}
+              onToggle={onToggleHistoricalHotspots}
+              theme={theme}
+            />
 
             <Row
               label="Places at risk"

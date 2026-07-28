@@ -11,6 +11,9 @@ const TIER_COLORS = {
   Emergency: '#ef4444',
   Likely: '#f97316',
   'Highly Likely': '#86198f',
+  Occasional: '#d8b4fe',
+  Frequent: '#a855f7',
+  Persistent: '#7c3aed',
 }
 
 function timeAgo(value) {
@@ -400,6 +403,64 @@ function UrbanFlashPanel({ urbanFlash, theme, onSelectArea }) {
   )
 }
 
+function HistoricalHotspotsPanel({ hotspots, theme, onSelectArea }) {
+  const dark = theme === 'dark'
+  const areas = hotspots?.top_areas || []
+
+  return (
+    <PanelShell title="Flood Hotspot" theme={theme}>
+      <div className="mb-1.5 flex flex-wrap gap-2 text-[10px]">
+        <span className={dark ? 'text-violet-300' : 'text-violet-800'}>
+          {hotspots?.persistent?.zones ?? 0} persistent
+        </span>
+        <span className={dark ? 'text-fuchsia-300' : 'text-fuchsia-800'}>
+          {hotspots?.frequent?.zones ?? 0} frequent
+        </span>
+        <span className={dark ? 'text-purple-200' : 'text-purple-700'}>
+          {hotspots?.occasional?.zones ?? 0} occasional
+        </span>
+      </div>
+      <p className={clsx('mb-1.5 text-[9px] leading-snug', dark ? 'text-gray-500' : 'text-slate-500')}>
+        {hotspots?.total_events ?? 0} past events from GFD (2000–2018)
+      </p>
+      <ul className="max-h-[118px] space-y-1 overflow-y-auto">
+        {areas.length === 0 && (
+          <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>
+            No hotspot zones
+          </li>
+        )}
+        {areas.map((a) => {
+          const color = TIER_COLORS[a.risk_tier] || '#a855f7'
+          return (
+            <li key={a.hotspot_id}>
+              <button
+                type="button"
+                onClick={() => onSelectArea?.(a)}
+                className={clsx(
+                  'flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition',
+                  dark
+                    ? 'border-gray-800 bg-gray-950/40 hover:border-gray-700 hover:bg-gray-900/70'
+                    : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white',
+                )}
+              >
+                <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="min-w-0 flex-1">
+                  <span className={clsx('block truncate text-[11px] font-medium', dark ? 'text-gray-100' : 'text-slate-800')}>
+                    {a.affected_places?.length ? a.affected_places.join(', ') : a.name}
+                  </span>
+                  <span className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                    {a.risk_tier} · {a.event_count} events · {Math.round(a.area_km2 || 0)} km²
+                  </span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </PanelShell>
+  )
+}
+
 function AlertsPanel({ theme, onSelectStation, stations }) {
   const dark = theme === 'dark'
   const [alerts, setAlerts] = useState([])
@@ -560,9 +621,11 @@ export default function ExpertAnalyticsRow({
   liveReadings = {},
   impactSummary = null,
   urbanFlashSummary = null,
+  historicalHotspotsSummary = null,
   theme = 'light',
   onSelectStation,
   onSelectUrbanFlash,
+  onSelectHistoricalHotspot,
   onViewReports,
   onFocusNews,
   onNewsArticles,
@@ -601,11 +664,16 @@ export default function ExpertAnalyticsRow({
         </button>
       </div>
       {!collapsed && (
-        <div className="grid grid-cols-4 gap-2 px-3 pb-2.5">
+        <div className="grid grid-cols-5 gap-2 px-3 pb-2.5">
           <FloodNewsPanel
             theme={theme}
             onFocusNews={onFocusNews}
             onArticles={onNewsArticles}
+          />
+          <HistoricalHotspotsPanel
+            hotspots={historicalHotspotsSummary}
+            theme={theme}
+            onSelectArea={onSelectHistoricalHotspot}
           />
           <UrbanFlashPanel urbanFlash={urbanFlash} theme={theme} onSelectArea={onSelectUrbanFlash} />
           <AlertsPanel theme={theme} onSelectStation={onSelectStation} stations={stations} />

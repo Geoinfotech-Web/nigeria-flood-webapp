@@ -190,6 +190,106 @@ function placesToGeoJSON(places) {
   }
 }
 
+function geometryBounds(geometry) {
+  if (!geometry?.coordinates) return null
+  let minLon = Infinity
+  let minLat = Infinity
+  let maxLon = -Infinity
+  let maxLat = -Infinity
+
+  const visit = (coords) => {
+    if (!Array.isArray(coords)) return
+    if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+      const [lon, lat] = coords
+      if (lon < minLon) minLon = lon
+      if (lat < minLat) minLat = lat
+      if (lon > maxLon) maxLon = lon
+      if (lat > maxLat) maxLat = lat
+      return
+    }
+    coords.forEach(visit)
+  }
+
+  visit(geometry.coordinates)
+  if (![minLon, minLat, maxLon, maxLat].every(Number.isFinite)) return null
+  return [minLon, minLat, maxLon, maxLat]
+}
+
+function pointInRing(point, ring) {
+  const [x, y] = point
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const yi = ring[i][1]
+    const xj = ring[j][0]
+    const yj = ring[j][1]
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-12) + xi
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+function pointInPolygon(point, polygonCoords) {
+  if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) return false
+  if (!pointInRing(point, polygonCoords[0])) return false
+  for (let i = 1; i < polygonCoords.length; i += 1) {
+    if (pointInRing(point, polygonCoords[i])) return false
+  }
+  return true
+}
+
+function pointInGeometry(point, geometry) {
+  if (!geometry) return false
+  if (geometry.type === 'Polygon') return pointInPolygon(point, geometry.coordinates)
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some((polygonCoords) => pointInPolygon(point, polygonCoords))
+  }
+  return false
+}
+
+function vectorGridFromFeatures(featureCollection) {
+  const features = Array.isArray(featureCollection?.features) ? featureCollection.features : []
+  return {
+    type: 'FeatureCollection',
+    features: features.flatMap((feature) => {
+      const geometry = feature?.geometry
+      const props = feature?.properties || {}
+      const bounds = geometryBounds(geometry)
+      if (!geometry || !bounds) return []
+
+      const [minLon, minLat, maxLon, maxLat] = bounds
+      const spanLon = Math.max(maxLon - minLon, 0.001)
+      const spanLat = Math.max(maxLat - minLat, 0.001)
+      const cellSize = Math.min(0.02, Math.max(0.004, Math.sqrt((spanLon * spanLat) / 320)))
+      const cells = []
+
+      for (let lon = minLon; lon < maxLon; lon += cellSize) {
+        for (let lat = minLat; lat < maxLat; lat += cellSize) {
+          const center = [lon + cellSize / 2, lat + cellSize / 2]
+          if (!pointInGeometry(center, geometry)) continue
+          cells.push({
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [[
+                [lon, lat],
+                [Math.min(lon + cellSize, maxLon), lat],
+                [Math.min(lon + cellSize, maxLon), Math.min(lat + cellSize, maxLat)],
+                [lon, Math.min(lat + cellSize, maxLat)],
+                [lon, lat],
+              ]],
+            },
+            properties: props,
+          })
+        }
+      }
+      return cells
+    }),
+  }
+}
+
 function addAtRiskPlaceLayers(map, sourceId, onPlaceClick) {
   AT_RISK_PLACE_LEGACY_LAYER_IDS.forEach((id) => {
     if (map.getLayer(id)) {
@@ -764,6 +864,7 @@ export default function MapPanel({
   const [riskAreasVisible, setRiskAreasVisible] = useState(true)
   const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
+  const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(false)
   const [atRiskPlacesVisible, setAtRiskPlacesVisible] = useState(true)
   const [gaugesVisible, setGaugesVisible] = useState(true)
   const [newsVisible, setNewsVisible] = useState(false)
@@ -772,6 +873,7 @@ export default function MapPanel({
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
   const [urbanFlashData, setUrbanFlashData] = useState(null)
+  const [historicalHotspotsData, setHistoricalHotspotsData] = useState(null)
   const [mapReady,    setMapReady]    = useState(false)
   /** Bumped after each basemap setStyle so overlays re-attach (setStyle wipes sources). */
   const [styleEpoch,  setStyleEpoch]  = useState(0)
@@ -806,6 +908,32 @@ export default function MapPanel({
   const atRiskPlacesGeoJSON = useMemo(
     () => placesToGeoJSON(atRiskPlaces),
     [atRiskPlaces],
+  )
+  const historicalHotspotHeatmapData = useMemo(() => {
+    if (!historicalHotspotsData?.features?.length) return EMPTY_FC
+    return {
+      type: 'FeatureCollection',
+      features: historicalHotspotsData.features
+        .map((feature) => {
+          const props = feature?.properties || {}
+          const lon = Number(props.lon)
+          const lat = Number(props.lat)
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+          return {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [lon, lat] },
+            properties: {
+              ...props,
+              heat_weight: Math.max(Number(props.event_count) || 0, (Number(props.risk_score) || 0) * 10),
+            },
+          }
+        })
+        .filter(Boolean),
+    }
+  }, [historicalHotspotsData])
+  const urbanFlashGridData = useMemo(
+    () => vectorGridFromFeatures(urbanFlashData),
+    [urbanFlashData],
   )
 
   const resetToHomeView = useCallback(() => {
@@ -1186,6 +1314,13 @@ export default function MapPanel({
       .catch(console.error)
   }, [])
 
+  useEffect(() => {
+    fetch(`${API}/flood-risk/historical-hotspots/geojson`)
+      .then((r) => (r.ok ? r.json() : { type: 'FeatureCollection', features: [] }))
+      .then(setHistoricalHotspotsData)
+      .catch(console.error)
+  }, [])
+
   // ── Load available raster tile layers ─────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/flood-risk/layers`)
@@ -1481,11 +1616,11 @@ export default function MapPanel({
 
   // ── Add urban flash flood GeoJSON layer ────────────────────────────────────
   useEffect(() => {
-    if (!mapReady || !urbanFlashData) return
+    if (!mapReady || !urbanFlashGridData?.features?.length) return
     const map = mapObj.current
 
     if (map.getSource('urban-flash')) {
-      map.getSource('urban-flash').setData(urbanFlashData)
+      map.getSource('urban-flash').setData(urbanFlashGridData)
       if (map.getLayer('urban-flash-glow')) {
         try { map.removeLayer('urban-flash-glow') } catch { /* ignore */ }
       }
@@ -1493,7 +1628,7 @@ export default function MapPanel({
         try { map.removeSource('urban-flash-points') } catch { /* ignore */ }
       }
     } else {
-      map.addSource('urban-flash', { type: 'geojson', data: urbanFlashData })
+      map.addSource('urban-flash', { type: 'geojson', data: urbanFlashGridData })
 
       const beforeId = map.getLayer('flood-risk-fill')
         ? 'flood-risk-fill'
@@ -1514,34 +1649,8 @@ export default function MapPanel({
               URBAN_FLASH_COLOR.Likely,
               URBAN_FLASH_COLOR.Likely,
             ],
-            'fill-opacity': urbanFlashOpacity * 0.5,
-          },
-        },
-        beforeId,
-      )
-
-      map.addLayer(
-        {
-          id: 'urban-flash-outline',
-          type: 'line',
-          source: 'urban-flash',
-          paint: {
-            'line-color': [
-              'match',
-              ['get', 'risk_tier'],
-              'Highly Likely',
-              URBAN_FLASH_COLOR['Highly Likely'],
-              'Likely',
-              URBAN_FLASH_COLOR.Likely,
-              URBAN_FLASH_COLOR.Likely,
-            ],
-            'line-width': [
-              'interpolate', ['linear'], ['zoom'],
-              5, 0.8,
-              9, 1.6,
-              13, 2.4,
-            ],
-            'line-opacity': urbanFlashOpacity * 0.95,
+            'fill-antialias': false,
+            'fill-opacity': urbanFlashOpacity * 0.32,
           },
         },
         beforeId,
@@ -1579,7 +1688,7 @@ export default function MapPanel({
         map.getCanvas().style.cursor = ''
       })
     }
-  }, [mapReady, styleEpoch, urbanFlashData])
+  }, [mapReady, styleEpoch, urbanFlashGridData])
 
   // ── Update urban flash visibility + opacity ────────────────────────────────
   useEffect(() => {
@@ -1588,10 +1697,103 @@ export default function MapPanel({
     if (!map.getLayer('urban-flash-fill')) return
     const vis = urbanFlashVisible ? 'visible' : 'none'
     map.setLayoutProperty('urban-flash-fill', 'visibility', vis)
-    map.setLayoutProperty('urban-flash-outline', 'visibility', vis)
-    map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.5)
-    map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity * 0.95)
+    map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.32)
   }, [mapReady, styleEpoch, urbanFlashVisible, urbanFlashOpacity])
+
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+    const beforeId = map.getStyle().layers.find((l) => l.type === 'symbol')?.id
+
+    if (map.getSource('historical-hotspot-points')) {
+      map.getSource('historical-hotspot-points').setData(historicalHotspotHeatmapData)
+    } else {
+      map.addSource('historical-hotspot-points', {
+        type: 'geojson',
+        data: historicalHotspotHeatmapData,
+      })
+      map.addLayer(
+        {
+          id: 'historical-hotspots-heatmap',
+          type: 'heatmap',
+          source: 'historical-hotspot-points',
+          maxzoom: 13,
+          paint: {
+            'heatmap-weight': [
+              'interpolate',
+              ['linear'],
+              ['coalesce', ['get', 'heat_weight'], 0],
+              1, 0.12,
+              3, 0.35,
+              6, 0.6,
+              10, 0.82,
+              16, 1,
+            ],
+            'heatmap-intensity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4, 0.9,
+              7, 1.25,
+              10, 1.7,
+              13, 2.1,
+            ],
+            'heatmap-color': [
+              'interpolate',
+              ['linear'],
+              ['heatmap-density'],
+              0,
+              'rgba(59,130,246,0)',
+              0.12,
+              'rgba(96,165,250,0.38)',
+              0.28,
+              'rgba(147,197,253,0.62)',
+              0.46,
+              'rgba(254,240,138,0.82)',
+              0.66,
+              'rgba(253,186,116,0.92)',
+              0.82,
+              'rgba(248,113,113,0.96)',
+              1,
+              'rgba(220,38,38,0.99)',
+            ],
+            'heatmap-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4, 18,
+              6, 28,
+              8, 38,
+              10, 50,
+              13, 64,
+            ],
+            'heatmap-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4, 0.72,
+              10, 0.88,
+              13, 0.68,
+            ],
+          },
+        },
+        beforeId,
+      )
+    }
+
+    if (map.getLayer('historical-hotspots-heatmap')) {
+      map.moveLayer('historical-hotspots-heatmap', beforeId)
+    }
+  }, [mapReady, styleEpoch, historicalHotspotHeatmapData])
+
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapObj.current
+    const vis = historicalHotspotsVisible ? 'visible' : 'none'
+    if (map.getLayer('historical-hotspots-heatmap')) {
+      map.setLayoutProperty('historical-hotspots-heatmap', 'visibility', vis)
+    }
+  }, [mapReady, styleEpoch, historicalHotspotsVisible])
 
   // ── At-risk places (Warning+ settlements by risk tier) ─────────────────────
   useEffect(() => {
@@ -2128,6 +2330,8 @@ export default function MapPanel({
           onToggleUrbanFlash={() => setUrbanFlashVisible((v) => !v)}
           urbanFlashOpacity={urbanFlashOpacity}
           onUrbanFlashOpacity={setUrbanFlashOpacity}
+          historicalHotspotsVisible={historicalHotspotsVisible}
+          onToggleHistoricalHotspots={() => setHistoricalHotspotsVisible((v) => !v)}
           atRiskPlacesVisible={atRiskPlacesVisible}
           onToggleAtRiskPlaces={() => setAtRiskPlacesVisible((v) => !v)}
           tileLayers={tileLayers}
@@ -2206,6 +2410,7 @@ export default function MapPanel({
           showAtRiskPlaces={atRiskPlacesVisible}
           showNews={newsLayerOn}
           showHistory={Boolean(tileVisibility.jrc_occurrence)}
+          showHistoricalHotspots={historicalHotspotsVisible}
           historyLegend={
             tileLayers.find((l) => l.source === 'jrc_occurrence')?.legend ?? null
           }

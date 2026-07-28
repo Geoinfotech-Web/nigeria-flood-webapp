@@ -212,15 +212,68 @@ def _safe_union(geometries):
 def _severity_rank(tier: str) -> int:
     return {
         "Very High": 5,
+        "Persistent": 5,
         "Highly Likely": 4,  # urban flash / legacy
         "Emergency": 3,
         "High": 3,
+        "Frequent": 3,
         "Likely": 3,  # urban flash / legacy
         "Warning": 2,
         "Moderate": 2,
+        "Occasional": 1,
         "Watch": 1,
         "Normal": 0,
     }.get(tier, 0)
+
+
+def _affected_place_names(geometry, limit: int = 3) -> list[str]:
+    """Return nearby/intersecting settlement names for a hotspot geometry."""
+    geom = _safe_geom(geometry)
+    if geom is None:
+        return []
+
+    matches = []
+    for place_geom, properties in _load_exposure_geometries("places"):
+        point = _safe_geom(place_geom)
+        if point is None:
+            continue
+        try:
+            if not geom.intersects(point):
+                continue
+        except Exception:
+            continue
+
+        population_raw = properties.get("population")
+        try:
+            population = int(population_raw) if population_raw is not None else 0
+        except (TypeError, ValueError):
+            population = 0
+        matches.append(
+            {
+                "name": properties.get("name") or "Unnamed place",
+                "class": properties.get("class") or "Settlement",
+                "population": population,
+            }
+        )
+
+    matches.sort(
+        key=lambda item: (
+            -(item["population"] or 0),
+            item["class"],
+            item["name"],
+        )
+    )
+    names = []
+    seen = set()
+    for item in matches:
+        key = item["name"].strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        names.append(item["name"])
+        if len(names) >= limit:
+            break
+    return names
 
 
 # ── GeoJSON risk areas ────────────────────────────────────────────────────────
@@ -553,6 +606,214 @@ async def urban_flash_summary(request: Request):
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     await request.app.state.redis.set(cache_key, json.dumps(payload), ex=300)
+    return payload
+
+
+@router.get("/historical-events/geojson")
+async def historical_events_geojson(request: Request, limit: int = Query(default=250, ge=1, le=2000)):
+    async with request.app.state.db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                event_id, source, event_name, started_at, ended_at, state, severity,
+                confidence, event_count, centroid_lat, centroid_lon, metadata,
+                ST_AsGeoJSON(geom)::json AS geometry
+            FROM historical_flood_events
+            ORDER BY started_at DESC NULLS LAST, event_id
+            LIMIT $1
+            """,
+            limit,
+        )
+    if not rows:
+        return _empty_feature_collection()
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": json.loads(r["geometry"]) if isinstance(r["geometry"], str) else r["geometry"],
+                "properties": {
+                    "event_id": r["event_id"],
+                    "source": r["source"],
+                    "event_name": r["event_name"],
+                    "started_at": str(r["started_at"]) if r["started_at"] else None,
+                    "ended_at": str(r["ended_at"]) if r["ended_at"] else None,
+                    "state": r["state"],
+                    "severity": r["severity"],
+                    "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+                    "event_count": int(r["event_count"] or 0),
+                    "lat": float(r["centroid_lat"]) if r["centroid_lat"] is not None else None,
+                    "lon": float(r["centroid_lon"]) if r["centroid_lon"] is not None else None,
+                    "metadata": r["metadata"] or {},
+                },
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/historical-events/summary")
+async def historical_events_summary(request: Request):
+    cache_key = "historical-events-summary:v1"
+    cached = await request.app.state.redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    async with request.app.state.db.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM historical_flood_events")
+        state_rows = await conn.fetch(
+            """
+            SELECT COALESCE(state, 'Unknown') AS state, COUNT(*) AS count
+            FROM historical_flood_events
+            GROUP BY COALESCE(state, 'Unknown')
+            ORDER BY count DESC, state
+            LIMIT 8
+            """
+        )
+        year_rows = await conn.fetch(
+            """
+            SELECT EXTRACT(YEAR FROM started_at)::int AS year, COUNT(*) AS count
+            FROM historical_flood_events
+            WHERE started_at IS NOT NULL
+            GROUP BY 1
+            ORDER BY 1
+            """
+        )
+        recent_rows = await conn.fetch(
+            """
+            SELECT event_id, event_name, state, severity, started_at, ended_at,
+                   centroid_lat, centroid_lon
+            FROM historical_flood_events
+            ORDER BY started_at DESC NULLS LAST, event_id
+            LIMIT 8
+            """
+        )
+
+    payload = {
+        "total_events": int(total or 0),
+        "by_state": [{"state": r["state"], "count": int(r["count"] or 0)} for r in state_rows],
+        "by_year": [{"year": int(r["year"]), "count": int(r["count"] or 0)} for r in year_rows if r["year"] is not None],
+        "recent_events": [
+            {
+                "event_id": r["event_id"],
+                "event_name": r["event_name"],
+                "state": r["state"],
+                "severity": r["severity"],
+                "started_at": str(r["started_at"]) if r["started_at"] else None,
+                "ended_at": str(r["ended_at"]) if r["ended_at"] else None,
+                "lat": float(r["centroid_lat"]) if r["centroid_lat"] is not None else None,
+                "lon": float(r["centroid_lon"]) if r["centroid_lon"] is not None else None,
+            }
+            for r in recent_rows
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await request.app.state.redis.set(cache_key, json.dumps(payload), ex=600)
+    return payload
+
+
+@router.get("/historical-hotspots/geojson")
+async def historical_hotspots_geojson(request: Request):
+    async with request.app.state.db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                hotspot_id, source, hotspot_name, risk_tier, risk_score, event_count,
+                area_km2, centroid_lat, centroid_lon, bbox_lnglat, metadata,
+                ST_AsGeoJSON(geom)::json AS geometry
+            FROM historical_flood_hotspots
+            ORDER BY risk_score DESC, area_km2 DESC, hotspot_name
+            """
+        )
+    if not rows:
+        return _empty_feature_collection()
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": json.loads(r["geometry"]) if isinstance(r["geometry"], str) else r["geometry"],
+                "properties": {
+                    "hotspot_id": r["hotspot_id"],
+                    "source": r["source"],
+                    "name": r["hotspot_name"],
+                    "risk_tier": r["risk_tier"],
+                    "risk_score": float(r["risk_score"] or 0),
+                    "event_count": int(r["event_count"] or 0),
+                    "area_km2": float(r["area_km2"] or 0),
+                    "lat": float(r["centroid_lat"]) if r["centroid_lat"] is not None else None,
+                    "lon": float(r["centroid_lon"]) if r["centroid_lon"] is not None else None,
+                    "bbox_lnglat": [float(v) for v in (r["bbox_lnglat"] or [])] or None,
+                    "metadata": r["metadata"] or {},
+                },
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/historical-hotspots/summary")
+async def historical_hotspots_summary(request: Request):
+    cache_key = "historical-hotspots-summary:v2"
+    cached = await request.app.state.redis.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    async with request.app.state.db.acquire() as conn:
+        tier_rows = await conn.fetch(
+            """
+            SELECT risk_tier, COUNT(*) AS zone_count, COALESCE(SUM(area_km2), 0) AS area_km2
+            FROM historical_flood_hotspots
+            GROUP BY risk_tier
+            """
+        )
+        top_rows = await conn.fetch(
+            """
+            SELECT hotspot_id, hotspot_name, risk_tier, risk_score, event_count, area_km2,
+                   centroid_lat, centroid_lon, bbox_lnglat, metadata,
+                   ST_AsGeoJSON(geom)::text AS geometry
+            FROM historical_flood_hotspots
+            ORDER BY risk_score DESC, event_count DESC, area_km2 DESC, hotspot_name
+            LIMIT 10
+            """
+        )
+        total_events = await conn.fetchval("SELECT COUNT(*) FROM historical_flood_events")
+
+    by_tier = {
+        r["risk_tier"]: {
+            "zones": int(r["zone_count"] or 0),
+            "area_km2": round(float(r["area_km2"] or 0), 1),
+        }
+        for r in tier_rows
+    }
+    payload = {
+        "label": "Flood Hotspot",
+        "subtitle": "Past flood event recurrence · Global Flood Database (2000–2018)",
+        "total_events": int(total_events or 0),
+        "occasional": by_tier.get("Occasional", {"zones": 0, "area_km2": 0.0}),
+        "frequent": by_tier.get("Frequent", {"zones": 0, "area_km2": 0.0}),
+        "persistent": by_tier.get("Persistent", {"zones": 0, "area_km2": 0.0}),
+        "total_zones": sum(int(v["zones"]) for v in by_tier.values()),
+        "total_area_km2": round(sum(float(v["area_km2"]) for v in by_tier.values()), 1),
+        "top_areas": [
+            {
+                "hotspot_id": r["hotspot_id"],
+                "name": (_affected_place_names(shape(json.loads(r["geometry"])), limit=3) or [r["hotspot_name"]])[0],
+                "affected_places": _affected_place_names(shape(json.loads(r["geometry"])), limit=3),
+                "risk_tier": r["risk_tier"],
+                "risk_score": float(r["risk_score"] or 0),
+                "event_count": int(r["event_count"] or 0),
+                "area_km2": float(r["area_km2"] or 0),
+                "lat": float(r["centroid_lat"]) if r["centroid_lat"] is not None else None,
+                "lon": float(r["centroid_lon"]) if r["centroid_lon"] is not None else None,
+                "bbox_lnglat": [float(v) for v in (r["bbox_lnglat"] or [])] or None,
+                "metadata": r["metadata"] or {},
+            }
+            for r in top_rows
+        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await request.app.state.redis.set(cache_key, json.dumps(payload), ex=600)
     return payload
 
 

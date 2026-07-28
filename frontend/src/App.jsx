@@ -20,6 +20,7 @@ import { useGaugeFeed } from './hooks/useGaugeFeed'
 import { useStations } from './hooks/useStations'
 import { useAllPredictions } from './hooks/useAllPredictions'
 import { useImpactSummary } from './hooks/useImpactSummary'
+import { useHistoricalHotspotsSummary } from './hooks/useHistoricalHotspotsSummary'
 import { useUrbanFlashSummary } from './hooks/useUrbanFlashSummary'
 import { useNationalRainfall } from './hooks/useNationalRainfall'
 import { useStationRainfall } from './hooks/useStationRainfall'
@@ -145,6 +146,9 @@ export default function App() {
   })
 
   const { summary: nationalUrbanFlashSummary, loading: urbanFlashLoading } = useUrbanFlashSummary({
+    enabled: mode === 'expert',
+  })
+  const { summary: historicalHotspotsSummary } = useHistoricalHotspotsSummary({
     enabled: mode === 'expert',
   })
   const { latestAvgMm } = useNationalRainfall({
@@ -354,6 +358,17 @@ export default function App() {
   }
 
   const handleSelectUrbanFlash = useCallback((area) => {
+    if (!area) return
+    setSelected(null)
+    setShowSelectedBasin(false)
+    setPlace(null)
+    setHighlightedRoad(null)
+    setBuildingsTabActive(false)
+    setViewportBuildings(null)
+    setZoneFocus(area)
+  }, [])
+
+  const handleSelectHistoricalHotspot = useCallback((area) => {
     if (!area) return
     setSelected(null)
     setShowSelectedBasin(false)
@@ -787,9 +802,11 @@ export default function App() {
             liveReadings={liveReadings}
             impactSummary={nationalImpactSummary}
             urbanFlashSummary={nationalUrbanFlashSummary}
+            historicalHotspotsSummary={historicalHotspotsSummary}
             theme={theme}
             onSelectStation={handleSelectStation}
             onSelectUrbanFlash={handleSelectUrbanFlash}
+            onSelectHistoricalHotspot={handleSelectHistoricalHotspot}
             onViewReports={focusCommunityReport}
             onFocusNews={(article) => setNewsFocus({ ...article, focusKey: Date.now() })}
             onNewsArticles={setDockNewsArticles}

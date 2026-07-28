@@ -28,6 +28,12 @@ const DEFAULT_HISTORY_ITEMS = [
   { label: '5–25%', color: '#c084fc', range: 'Occasional' },
 ]
 
+const HISTORICAL_HOTSPOT_ITEMS = [
+  { label: 'Persistent', color: '#7c3aed', range: '6+ events' },
+  { label: 'Frequent', color: '#a855f7', range: '3-5 events' },
+  { label: 'Occasional', color: '#d8b4fe', range: '1-2 events' },
+]
+
 const EXPOSURE_SYMBOLS = {
   roads: [
     { label: 'Highway', color: '#f59e0b', type: 'line', dash: false },
@@ -110,6 +116,7 @@ export default function FloodRiskLegend({
   showAtRiskPlaces = false,
   showNews = false,
   showHistory = false,
+  showHistoricalHotspots = false,
   historyLegend = null,
   susceptibilityLegend = null,
   visibleExposureIds = [],
@@ -135,6 +142,7 @@ export default function FloodRiskLegend({
     showAtRiskPlaces ||
     showNews ||
     showHistory ||
+    showHistoricalHotspots ||
     susceptibilityLegend ||
     showGauges ||
     visibleExposureIds.length > 0 ||
@@ -267,6 +275,21 @@ export default function FloodRiskLegend({
                 % of time under water, JRC Landsat 1984–2021. Darker = flooded more often.
               </p>
               <CategoryItems items={historyItems} theme={theme} />
+            </div>
+          )}
+
+          {showHistoricalHotspots && (
+            <div>
+              <SectionTitle theme={theme}>Flood Hotspot</SectionTitle>
+              <p
+                className={clsx(
+                  'mb-1.5 text-[10px] leading-snug',
+                  theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+                )}
+              >
+                Smooth heatmap of past flood event recurrence from the Global Flood Database, 2000–2018. Blue = lower recurrence, red = higher recurrence.
+              </p>
+              <CategoryItems items={HISTORICAL_HOTSPOT_ITEMS} theme={theme} />
             </div>
           )}
 

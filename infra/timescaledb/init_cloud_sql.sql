@@ -158,6 +158,54 @@ CREATE TABLE IF NOT EXISTS flood_risk_tiles (
 CREATE INDEX IF NOT EXISTS idx_flood_risk_tiles_source
     ON flood_risk_tiles (source, valid_from DESC);
 
+-- ─── Historical flood events + derived hotspots ───────────────────────────
+CREATE TABLE IF NOT EXISTS historical_flood_events (
+    id              BIGSERIAL PRIMARY KEY,
+    event_id        TEXT NOT NULL UNIQUE,
+    source          TEXT NOT NULL,
+    event_name      TEXT NOT NULL,
+    started_at      DATE,
+    ended_at        DATE,
+    state           TEXT,
+    severity        TEXT,
+    confidence      DOUBLE PRECISION,
+    event_count     INTEGER NOT NULL DEFAULT 1,
+    geom            GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    centroid_lat    DOUBLE PRECISION,
+    centroid_lon    DOUBLE PRECISION,
+    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_events_source
+    ON historical_flood_events (source, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_events_state
+    ON historical_flood_events (state);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_events_geom
+    ON historical_flood_events USING GIST (geom);
+
+CREATE TABLE IF NOT EXISTS historical_flood_hotspots (
+    id              BIGSERIAL PRIMARY KEY,
+    hotspot_id      TEXT NOT NULL UNIQUE,
+    source          TEXT NOT NULL,
+    hotspot_name    TEXT NOT NULL,
+    risk_tier       TEXT NOT NULL,
+    risk_score      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    event_count     INTEGER NOT NULL DEFAULT 0,
+    area_km2        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    geom            GEOMETRY(MultiPolygon, 4326) NOT NULL,
+    centroid_lat    DOUBLE PRECISION,
+    centroid_lon    DOUBLE PRECISION,
+    bbox_lnglat     DOUBLE PRECISION[],
+    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_hotspots_source
+    ON historical_flood_hotspots (source, risk_score DESC);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_hotspots_tier
+    ON historical_flood_hotspots (risk_tier);
+CREATE INDEX IF NOT EXISTS idx_historical_flood_hotspots_geom
+    ON historical_flood_hotspots USING GIST (geom);
+
 -- ─── Urban built-up footprints (GEE monthly; used by flash-flood model) ──
 CREATE TABLE IF NOT EXISTS urban_footprints (
     id               SERIAL PRIMARY KEY,
