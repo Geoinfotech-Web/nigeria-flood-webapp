@@ -364,6 +364,9 @@ function UrbanFlashPanel({ urbanFlash, theme, onSelectArea }) {
           {urbanFlash?.likely ?? 0} likely
         </span>
       </div>
+      <p className={clsx('mb-1.5 text-[9px] leading-snug', dark ? 'text-gray-500' : 'text-slate-500')}>
+        Tap an area to open its intelligence report
+      </p>
       <ul className="max-h-[118px] space-y-1 overflow-y-auto">
         {areas.length === 0 && (
           <li className={clsx('py-6 text-center text-[11px]', dark ? 'text-gray-600' : 'text-slate-400')}>

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { formatDistance } from '../lib/geo'
 import { RISK_COLOR, RISK_LABEL, SUSCEPTIBILITY_COLOR, SUSCEPTIBILITY_TEXT_COLOR,
@@ -8,7 +8,8 @@ import { RISK_COLOR, RISK_LABEL, SUSCEPTIBILITY_COLOR, SUSCEPTIBILITY_TEXT_COLOR
 } from '../lib/riskCopy'
 import { exportIntelligenceReportPdf } from '../lib/exportIntelligenceReportPdf'
 import { HORIZON_KEYS, normalizeHorizons } from '../lib/horizons'
-import { IconAlertTriangle, IconDownload, IconGauge, IconX } from './Icons'
+import { IconAlertTriangle, IconGauge, IconX } from './Icons'
+import GenerateReportButton from './GenerateReportButton'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 
@@ -126,6 +127,7 @@ export default function ExpertIntelligenceReport({
   onClose,
   onSelectStation,
 }) {
+  const [exporting, setExporting] = useState(false)
   const dark = theme === 'dark'
   const tier = overallRisk || 'Normal'
   const badge = (dark ? DARK_BADGE : LIGHT_BADGE)[tier] || LIGHT_BADGE.Normal
@@ -158,28 +160,40 @@ export default function ExpertIntelligenceReport({
 
   const roadsAtRisk = roadSummary?.at_risk ?? 0
   const placeMeta = [place?.class, place?.state].filter(Boolean).join(' · ')
+  const reportSubtitle = place?.from_geolocation
+    ? 'Your location · full intelligence'
+    : place?.source === 'urban_flash_flood'
+      ? 'Urban flash · full intelligence'
+      : 'Selected place · full intelligence'
 
   const handleExport = async () => {
-    let mapImage = null
+    if (exporting) return
+    setExporting(true)
     try {
-      mapImage = (await captureMapSnapshot?.()) || null
-    } catch {
-      mapImage = null
+      let mapImage = null
+      try {
+        mapImage = (await captureMapSnapshot?.()) || null
+      } catch {
+        mapImage = null
+      }
+      exportIntelligenceReportPdf({
+        place,
+        overallRisk: tier,
+        primaryStation,
+        terrain,
+        site: siteAssessment,
+        suitability,
+        actions,
+        horizons,
+        roads: nearbyRoads,
+        settlements: nearbySettlements,
+        gauges: nearby,
+        mapImage,
+        detailLevel: 'full',
+      })
+    } finally {
+      setExporting(false)
     }
-    exportIntelligenceReportPdf({
-      place,
-      overallRisk: tier,
-      primaryStation,
-      terrain,
-      site: siteAssessment,
-      suitability,
-      actions,
-      horizons,
-      roads: nearbyRoads,
-      settlements: nearbySettlements,
-      gauges: nearby,
-      mapImage,
-    })
   }
 
   return (
@@ -218,20 +232,15 @@ export default function ExpertIntelligenceReport({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
+            <GenerateReportButton
+              theme={theme}
+              size="sm"
+              loading={exporting}
+              disabled={loading || siteLoading}
               onClick={handleExport}
-              className={clsx(
-                'inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-semibold transition',
-                dark
-                  ? 'border-gray-700/70 bg-gray-800/70 text-gray-300 hover:text-white'
-                  : 'border-slate-200 bg-slate-100 text-slate-600 hover:text-slate-900',
-              )}
-              title="Download / print report as PDF"
-            >
-              <IconDownload size={12} />
-              PDF
-            </button>
+              label="Generate report"
+              subtitle={reportSubtitle}
+            />
             <button
               type="button"
               onClick={onClose}

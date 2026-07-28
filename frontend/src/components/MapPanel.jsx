@@ -8,6 +8,7 @@ import LayersPanel from './LayersPanel'
 import { IconHome } from './Icons'
 import { SUSCEPTIBILITY_COLOR } from '../lib/riskCopy'
 import { captureMapSnapshot } from '../lib/captureMapSnapshot'
+import { floodHotspotHeatmapPaint } from '../lib/floodHotspotStyle'
 
 const RISK_COLOR = {
   Normal:    '#22c55e',
@@ -902,6 +903,8 @@ export default function MapPanel({
   bottomSheetOverlay = false,
   /** Parent ref assigned a () => Promise<dataUrl|null> capture helper. */
   mapCaptureRef = null,
+  /** Called when an urban flash cell is clicked (opens intelligence / brief). */
+  onUrbanFlashSelect = null,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -912,7 +915,7 @@ export default function MapPanel({
   const [riskAreasVisible, setRiskAreasVisible] = useState(true)
   const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
-  const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(false)
+  const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(true)
   const [atRiskPlacesVisible, setAtRiskPlacesVisible] = useState(true)
   const [gaugesVisible, setGaugesVisible] = useState(true)
   const [newsVisible, setNewsVisible] = useState(false)
@@ -949,36 +952,70 @@ export default function MapPanel({
   const buildingsFetchRef = useRef(0)
   const appliedBasemapRef = useRef(null)
   const onPlaceSelectRef = useRef(onPlaceSelect)
+  const onUrbanFlashSelectRef = useRef(onUrbanFlashSelect)
   useEffect(() => {
     onPlaceSelectRef.current = onPlaceSelect
   }, [onPlaceSelect])
+  useEffect(() => {
+    onUrbanFlashSelectRef.current = onUrbanFlashSelect
+  }, [onUrbanFlashSelect])
 
   const atRiskPlacesGeoJSON = useMemo(
     () => placesToGeoJSON(atRiskPlaces),
     [atRiskPlaces],
   )
   const historicalHotspotHeatmapData = useMemo(() => {
-    if (!historicalHotspotsData?.features?.length) return EMPTY_FC
+    const communityWeight = {
+      Critical: 18,
+      High: 12,
+      Moderate: 6,
+      Low: 3,
+    }
+    const historical = (historicalHotspotsData?.features || [])
+      .map((feature) => {
+        const props = feature?.properties || {}
+        const lon = Number(props.lon)
+        const lat = Number(props.lat)
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lon, lat] },
+          properties: {
+            ...props,
+            heat_source: 'historical',
+            heat_weight: Math.max(Number(props.event_count) || 0, (Number(props.risk_score) || 0) * 10),
+          },
+        }
+      })
+      .filter(Boolean)
+
+    const community = (communityReports || [])
+      .map((report) => {
+        const lon = Number(report.longitude)
+        const lat = Number(report.latitude)
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+        const severity = report.severity || 'Moderate'
+        const verifiedBoost = report.status === 'verified' ? 1.35 : 1
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [lon, lat] },
+          properties: {
+            name: report.location_name || report.affected_street || 'Community report',
+            severity,
+            status: report.status,
+            heat_source: 'community',
+            heat_weight: (communityWeight[severity] || 4) * verifiedBoost,
+          },
+        }
+      })
+      .filter(Boolean)
+
+    if (!historical.length && !community.length) return EMPTY_FC
     return {
       type: 'FeatureCollection',
-      features: historicalHotspotsData.features
-        .map((feature) => {
-          const props = feature?.properties || {}
-          const lon = Number(props.lon)
-          const lat = Number(props.lat)
-          if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
-          return {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [lon, lat] },
-            properties: {
-              ...props,
-              heat_weight: Math.max(Number(props.event_count) || 0, (Number(props.risk_score) || 0) * 10),
-            },
-          }
-        })
-        .filter(Boolean),
+      features: [...historical, ...community],
     }
-  }, [historicalHotspotsData])
+  }, [historicalHotspotsData, communityReports])
   const urbanFlashGridData = useMemo(
     () => vectorGridFromFeatures(urbanFlashData),
     [urbanFlashData],
@@ -1706,21 +1743,24 @@ export default function MapPanel({
       )
 
       map.on('click', 'urban-flash-fill', (e) => {
-        const p = e.features[0].properties
+        const feature = e.features?.[0]
+        const p = feature?.properties || {}
+        const lon = Number(e.lngLat?.lng)
+        const lat = Number(e.lngLat?.lat)
         const tierColor = URBAN_FLASH_COLOR[p.risk_tier] || URBAN_FLASH_COLOR.Likely
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
             <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
-              <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${p.name}</div>
-              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px">Urban flash flood</div>
+              <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${p.name || 'Urban flash zone'}</div>
+              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px">Urban flash flood · tap opens report</div>
               <div style="display:flex;justify-content:space-between;margin-bottom:2px">
                 <span style="color:#6b7280">Likelihood</span>
-                <span style="font-weight:600;color:${tierColor}">${p.risk_tier}</span>
+                <span style="font-weight:600;color:${tierColor}">${p.risk_tier || '—'}</span>
               </div>
               <div style="display:flex;justify-content:space-between;margin-bottom:2px">
                 <span style="color:#6b7280">Score</span>
-                <span style="font-weight:500">${(p.risk_score * 100).toFixed(0)}%</span>
+                <span style="font-weight:500">${p.risk_score != null ? `${(Number(p.risk_score) * 100).toFixed(0)}%` : '—'}</span>
               </div>
               <div style="display:flex;justify-content:space-between">
                 <span style="color:#6b7280">Valid to</span>
@@ -1729,6 +1769,20 @@ export default function MapPanel({
             </div>
           `)
           .addTo(map)
+
+        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+          onUrbanFlashSelectRef.current?.({
+            name: p.name || 'Urban flash zone',
+            state: p.state || null,
+            risk_tier: p.risk_tier || null,
+            risk_score: p.risk_score != null ? Number(p.risk_score) : null,
+            admin_level: p.admin_level || null,
+            lon,
+            lat,
+            bbox_lnglat: null,
+            source: 'urban_flash_flood',
+          })
+        }
       })
       map.on('mouseenter', 'urban-flash-fill', () => {
         map.getCanvas().style.cursor = 'pointer'
@@ -1791,6 +1845,11 @@ export default function MapPanel({
     const map = mapObj.current
     const beforeId = map.getStyle().layers.find((l) => l.type === 'symbol')?.id
 
+    // Radius must grow ~exponentially with zoom so geographic footprint stays
+    // zone-like; linear pixel growth makes hotspots collapse into dots.
+    // Colors come from shared floodHotspotStyle (kept in sync with the legend).
+    const hotspotHeatPaint = floodHotspotHeatmapPaint()
+
     if (map.getSource('historical-hotspot-points')) {
       map.getSource('historical-hotspot-points').setData(historicalHotspotHeatmapData)
     } else {
@@ -1803,71 +1862,16 @@ export default function MapPanel({
           id: 'historical-hotspots-heatmap',
           type: 'heatmap',
           source: 'historical-hotspot-points',
-          maxzoom: 13,
-          paint: {
-            'heatmap-weight': [
-              'interpolate',
-              ['linear'],
-              ['coalesce', ['get', 'heat_weight'], 0],
-              1, 0.12,
-              3, 0.35,
-              6, 0.6,
-              10, 0.82,
-              16, 1,
-            ],
-            'heatmap-intensity': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              4, 0.9,
-              7, 1.25,
-              10, 1.7,
-              13, 2.1,
-            ],
-            'heatmap-color': [
-              'interpolate',
-              ['linear'],
-              ['heatmap-density'],
-              0,
-              'rgba(59,130,246,0)',
-              0.12,
-              'rgba(96,165,250,0.38)',
-              0.28,
-              'rgba(147,197,253,0.62)',
-              0.46,
-              'rgba(254,240,138,0.82)',
-              0.66,
-              'rgba(253,186,116,0.92)',
-              0.82,
-              'rgba(248,113,113,0.96)',
-              1,
-              'rgba(220,38,38,0.99)',
-            ],
-            'heatmap-radius': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              4, 18,
-              6, 28,
-              8, 38,
-              10, 50,
-              13, 64,
-            ],
-            'heatmap-opacity': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              4, 0.72,
-              10, 0.88,
-              13, 0.68,
-            ],
-          },
+          paint: hotspotHeatPaint,
         },
         beforeId,
       )
     }
 
     if (map.getLayer('historical-hotspots-heatmap')) {
+      Object.entries(hotspotHeatPaint).forEach(([key, value]) => {
+        map.setPaintProperty('historical-hotspots-heatmap', key, value)
+      })
       map.moveLayer('historical-hotspots-heatmap', beforeId)
     }
   }, [mapReady, styleEpoch, historicalHotspotHeatmapData])

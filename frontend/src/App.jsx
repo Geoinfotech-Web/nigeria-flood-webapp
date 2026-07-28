@@ -359,13 +359,34 @@ export default function App() {
 
   const handleSelectUrbanFlash = useCallback((area) => {
     if (!area) return
+    const lat = Number(area.lat)
+    const lon = Number(area.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      setZoneFocus(area)
+      return
+    }
     setSelected(null)
     setShowSelectedBasin(false)
-    setPlace(null)
     setHighlightedRoad(null)
     setBuildingsTabActive(false)
     setViewportBuildings(null)
     setZoneFocus(area)
+    setExpertMobileConsoleOpen(true)
+    setPlace({
+      name: area.name || 'Urban flash zone',
+      display_name: [area.name || 'Urban flash zone', area.state, 'Nigeria']
+        .filter(Boolean)
+        .join(', '),
+      lat,
+      lon,
+      bbox_lnglat: area.bbox_lnglat || null,
+      state: area.state || null,
+      class: area.admin_level || 'Urban flash',
+      source: 'urban_flash_flood',
+      urban_flash_tier: area.risk_tier || null,
+      from_geolocation: false,
+      focusAt: Date.now(),
+    })
   }, [])
 
   const handleSelectHistoricalHotspot = useCallback((area) => {
@@ -491,6 +512,7 @@ export default function App() {
                   onSelectStation={handleSelectStation}
                   onSelectPlace={handlePlaceSelect}
                   onPanelTabChange={(tab) => setBuildingsTabActive(tab === 'buildings')}
+                  captureMapSnapshot={() => mapCaptureRef.current?.() ?? Promise.resolve(null)}
                 />
               </div>
             ) : (
@@ -533,11 +555,13 @@ export default function App() {
               theme={theme}
               variant="public"
               placeFocus={place}
+              zoneFocus={zoneFocus}
               communityReportFocus={communityReportFocus}
               roadHighlight={highlightedRoad}
               forceBuildingsLayer={buildingsTabActive}
               onBuildingsViewportChange={handleBuildingsViewportChange}
               onPlaceSelect={handlePlaceSelect}
+              onUrbanFlashSelect={handleSelectUrbanFlash}
               atRiskPlaces={nationalAffectedSummary?.places}
               externalNewsVisible={publicLists.news}
               externalNewsArticles={dockNewsArticles}
@@ -545,6 +569,7 @@ export default function App() {
               showSearch={false}
               navigation={navigation}
               highlightSelectedBasin={showSelectedBasin}
+              mapCaptureRef={mapCaptureRef}
             />
           </main>
         </div>
@@ -695,6 +720,7 @@ export default function App() {
                 communityReportFocus={communityReportFocus}
                 roadHighlight={highlightedRoad}
                 onPlaceSelect={handlePlaceSelect}
+                onUrbanFlashSelect={handleSelectUrbanFlash}
                 atRiskPlaces={affectedSettlements?.places}
                 externalNewsArticles={dockNewsArticles}
                 newsFocus={newsFocus}

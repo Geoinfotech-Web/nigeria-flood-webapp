@@ -24,18 +24,30 @@ function Toggle({ on, onToggle, theme }) {
   )
 }
 
-function Row({ label, on, onToggle, theme, children }) {
+function Row({ label, on, onToggle, theme, children, hint = null }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <p
-          className={clsx(
-            'min-w-0 text-[12px] font-medium leading-tight',
-            theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
-          )}
-        >
-          {label}
-        </p>
+        <div className="min-w-0">
+          <p
+            className={clsx(
+              'text-[12px] font-medium leading-tight',
+              theme === 'dark' ? 'text-gray-200' : 'text-slate-800',
+            )}
+          >
+            {label}
+          </p>
+          {hint ? (
+            <p
+              className={clsx(
+                'mt-0.5 text-[10px] leading-snug',
+                theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
+              )}
+            >
+              {hint}
+            </p>
+          ) : null}
+        </div>
         <Toggle on={on} onToggle={onToggle} theme={theme} />
       </div>
       {on && children}
@@ -206,6 +218,7 @@ export default function LayersPanel({
               on={historicalHotspotsVisible}
               onToggle={onToggleHistoricalHotspots}
               theme={theme}
+              hint="Past events + live community reports"
             />
 
             <Row

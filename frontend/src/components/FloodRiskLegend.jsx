@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { IconChevronDown, IconChevronUp, IconNewspaper } from './Icons'
+import { floodHotspotLegendGradient } from '../lib/floodHotspotStyle'
 
 /** Inundation probability — darker blue = higher chance. */
 const PROBABILITY_ITEMS = [
@@ -26,12 +27,6 @@ const DEFAULT_HISTORY_ITEMS = [
   { label: '> 50%', color: '#6b21a8', range: 'Very frequent' },
   { label: '25–50%', color: '#9333ea', range: 'Frequent' },
   { label: '5–25%', color: '#c084fc', range: 'Occasional' },
-]
-
-const HISTORICAL_HOTSPOT_ITEMS = [
-  { label: 'Persistent', color: '#7c3aed', range: '6+ events' },
-  { label: 'Frequent', color: '#a855f7', range: '3-5 events' },
-  { label: 'Occasional', color: '#d8b4fe', range: '1-2 events' },
 ]
 
 const EXPOSURE_SYMBOLS = {
@@ -73,6 +68,36 @@ function SectionTitle({ children, theme }) {
     >
       {children}
     </p>
+  )
+}
+
+function HeatRamp({ theme, gradient, lowLabel = 'Lower', highLabel = 'Higher' }) {
+  return (
+    <div>
+      <div
+        className="h-2.5 w-full rounded-sm border border-black/10"
+        style={{ background: gradient }}
+        aria-hidden
+      />
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span
+          className={clsx(
+            'text-[10px] font-medium',
+            theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+          )}
+        >
+          {lowLabel}
+        </span>
+        <span
+          className={clsx(
+            'text-[10px] font-medium',
+            theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
+          )}
+        >
+          {highLabel}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -287,9 +312,14 @@ export default function FloodRiskLegend({
                   theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                 )}
               >
-                Smooth heatmap of past flood event recurrence from the Global Flood Database, 2000–2018. Blue = lower recurrence, red = higher recurrence.
+                Heat intensity from past Global Flood Database events (2000–2018) plus live community reports.
               </p>
-              <CategoryItems items={HISTORICAL_HOTSPOT_ITEMS} theme={theme} />
+              <HeatRamp
+                theme={theme}
+                gradient={floodHotspotLegendGradient()}
+                lowLabel="Lower"
+                highLabel="Higher"
+              />
             </div>
           )}
 

@@ -9,7 +9,9 @@ import {
   actionHint,
   placeRiskMessage,
 } from '../lib/riskCopy'
+import { exportIntelligenceReportPdf } from '../lib/exportIntelligenceReportPdf'
 import { IconActivity, IconLocate, IconX } from './Icons'
+import GenerateReportButton from './GenerateReportButton'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 
@@ -51,9 +53,11 @@ export default function PlaceBriefPanel({
   onSelectStation,
   onSelectPlace,
   onPanelTabChange,
+  captureMapSnapshot = null,
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [panelTab, setPanelTab] = useState('places') // places | roads | buildings
+  const [exporting, setExporting] = useState(false)
   const tier = overallRisk || 'Normal'
   const badge = (theme === 'dark' ? DARK_BADGE : LIGHT_BADGE)[tier]
   const horizons = primaryStation?.prediction?.horizons || {}
@@ -76,6 +80,53 @@ export default function PlaceBriefPanel({
     onPanelTabChange?.(id)
   }
 
+  const handleGenerateReport = async () => {
+    if (!place || exporting) return
+    setExporting(true)
+    try {
+      let mapImage = null
+      try {
+        mapImage = (await captureMapSnapshot?.()) || null
+      } catch {
+        mapImage = null
+      }
+      const message = placeRiskMessage(tier, place.name, primaryStation?.name)
+      exportIntelligenceReportPdf({
+        place,
+        overallRisk: tier,
+        primaryStation,
+        terrain: null,
+        site: null,
+        suitability: {
+          verdict: message,
+          verdictTier: tier,
+          reasons: [
+            primaryStation
+              ? `Nearest monitored gauge: ${primaryStation.name}${primaryStation.distance_km != null ? ` (${formatDistance(primaryStation.distance_km)})` : ''}.`
+              : 'No nearby monitored river gauge within range.',
+            actionHint(tier),
+            place.from_geolocation
+              ? 'Based on your current location.'
+              : place.source === 'urban_flash_flood'
+                ? `Urban flash flood area marked ${place.urban_flash_tier || 'Likely / Highly Likely'}.`
+                : 'Based on the searched or selected place.',
+          ].filter(Boolean),
+          uses: [],
+        },
+        actions: [actionHint(tier)],
+        horizons,
+        roads: nearbyRoads,
+        settlements: nearbySettlements,
+        gauges: nearby,
+        mapImage,
+        detailLevel: 'brief',
+        briefMessage: message,
+      })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const roadKey = (r) => `${r.osm_id || r.name}-${r.lat}-${r.lon}`
   const placesCount = nearbySettlements.length
   const roadsCount = nearbyRoads.length
@@ -83,6 +134,12 @@ export default function PlaceBriefPanel({
   const buildingsExposed = buildingSummary?.exposed_in_flood_zones ?? 0
   const buildingsTotal = buildingSummary?.total_in_radius ?? nearbyBuildings.length
   const buildingsScope = buildingSummary?.scope === 'map_viewport' ? 'map view' : 'near place'
+
+  const reportSubtitle = place.from_geolocation
+    ? 'Your location · public brief'
+    : place.source === 'urban_flash_flood'
+      ? 'Urban flash · public brief'
+      : 'This place · public brief'
 
   const tabBtn = (id, label, count, loadingTab) => (
     <button
@@ -133,7 +190,11 @@ export default function PlaceBriefPanel({
             )}
           >
             {place.from_geolocation && <IconLocate size={11} />}
-            {place.from_geolocation ? 'Near you' : 'Flood conditions'}
+            {place.from_geolocation
+              ? 'Near you'
+              : place.source === 'urban_flash_flood'
+                ? 'Urban flash flood'
+                : 'Flood conditions'}
           </p>
           <h2 className="mt-1 truncate font-display text-xl font-semibold tracking-tight">
             {place.name}
@@ -147,19 +208,30 @@ export default function PlaceBriefPanel({
             {place.display_name || 'Nigeria'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className={clsx(
-            'inline-flex h-8 w-8 items-center justify-center rounded-lg border transition shrink-0',
-            theme === 'dark'
-              ? 'border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white'
-              : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900',
-          )}
-          aria-label="Close place conditions"
-        >
-          <IconX size={14} />
-        </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={clsx(
+              'inline-flex h-8 w-8 items-center justify-center rounded-lg border transition',
+              theme === 'dark'
+                ? 'border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white'
+                : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+            )}
+            aria-label="Close place conditions"
+          >
+            <IconX size={14} />
+          </button>
+          <GenerateReportButton
+            theme={theme}
+            size="sm"
+            loading={exporting}
+            disabled={loading}
+            onClick={handleGenerateReport}
+            label="Generate report"
+            subtitle={reportSubtitle}
+          />
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
