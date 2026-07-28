@@ -54,23 +54,24 @@ Production project **`ggis-flood-watch`** (`europe-west1`) is live.
 |---|---|
 | Frontend (Firebase) | https://ggis-flood-watch.web.app |
 | Custom frontend (pending DNS) | https://gfw.ggis.africa |
-| API | https://gfw-api-883584176276.europe-west1.run.app |
-| Custom API (pending DNS) | https://api.gfw.ggis.africa |
+| API | https://api.gfw.ggis.africa |
+| API (Cloud Run fallback) | https://gfw-api-883584176276.europe-west1.run.app |
 
 Scheduled ingest: Cloud Run Jobs `gfw-ingest-real-data` (daily 02:05 UTC) and `gfw-ingest-urban-flash` (every 3h :35 UTC). Redeploy with `python scripts/deploy_cloud_ingest_jobs.py`. Domain cutover: `scripts/DNS_FOR_WEB_TEAM.txt`.
 
 | Surface | URL |
 |---------|-----|
 | Frontend (Firebase Hosting) | https://ggis-flood-watch.web.app |
-| API (Cloud Run `gfw-api`) | https://gfw-api-883584176276.europe-west1.run.app |
-| API docs | https://gfw-api-883584176276.europe-west1.run.app/docs |
-| Developer API | https://gfw-api-883584176276.europe-west1.run.app/v1/docs |
+| API (custom domain) | https://api.gfw.ggis.africa |
+| API docs | https://api.gfw.ggis.africa/docs |
+| Developer API | https://api.gfw.ggis.africa/v1/docs |
+| Staff admin console | https://ggis-flood-watch.web.app/?admin=1 |
 | ML (Cloud Run `gfw-ml`) | BentoML behind `BENTOML_URL` on the API |
 | TiTiler (Cloud Run `gfw-titiler`) | COG tiles for susceptibility / inundation history |
 
 ### Developer API (third-party apps)
 
-Versioned public contract at `/v1` with free-tier API keys. **Dashboard API tab is Coming soon** (internal preview: `?api_preview=1`).
+Versioned public contract at `/v1` with free-tier API keys. **Dashboard API tab is Coming soon** until billing is verified (`VITE_PUBLIC_API_TAB=1`). Internal preview: `?api_preview=1`. Staff mint in-house keys at `?admin=1`.
 
 1. `GET /v1/plans` — Free / Starter / Pro + payment modes (card, bank transfer, USSD)
 2. `POST /v1/subscribe` — free plan returns `gfw_live_…` once; paid plans return `billing_ref` pending payment
@@ -79,11 +80,11 @@ Versioned public contract at `/v1` with free-tier API keys. **Dashboard API tab 
 Includes **location intelligence**: `/v1/location/site-assessment`, `/terrain`, `/nearby-settlements`, `/nearby-roads`, `/search`, `/reverse`.
 
 ```bash
-curl -s "https://gfw-api-883584176276.europe-west1.run.app/v1/stations" \
+curl -s "https://api.gfw.ggis.africa/v1/stations" \
   -H "X-API-Key: gfw_live_YOUR_KEY"
 ```
 
-Free limits: **60 req/min**, **10 000/day**. Docs: `/v1/docs`. Dashboard routes stay unauthenticated for the map UI.
+Free limits: **60 req/min**, **10 000/day**. Docs: `/v1/docs`. Dashboard routes stay unauthenticated for the map UI. Admin JWT routes live under `/admin` (roles: `admin`, `super_admin`, `viewer`). Paystack webhook: `POST /webhooks/paystack`.
 
 | Backend | Resource |
 |---------|----------|

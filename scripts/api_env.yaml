@@ -10,3 +10,6 @@ ENABLE_GOOGLE_PLACES: "1"
 API_FREE_RPM: "60"
 API_FREE_DAILY_QUOTA: "10000"
 API_KEY_PEPPER: "gfw-prod-pepper-change-via-secret"
+# Staff admin console (/admin). Prefer Secret Manager; do not commit real passwords.
+# ADMIN_USERS_JSON: '[{"username":"ops","password":"CHANGE_ME","role":"super_admin"}]'
+ALLOW_DEV_ADMIN_USERS: "0"

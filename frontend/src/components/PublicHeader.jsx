@@ -13,6 +13,7 @@ export default function PublicHeader({
   onDetectLocation,
   locating = false,
   locationError = null,
+  publicApiEnabled = false,
 }) {
   const dark = theme === 'dark'
 
@@ -127,12 +128,18 @@ export default function PublicHeader({
               {[
                 { id: 'public', label: 'Public', disabled: false },
                 { id: 'expert', label: 'Expert', disabled: false },
-                { id: 'developers', label: 'API', disabled: false },
-              ].map(({ id, label, disabled }) => (
+                {
+                  id: 'developers',
+                  label: 'API',
+                  disabled: !publicApiEnabled,
+                  soon: !publicApiEnabled,
+                },
+              ].map(({ id, label, disabled, soon }) => (
                 <button
                   key={id}
                   type="button"
                   disabled={disabled}
+                  title={soon ? 'Developer API — opening after admin billing is configured' : undefined}
                   onClick={() => {
                     if (!disabled) onModeChange(id)
                   }}
@@ -152,7 +159,16 @@ export default function PublicHeader({
                             : 'text-slate-400',
                   )}
                 >
-                  {label}
+                  {soon ? (
+                    <span className="inline-flex flex-col items-center leading-tight sm:flex-row sm:gap-1">
+                      <span>{label}</span>
+                      <span className="text-[9px] font-medium uppercase tracking-wide opacity-80">
+                        Soon
+                      </span>
+                    </span>
+                  ) : (
+                    label
+                  )}
                 </button>
               ))}
             </div>

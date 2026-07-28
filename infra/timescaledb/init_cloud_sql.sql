@@ -224,15 +224,21 @@ CREATE INDEX IF NOT EXISTS idx_urban_footprints_geom
 CREATE INDEX IF NOT EXISTS idx_urban_footprints_centroid
     ON urban_footprints (centroid_lat, centroid_lon);
 
--- ─── Developer API subscribers / keys ─────────────────────────
+# ─── Developer API subscribers / keys ─────────────────────────
 CREATE TABLE IF NOT EXISTS api_subscribers (
     id           BIGSERIAL PRIMARY KEY,
     email        TEXT NOT NULL UNIQUE,
     org_name     TEXT NOT NULL DEFAULT '',
     status       TEXT NOT NULL DEFAULT 'active',
+    preferred_plan TEXT NOT NULL DEFAULT 'free',
+    payment_method TEXT,
+    billing_status TEXT NOT NULL DEFAULT 'none',
+    billing_ref  TEXT,
+    subscriber_type TEXT NOT NULL DEFAULT 'external',
+    notes        TEXT NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT api_subscribers_status_chk CHECK (status IN ('active', 'suspended'))
+    CONSTRAINT api_subscribers_status_chk CHECK (status IN ('active', 'suspended', 'pending_payment'))
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -248,7 +254,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at          TIMESTAMPTZ,
     last_used_at        TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT api_keys_plan_chk CHECK (plan IN ('free')),
+    CONSTRAINT api_keys_plan_chk CHECK (plan IN ('free', 'starter', 'pro')),
     CONSTRAINT api_keys_env_chk CHECK (env IN ('live', 'test'))
 );
 
@@ -262,6 +268,13 @@ CREATE TABLE IF NOT EXISTS api_usage_daily (
     day            DATE NOT NULL,
     request_count  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (subscriber_id, day)
+);
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key          TEXT PRIMARY KEY,
+    value        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by   TEXT
 );
 
 -- ─── Seed: 5 gauge stations across Nigeria ───────────────────

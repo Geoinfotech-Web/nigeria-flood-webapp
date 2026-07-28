@@ -45,7 +45,7 @@ function formatNgn(amount) {
   return `₦${Number(amount).toLocaleString('en-NG')}`
 }
 
-export default function DevelopersPage({ theme = 'light' }) {
+export default function DevelopersPage({ theme = 'light', preview = false }) {
   const dark = theme === 'dark'
   const [email, setEmail] = useState('')
   const [orgName, setOrgName] = useState('')
@@ -140,6 +140,19 @@ export default function DevelopersPage({ theme = 'light' }) {
       )}
     >
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+        {preview ? (
+          <p
+            className={clsx(
+              'mb-3 rounded-lg border px-3 py-2 text-[11px] font-medium',
+              dark
+                ? 'border-amber-800/50 bg-amber-950/40 text-amber-200'
+                : 'border-amber-200 bg-amber-50 text-amber-900',
+            )}
+          >
+            Internal preview — public API tab is Coming soon. Share only for testing.
+          </p>
+        ) : null}
+
         <p
           className={clsx(
             'text-[11px] font-semibold uppercase tracking-[0.18em]',

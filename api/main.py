@@ -48,7 +48,9 @@ from fastapi.responses import JSONResponse
 from developer.keys import API_FREE_DAILY_QUOTA, API_FREE_RPM, ensure_developer_tables
 from developer.middleware import DeveloperApiMiddleware
 from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure, boundaries, incidents, news, routing
+from routers.admin import router as admin_router
 from routers.v1 import router as v1_router
+from routers.webhooks import router as webhooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
@@ -326,6 +328,8 @@ app.include_router(news.router,        prefix="/news", tags=["live flood news"])
 app.include_router(routing.router,     prefix="/routing", tags=["flood-aware routing"])
 app.include_router(boundaries.router,  prefix="/boundaries", tags=["boundaries"])
 app.include_router(v1_router, prefix="/v1")
+app.include_router(admin_router, prefix="/admin")
+app.include_router(webhooks_router, prefix="/webhooks")
 
 
 def _v1_openapi_schema() -> dict:

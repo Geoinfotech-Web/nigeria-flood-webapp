@@ -35,6 +35,7 @@ import { useAffectedSettlements } from './hooks/useAffectedSettlements'
 import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSummary'
 import PublicListsDock from './components/PublicListsDock'
 import RouteConditionsPanel from './components/RouteConditionsPanel'
+import AdminApp from './components/admin/AdminApp'
 
 function readPlaceFromUrl() {
   try {
@@ -76,12 +77,28 @@ function readApiPreviewFromUrl() {
   }
 }
 
+function readAdminFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('admin') === '1') return true
+    const hash = (window.location.hash || '').replace(/^#/, '')
+    return hash === '/admin' || hash === 'admin'
+  } catch {
+    return false
+  }
+}
+
+/** Flip to "1" in .env.production after Paystack + admin flows are verified. */
+const PUBLIC_API_TAB_ENABLED = import.meta.env.VITE_PUBLIC_API_TAB === '1'
+
 export default function App() {
   const { stations } = useStations()
   const liveReadings = useGaugeFeed()
   const [theme, setTheme] = useState('light')
   const [basemap, setBasemap] = useState('streets')
+  const [adminMode, setAdminMode] = useState(() => readAdminFromUrl())
   const [mode, setMode] = useState(() => (readApiPreviewFromUrl() ? 'developers' : 'public'))
+  const apiPreview = readApiPreviewFromUrl()
   const [selected, setSelected] = useState(null)
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
@@ -402,6 +419,27 @@ export default function App() {
   const publicShell =
     theme === 'dark' ? 'bg-gray-950 text-gray-100' : 'bg-slate-100 text-slate-900'
 
+  if (adminMode) {
+    return (
+      <div className={clsx('flex h-[100dvh] flex-col transition-colors', publicShell)}>
+        <AdminApp
+          theme={theme}
+          onExit={() => {
+            setAdminMode(false)
+            try {
+              const url = new URL(window.location.href)
+              url.searchParams.delete('admin')
+              if (url.hash === '#/admin' || url.hash === '#admin') url.hash = ''
+              window.history.replaceState({}, '', url)
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className={clsx('flex h-[100dvh] flex-col transition-colors', publicShell)}>
       <PublicHeader
@@ -414,6 +452,7 @@ export default function App() {
         onDetectLocation={detect}
         locating={locating}
         locationError={locationError}
+        publicApiEnabled={PUBLIC_API_TAB_ENABLED}
       />
 
       <NationalAlertsStrip
@@ -440,8 +479,8 @@ export default function App() {
         initialTab={reportInitialTab}
       />
 
-      {mode === 'developers' ? (
-        <DevelopersPage theme={theme} />
+      {mode === 'developers' && apiPreview ? (
+        <DevelopersPage theme={theme} preview />
       ) : mode === 'public' ? (
         <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Browse lists / place brief — bottom sheet on mobile, side panel on desktop */}

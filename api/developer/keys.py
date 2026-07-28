@@ -71,18 +71,27 @@ async def ensure_developer_tables(conn) -> None:
             ADD COLUMN IF NOT EXISTS preferred_plan TEXT NOT NULL DEFAULT 'free',
             ADD COLUMN IF NOT EXISTS payment_method TEXT,
             ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'none',
-            ADD COLUMN IF NOT EXISTS billing_ref TEXT;
+            ADD COLUMN IF NOT EXISTS billing_ref TEXT,
+            ADD COLUMN IF NOT EXISTS subscriber_type TEXT NOT NULL DEFAULT 'external',
+            ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
 
         -- Widen legacy plan check (free-only) to paid tiers
         ALTER TABLE api_keys DROP CONSTRAINT IF EXISTS api_keys_plan_chk;
         ALTER TABLE api_keys
             ADD CONSTRAINT api_keys_plan_chk
-            CHECK (plan IN ('free', 'starter', 'pro'));
+            CHECK (plan IN ('free', 'starter', 'pro', 'internal'));
 
         ALTER TABLE api_subscribers DROP CONSTRAINT IF EXISTS api_subscribers_status_chk;
         ALTER TABLE api_subscribers
             ADD CONSTRAINT api_subscribers_status_chk
             CHECK (status IN ('active', 'suspended', 'pending_payment'));
+
+        CREATE TABLE IF NOT EXISTS platform_settings (
+            key          TEXT PRIMARY KEY,
+            value        JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_by   TEXT
+        );
         """
     )
 
@@ -335,3 +344,131 @@ async def rotate_key(conn, *, email: str, current_raw_key: str, env: str = "live
         "daily_quota": int(current["daily_quota"] or API_FREE_DAILY_QUOTA),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def mint_key_for_subscriber(
+    conn,
+    *,
+    subscriber_id: int,
+    plan: str = "pro",
+    env: str = "live",
+    revoke_existing: bool = True,
+    rate_limit_per_min: int | None = None,
+    daily_quota: int | None = None,
+) -> dict:
+    from developer.plans import PLANS, plan_limits
+
+    plan_id = (plan or "pro").strip().lower()
+    if plan_id == "internal":
+        rpm = int(rate_limit_per_min if rate_limit_per_min is not None else os.getenv("API_INTERNAL_RPM", "2000"))
+        daily = int(daily_quota if daily_quota is not None else os.getenv("API_INTERNAL_DAILY_QUOTA", "1000000"))
+    elif plan_id in PLANS:
+        rpm, daily = plan_limits(plan_id)
+        if rate_limit_per_min is not None:
+            rpm = int(rate_limit_per_min)
+        if daily_quota is not None:
+            daily = int(daily_quota)
+    else:
+        raise ValueError("invalid_plan")
+
+    if revoke_existing:
+        await conn.execute(
+            """
+            UPDATE api_keys
+            SET revoked_at = NOW()
+            WHERE subscriber_id = $1 AND env = $2 AND revoked_at IS NULL
+            """,
+            subscriber_id,
+            env,
+        )
+
+    raw, key_id, key_prefix = generate_api_key(env)
+    await conn.execute(
+        """
+        INSERT INTO api_keys (
+            key_id, key_prefix, key_hash, subscriber_id, plan, env,
+            rate_limit_per_min, daily_quota
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """,
+        key_id,
+        key_prefix,
+        hash_api_key(raw),
+        subscriber_id,
+        plan_id if plan_id != "internal" else "pro",
+        env,
+        rpm,
+        daily,
+    )
+    await conn.execute(
+        """
+        UPDATE api_subscribers
+        SET status = 'active',
+            billing_status = CASE
+                WHEN billing_status = 'pending' THEN 'active'
+                ELSE billing_status
+            END,
+            preferred_plan = $2,
+            updated_at = NOW()
+        WHERE id = $1
+        """,
+        subscriber_id,
+        plan_id if plan_id != "internal" else "pro",
+    )
+    return {
+        "subscriber_id": subscriber_id,
+        "api_key": raw,
+        "key_id": key_id,
+        "key_prefix": key_prefix,
+        "plan": plan_id if plan_id != "internal" else "pro",
+        "env": env,
+        "rate_limit_per_min": rpm,
+        "daily_quota": daily,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def activate_paid_subscriber(conn, *, subscriber_id: int, env: str = "live") -> dict:
+    row = await conn.fetchrow(
+        """
+        SELECT id, email, org_name, preferred_plan, status, billing_status, billing_ref
+        FROM api_subscribers WHERE id = $1
+        """,
+        subscriber_id,
+    )
+    if not row:
+        raise ValueError("subscriber_not_found")
+    plan_id = (row["preferred_plan"] or "starter").strip().lower()
+    if plan_id not in {"starter", "pro", "free"}:
+        plan_id = "starter"
+    result = await mint_key_for_subscriber(
+        conn,
+        subscriber_id=subscriber_id,
+        plan=plan_id,
+        env=env,
+        revoke_existing=True,
+    )
+    await conn.execute(
+        """
+        UPDATE api_subscribers
+        SET billing_status = 'active', status = 'active', updated_at = NOW()
+        WHERE id = $1
+        """,
+        subscriber_id,
+    )
+    return {
+        **result,
+        "email": row["email"],
+        "org_name": row["org_name"],
+        "billing_ref": row["billing_ref"],
+        "billing_status": "active",
+    }
+
+
+async def activate_by_billing_ref(conn, *, billing_ref: str, env: str = "live") -> dict:
+    row = await conn.fetchrow(
+        "SELECT id FROM api_subscribers WHERE billing_ref = $1",
+        billing_ref,
+    )
+    if not row:
+        raise ValueError("billing_ref_not_found")
+    return await activate_paid_subscriber(conn, subscriber_id=int(row["id"]), env=env)
