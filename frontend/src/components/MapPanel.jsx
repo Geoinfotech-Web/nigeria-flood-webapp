@@ -249,44 +249,92 @@ function pointInGeometry(point, geometry) {
   return false
 }
 
+function outerBoundaryFromCells(cells) {
+  // Emit only edges that have no same-zone neighbor (outer perimeter, no internal grid).
+  const occupied = new Set(cells.map((cell) => `${cell.properties._gi},${cell.properties._gj}`))
+  const edges = []
+
+  cells.forEach((cell) => {
+    const ring = cell.geometry?.coordinates?.[0]
+    if (!ring || ring.length < 5) return
+    const i = cell.properties._gi
+    const j = cell.properties._gj
+    const [sw, se, ne, nw] = ring
+    const props = { ...cell.properties }
+    delete props._gi
+    delete props._gj
+
+    const candidates = [
+      { key: `${i},${j - 1}`, line: [sw, se] }, // south
+      { key: `${i},${j + 1}`, line: [nw, ne] }, // north
+      { key: `${i - 1},${j}`, line: [sw, nw] }, // west
+      { key: `${i + 1},${j}`, line: [se, ne] }, // east
+    ]
+    candidates.forEach(({ key, line }) => {
+      if (occupied.has(key)) return
+      edges.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: line },
+        properties: props,
+      })
+    })
+  })
+
+  return edges
+}
+
 function vectorGridFromFeatures(featureCollection) {
   const features = Array.isArray(featureCollection?.features) ? featureCollection.features : []
-  return {
-    type: 'FeatureCollection',
-    features: features.flatMap((feature) => {
-      const geometry = feature?.geometry
-      const props = feature?.properties || {}
-      const bounds = geometryBounds(geometry)
-      if (!geometry || !bounds) return []
+  const fills = []
+  const outlines = []
 
-      const [minLon, minLat, maxLon, maxLat] = bounds
-      const spanLon = Math.max(maxLon - minLon, 0.001)
-      const spanLat = Math.max(maxLat - minLat, 0.001)
-      const cellSize = Math.min(0.02, Math.max(0.004, Math.sqrt((spanLon * spanLat) / 320)))
-      const cells = []
+  features.forEach((feature) => {
+    const geometry = feature?.geometry
+    const props = feature?.properties || {}
+    const bounds = geometryBounds(geometry)
+    if (!geometry || !bounds) return
 
-      for (let lon = minLon; lon < maxLon; lon += cellSize) {
-        for (let lat = minLat; lat < maxLat; lat += cellSize) {
-          const center = [lon + cellSize / 2, lat + cellSize / 2]
-          if (!pointInGeometry(center, geometry)) continue
-          cells.push({
-            type: 'Feature',
-            geometry: {
-              type: 'Polygon',
-              coordinates: [[
-                [lon, lat],
-                [Math.min(lon + cellSize, maxLon), lat],
-                [Math.min(lon + cellSize, maxLon), Math.min(lat + cellSize, maxLat)],
-                [lon, Math.min(lat + cellSize, maxLat)],
-                [lon, lat],
-              ]],
-            },
-            properties: props,
-          })
-        }
+    const [minLon, minLat, maxLon, maxLat] = bounds
+    const spanLon = Math.max(maxLon - minLon, 0.001)
+    const spanLat = Math.max(maxLat - minLat, 0.001)
+    const cellSize = Math.min(0.02, Math.max(0.004, Math.sqrt((spanLon * spanLat) / 320)))
+    const cells = []
+
+    let i = 0
+    for (let lon = minLon; lon < maxLon; lon += cellSize, i += 1) {
+      let j = 0
+      for (let lat = minLat; lat < maxLat; lat += cellSize, j += 1) {
+        const center = [lon + cellSize / 2, lat + cellSize / 2]
+        if (!pointInGeometry(center, geometry)) continue
+        cells.push({
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [[
+              [lon, lat],
+              [Math.min(lon + cellSize, maxLon), lat],
+              [Math.min(lon + cellSize, maxLon), Math.min(lat + cellSize, maxLat)],
+              [lon, Math.min(lat + cellSize, maxLat)],
+              [lon, lat],
+            ]],
+          },
+          properties: { ...props, _gi: i, _gj: j },
+        })
       }
-      return cells
-    }),
+    }
+
+    outlines.push(...outerBoundaryFromCells(cells))
+    cells.forEach((cell) => {
+      const nextProps = { ...cell.properties }
+      delete nextProps._gi
+      delete nextProps._gj
+      fills.push({ ...cell, properties: nextProps })
+    })
+  })
+
+  return {
+    fills: { type: 'FeatureCollection', features: fills },
+    outlines: { type: 'FeatureCollection', features: outlines },
   }
 }
 
@@ -935,6 +983,8 @@ export default function MapPanel({
     () => vectorGridFromFeatures(urbanFlashData),
     [urbanFlashData],
   )
+  const urbanFlashFillData = urbanFlashGridData.fills
+  const urbanFlashOutlineData = urbanFlashGridData.outlines
 
   const resetToHomeView = useCallback(() => {
     if (!mapObj.current) return
@@ -1616,11 +1666,14 @@ export default function MapPanel({
 
   // ── Add urban flash flood GeoJSON layer ────────────────────────────────────
   useEffect(() => {
-    if (!mapReady || !urbanFlashGridData?.features?.length) return
+    if (!mapReady || !urbanFlashFillData?.features?.length) return
     const map = mapObj.current
+    const beforeId = map.getLayer('flood-risk-fill')
+      ? 'flood-risk-fill'
+      : map.getStyle().layers.find((l) => l.type === 'symbol')?.id
 
     if (map.getSource('urban-flash')) {
-      map.getSource('urban-flash').setData(urbanFlashGridData)
+      map.getSource('urban-flash').setData(urbanFlashFillData)
       if (map.getLayer('urban-flash-glow')) {
         try { map.removeLayer('urban-flash-glow') } catch { /* ignore */ }
       }
@@ -1628,11 +1681,7 @@ export default function MapPanel({
         try { map.removeSource('urban-flash-points') } catch { /* ignore */ }
       }
     } else {
-      map.addSource('urban-flash', { type: 'geojson', data: urbanFlashGridData })
-
-      const beforeId = map.getLayer('flood-risk-fill')
-        ? 'flood-risk-fill'
-        : map.getStyle().layers.find((l) => l.type === 'symbol')?.id
+      map.addSource('urban-flash', { type: 'geojson', data: urbanFlashFillData })
 
       map.addLayer(
         {
@@ -1688,7 +1737,40 @@ export default function MapPanel({
         map.getCanvas().style.cursor = ''
       })
     }
-  }, [mapReady, styleEpoch, urbanFlashGridData])
+
+    // Outer perimeter only — no per-cell outline (avoids internal grid seams).
+    if (map.getSource('urban-flash-boundary')) {
+      map.getSource('urban-flash-boundary').setData(urbanFlashOutlineData)
+    } else {
+      map.addSource('urban-flash-boundary', { type: 'geojson', data: urbanFlashOutlineData })
+      map.addLayer(
+        {
+          id: 'urban-flash-outline',
+          type: 'line',
+          source: 'urban-flash-boundary',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'risk_tier'],
+              'Highly Likely',
+              URBAN_FLASH_COLOR['Highly Likely'],
+              'Likely',
+              URBAN_FLASH_COLOR.Likely,
+              URBAN_FLASH_COLOR.Likely,
+            ],
+            'line-width': [
+              'interpolate', ['linear'], ['zoom'],
+              5, 1.2,
+              9, 1.8,
+              13, 2.4,
+            ],
+            'line-opacity': urbanFlashOpacity * 0.95,
+          },
+        },
+        beforeId,
+      )
+    }
+  }, [mapReady, styleEpoch, urbanFlashFillData, urbanFlashOutlineData])
 
   // ── Update urban flash visibility + opacity ────────────────────────────────
   useEffect(() => {
@@ -1698,6 +1780,10 @@ export default function MapPanel({
     const vis = urbanFlashVisible ? 'visible' : 'none'
     map.setLayoutProperty('urban-flash-fill', 'visibility', vis)
     map.setPaintProperty('urban-flash-fill', 'fill-opacity', urbanFlashOpacity * 0.32)
+    if (map.getLayer('urban-flash-outline')) {
+      map.setLayoutProperty('urban-flash-outline', 'visibility', vis)
+      map.setPaintProperty('urban-flash-outline', 'line-opacity', urbanFlashOpacity * 0.95)
+    }
   }, [mapReady, styleEpoch, urbanFlashVisible, urbanFlashOpacity])
 
   useEffect(() => {
