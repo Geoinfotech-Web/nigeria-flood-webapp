@@ -45,7 +45,7 @@ function formatNgn(amount) {
   return `₦${Number(amount).toLocaleString('en-NG')}`
 }
 
-export default function DevelopersPage({ theme = 'light', preview = false }) {
+export default function DevelopersPage({ theme = 'light' }) {
   const dark = theme === 'dark'
   const [email, setEmail] = useState('')
   const [orgName, setOrgName] = useState('')
@@ -57,8 +57,10 @@ export default function DevelopersPage({ theme = 'light', preview = false }) {
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [copiedBase, setCopiedBase] = useState(false)
 
-  const baseUrl = useMemo(() => `${API.replace(/\/$/, '')}/v1`, [])
+  const rootUrl = useMemo(() => API.replace(/\/$/, ''), [])
+  const baseUrl = useMemo(() => `${rootUrl}/v1`, [rootUrl])
   const docsUrl = `${baseUrl}/docs`
   const selectedPlan = plans.find((p) => p.id === plan) || plans[0]
   const needsPayment = Boolean(selectedPlan?.requires_payment)
@@ -118,6 +120,16 @@ export default function DevelopersPage({ theme = 'light', preview = false }) {
     }
   }
 
+  const copyBaseUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(baseUrl)
+      setCopiedBase(true)
+      setTimeout(() => setCopiedBase(false), 2000)
+    } catch {
+      setCopiedBase(false)
+    }
+  }
+
   return (
     <div
       className={clsx(
@@ -128,19 +140,6 @@ export default function DevelopersPage({ theme = 'light', preview = false }) {
       )}
     >
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
-        {preview ? (
-          <p
-            className={clsx(
-              'mb-3 rounded-lg border px-3 py-2 text-[11px] font-medium',
-              dark
-                ? 'border-amber-800/50 bg-amber-950/40 text-amber-200'
-                : 'border-amber-200 bg-amber-50 text-amber-900',
-            )}
-          >
-            Internal preview — public API tab is Coming soon. Share only for testing.
-          </p>
-        ) : null}
-
         <p
           className={clsx(
             'text-[11px] font-semibold uppercase tracking-[0.18em]',
@@ -157,6 +156,70 @@ export default function DevelopersPage({ theme = 'light', preview = false }) {
           nearby settlements & roads) for your apps. Free keys issue immediately; paid plans
           use card, bank transfer, or USSD.
         </p>
+
+        <div
+          className={clsx(
+            'mt-6 rounded-2xl border p-4 sm:p-5',
+            dark ? 'border-slate-800 bg-slate-900/70' : 'border-slate-200 bg-white/90',
+          )}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p
+                className={clsx(
+                  'text-[10px] font-semibold uppercase tracking-widest',
+                  dark ? 'text-slate-500' : 'text-slate-500',
+                )}
+              >
+                Production base URL
+              </p>
+              <code
+                className={clsx(
+                  'mt-1 block break-all font-mono text-sm font-semibold',
+                  dark ? 'text-sky-300' : 'text-sky-800',
+                )}
+              >
+                {baseUrl}
+              </code>
+              <p className={clsx('mt-1 text-[11px]', dark ? 'text-slate-400' : 'text-slate-500')}>
+                Host <span className="font-mono">{rootUrl}</span> · OpenAPI at{' '}
+                <a
+                  href={docsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={clsx('font-semibold underline-offset-2 hover:underline', dark ? 'text-sky-400' : 'text-sky-700')}
+                >
+                  /v1/docs
+                </a>
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={copyBaseUrl}
+                className={clsx(
+                  'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition',
+                  dark
+                    ? 'border-slate-700 text-slate-200 hover:bg-slate-800'
+                    : 'border-slate-200 text-slate-700 hover:bg-slate-50',
+                )}
+              >
+                {copiedBase ? 'Copied' : 'Copy base URL'}
+              </button>
+              <a
+                href={docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={clsx(
+                  'inline-flex items-center rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-white',
+                  'bg-sky-700 hover:bg-sky-600',
+                )}
+              >
+                Open docs
+              </a>
+            </div>
+          </div>
+        </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           {plans.map((p) => {

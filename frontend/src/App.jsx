@@ -82,7 +82,6 @@ export default function App() {
   const [theme, setTheme] = useState('light')
   const [basemap, setBasemap] = useState('streets')
   const [mode, setMode] = useState(() => (readApiPreviewFromUrl() ? 'developers' : 'public'))
-  const apiPreview = readApiPreviewFromUrl()
   const [selected, setSelected] = useState(null)
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
@@ -441,8 +440,8 @@ export default function App() {
         initialTab={reportInitialTab}
       />
 
-      {mode === 'developers' && apiPreview ? (
-        <DevelopersPage theme={theme} preview />
+      {mode === 'developers' ? (
+        <DevelopersPage theme={theme} />
       ) : mode === 'public' ? (
         <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Browse lists / place brief — bottom sheet on mobile, side panel on desktop */}
