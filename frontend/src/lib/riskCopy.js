@@ -55,19 +55,18 @@ export function worstRisk(tiers) {
  * Map Risk areas show SAR/DEM inundation (Very High / High / Moderate);
  * this copy stays place + gauge based for early warning.
  */
-export function placeRiskMessage(tier, placeName, stationName) {
+export function placeRiskMessage(tier, placeName) {
   const where = placeName || 'this area'
-  const gauge = stationName ? ` Nearest monitored river: ${stationName}.` : ''
 
   switch (tier) {
     case 'Emergency':
-      return `Severe flood conditions are forecast near ${where} within the next 72 hours.${gauge} Move to higher ground if advised by local authorities and treat this as an emergency signal.`
+      return `Flood emergency conditions are forecast for ${where} within the next 72 hours. Follow official safety guidance and move early if advised.`
     case 'Warning':
-      return `Flooding is likely near ${where} in the coming hours to days.${gauge} Prepare to protect people, property, and travel routes. Confirm with NIHSA and local emergency services.`
+      return `Flooding is likely around ${where} in the coming hours to days. Prepare to protect people, homes, and travel routes.`
     case 'Watch':
-      return `Elevated flood risk near ${where} over the next 72 hours.${gauge} Stay informed, avoid flood-prone roads, and review your household plan.`
+      return `Flood risk is elevated around ${where} over the next 72 hours. Stay alert and avoid flood-prone roads during heavy rain.`
     default:
-      return `No significant flood alert for monitored rivers near ${where} right now.${gauge} Conditions can change — check back during heavy rain seasons.`
+      return `No flood alert is active for ${where} right now. Conditions can still change during heavy rain, so check again if weather worsens.`
   }
 }
 

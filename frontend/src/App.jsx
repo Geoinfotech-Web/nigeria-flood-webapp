@@ -250,9 +250,7 @@ export default function App() {
     error: placeBuildingsError,
   } = useNearbyBuildings(place)
   const { terrain, loading: terrainLoading } = useTerrain(mode === 'expert' ? place : null)
-  const { assessment: siteAssessment, loading: siteLoading } = useSiteAssessment(
-    mode === 'expert' ? place : null,
-  )
+  const { assessment: siteAssessment, loading: siteLoading } = useSiteAssessment(place)
 
   // Prefer map-viewport buildings (updates on pan/zoom); fall back to place-radius query
   const useViewport =
@@ -530,6 +528,7 @@ export default function App() {
                   place={place}
                   overallRisk={placeConditions.overallRisk}
                   primaryStation={placeConditions.primaryStation}
+                  siteAssessment={siteAssessment}
                   nearby={placeConditions.nearby}
                   nearbySettlements={settlements}
                   localSettlementSummary={localSummary}

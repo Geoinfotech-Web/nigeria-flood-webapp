@@ -33,6 +33,7 @@ export default function PlaceBriefPanel({
   place,
   overallRisk,
   primaryStation,
+  siteAssessment = null,
   nearby,
   nearbySettlements = [],
   localSettlementSummary = null,
@@ -91,25 +92,46 @@ export default function PlaceBriefPanel({
         mapImage = null
       }
       const message = placeRiskMessage(tier, place.name, primaryStation?.name)
+      const zonesInside = siteAssessment?.zones_inside || []
+      const zonesNearby = siteAssessment?.zones_nearby || []
+      const nearbyPlaceRiskCount =
+        (localSettlementSummary?.highly_likely ?? 0) || (localSettlementSummary?.highly_susceptible ?? 0) || 0
+      const nearbyRoadRiskCount = roadSummary?.at_risk ?? 0
+      const hasInundationHistory = [...zonesInside, ...zonesNearby].some(
+        (zone) => zone?.source === 'sar_dem_inundation' || zone?.source === 'inundation_history',
+      )
+      const hasUrbanFlash = [...zonesInside, ...zonesNearby].some(
+        (zone) => zone?.source === 'urban_flash_flood',
+      )
       exportIntelligenceReportPdf({
         place,
         overallRisk: tier,
         primaryStation,
         terrain: null,
-        site: null,
+        site: siteAssessment,
         suitability: {
           verdict: message,
           verdictTier: tier,
           reasons: [
-            primaryStation
-              ? `Nearest monitored gauge: ${primaryStation.name}${primaryStation.distance_km != null ? ` (${formatDistance(primaryStation.distance_km)})` : ''}.`
-              : 'No nearby monitored river gauge within range.',
-            actionHint(tier),
             place.from_geolocation
               ? 'Based on your current location.'
               : place.source === 'urban_flash_flood'
                 ? `Urban flash flood area marked ${place.urban_flash_tier || 'Likely / Highly Likely'}.`
                 : 'Based on the searched or selected place.',
+            `Forecast status: ${RISK_LABEL[tier] || tier}.`,
+            nearbyPlaceRiskCount > 0
+              ? `${nearbyPlaceRiskCount} nearby place${nearbyPlaceRiskCount > 1 ? 's are' : ' is'} also in higher flood-risk conditions.`
+              : null,
+            nearbyRoadRiskCount > 0
+              ? `${nearbyRoadRiskCount} nearby road${nearbyRoadRiskCount > 1 ? 's are' : ' is'} at elevated flood risk.`
+              : null,
+            hasInundationHistory
+              ? 'Flood inundation has been mapped at or near this area before.'
+              : null,
+            hasUrbanFlash
+              ? 'This area is also within or near an urban flash flood zone.'
+              : null,
+            actionHint(tier),
           ].filter(Boolean),
           uses: [],
         },
@@ -274,7 +296,7 @@ export default function PlaceBriefPanel({
                 </span>
               </div>
               <p className="mt-2 text-[13px] leading-relaxed opacity-90">
-                {placeRiskMessage(tier, place.name, primaryStation?.name)}
+                {placeRiskMessage(tier, place.name)}
               </p>
               <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
                 {actionHint(tier)}
@@ -294,7 +316,7 @@ export default function PlaceBriefPanel({
                       theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                     )}
                   >
-                    Forecast near {primaryStation?.name}
+                    Forecast status
                   </h3>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">

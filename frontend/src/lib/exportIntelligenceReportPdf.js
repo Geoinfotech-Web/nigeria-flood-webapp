@@ -44,6 +44,22 @@ function listOrEmpty(itemsHtml, empty = 'None listed.') {
   return itemsHtml || `<li class="muted">${esc(empty)}</li>`
 }
 
+function briefRiskLevel({ tier = 'Normal', site = null, place = null } = {}) {
+  const rank = { Low: 1, Moderate: 2, High: 3 }
+  let level = 'Low'
+  if (tier === 'Emergency' || tier === 'Warning') level = 'High'
+  else if (tier === 'Watch') level = 'Moderate'
+
+  const sus = site?.susceptibility || place?.susceptibility || null
+  let susLevel = null
+  if (sus === 'Highly Susceptible' || sus === 'High') susLevel = 'High'
+  else if (sus === 'Moderate') susLevel = 'Moderate'
+  else if (sus === 'Low') susLevel = 'Low'
+
+  if (susLevel && (rank[susLevel] || 0) > (rank[level] || 0)) return susLevel
+  return level
+}
+
 export function exportIntelligenceReportPdf({
   place,
   overallRisk,
@@ -68,6 +84,7 @@ export function exportIntelligenceReportPdf({
   const brief = detailLevel === 'brief'
   const tier = overallRisk || 'Normal'
   const verdictTier = suitability?.verdictTier || tier
+  const publicRiskLevel = briefRiskLevel({ tier, site, place })
   const placeTitle = place?.name || 'Selected location'
   const display = place?.display_name || [place?.class, place?.state].filter(Boolean).join(' · ') || ''
   const reportTitle = brief ? 'Public Flood Brief' : 'Location Intelligence Report'
@@ -84,7 +101,7 @@ export function exportIntelligenceReportPdf({
       const hTier = h.risk_tier || 'Normal'
       return `<tr>
         <td><strong>${k}</strong></td>
-        <td class="num">${fmtProb(h.flood_prob)}</td>
+        ${brief ? '' : `<td class="num">${fmtProb(h.flood_prob)}</td>`}
         <td>${badgeHtml(hTier, hTier)}</td>
       </tr>`
     })
@@ -164,8 +181,7 @@ export function exportIntelligenceReportPdf({
     terrain?.slope_deg != null
       ? `${terrain.slope_deg}°${terrain.slope_class ? ` · ${terrain.slope_class}` : ''}`
       : '—'
-  const gaugeDist =
-    primaryStation?.distance_km != null ? fmtKm(primaryStation.distance_km) : '—'
+  const briefSummary = briefMessage || suitability?.verdict || 'Assessment unavailable'
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -445,17 +461,21 @@ export function exportIntelligenceReportPdf({
         ${display ? `<p class="sub">${esc(display)}</p>` : ''}
         <div class="coords">${esc(fmtCoord(place?.lat))}, ${esc(fmtCoord(place?.lon))}</div>
       </div>
+      ${brief ? '' : `
       <div style="text-align:right">
         <div style="margin-bottom:6px">${badgeHtml(`Gauge outlook · ${tier}`, tier)}</div>
-        ${brief ? '' : `<div>${badgeHtml(`Site · ${verdictTier}`, verdictTier)}</div>`}
-      </div>
+        <div>${badgeHtml(`Site · ${verdictTier}`, verdictTier)}</div>
+      </div>`}
     </section>
 
-    ${
-      brief && briefMessage
-        ? `<section class="section"><div class="verdict"><p class="verdict-title">${esc(briefMessage)}</p></div></section>`
-        : ''
-    }
+    ${brief ? `
+    <section class="section">
+      <div class="verdict">
+        <div>${badgeHtml(`Status · ${tier}`, tier)} ${badgeHtml(`Risk level · ${publicRiskLevel}`, publicRiskLevel === 'High' ? 'Warning' : publicRiskLevel === 'Moderate' ? 'Watch' : 'Normal')}</div>
+        <p class="verdict-title">${esc(briefSummary)}</p>
+        <ul>${listOrEmpty(reasonList, 'No details available.')}</ul>
+      </div>
+    </section>` : ''}
 
     ${
       mapImage
@@ -469,11 +489,12 @@ export function exportIntelligenceReportPdf({
         : ''
     }
 
+    ${brief ? '' : `
     <section class="section">
-      <h3>${brief ? 'What this means' : 'This location — site suitability'}</h3>
+      <h3>This location — site suitability</h3>
       <div class="verdict">
         <div>${badgeHtml(verdictTier, verdictTier)}
-          ${!brief && suitability?.susceptibility ? ` ${badgeHtml(`Susceptibility · ${suitability.susceptibility}`, suitability.susceptibility === 'Highly Susceptible' || suitability.susceptibility === 'High' ? 'Warning' : suitability.susceptibility === 'Moderate' ? 'Watch' : 'Normal')}` : ''}
+          ${suitability?.susceptibility ? ` ${badgeHtml(`Susceptibility · ${suitability.susceptibility}`, suitability.susceptibility === 'Highly Susceptible' || suitability.susceptibility === 'High' ? 'Warning' : suitability.susceptibility === 'Moderate' ? 'Watch' : 'Normal')}` : ''}
         </div>
         <p class="verdict-title">${esc(suitability?.verdict || 'Assessment unavailable')}</p>
         <ul>${listOrEmpty(reasonList, 'No detailed reasons available.')}</ul>
@@ -483,7 +504,7 @@ export function exportIntelligenceReportPdf({
     <section class="section">
       <h3>Key facts</h3>
       <div class="metrics">
-        ${brief ? '' : `<div class="metric">
+        <div class="metric">
           <div class="label">Elevation</div>
           <div class="value">${esc(elev)}</div>
           <div class="hint">SRTM</div>
@@ -492,18 +513,18 @@ export function exportIntelligenceReportPdf({
           <div class="label">Slope</div>
           <div class="value">${esc(slope)}</div>
           <div class="hint">Approx. local gradient</div>
-        </div>`}
-        <div class="metric">
-          <div class="label">Primary gauge</div>
-          <div class="value">${esc(primaryStation?.name || '—')}</div>
-          <div class="hint">${esc(gaugeDist)}</div>
         </div>
         <div class="metric">
           <div class="label">72h outlook</div>
           <div class="value">${esc(tier)}</div>
           <div class="hint">Nearest-gauge model</div>
         </div>
-        ${brief ? '' : `<div class="metric">
+        <div class="metric">
+          <div class="label">Primary gauge</div>
+          <div class="value">${esc(primaryStation?.name || '—')}</div>
+          <div class="hint">${esc(primaryStation?.distance_km != null ? fmtKm(primaryStation.distance_km) : '—')}</div>
+        </div>
+        <div class="metric">
           <div class="label">Zones inside</div>
           <div class="value">${esc((site?.zones_inside || []).length)}</div>
           <div class="hint">Mapped hazard polygons</div>
@@ -512,20 +533,20 @@ export function exportIntelligenceReportPdf({
           <div class="label">Zones nearby</div>
           <div class="value">${esc((site?.zones_nearby || []).length)}</div>
           <div class="hint">Within assessment radius</div>
-        </div>`}
+        </div>
       </div>
-    </section>
+    </section>`}
 
-    <section class="section ${brief ? '' : 'two-col'}">
-      ${brief ? '' : `<div>
+    ${brief ? '' : `<section class="section two-col">
+      <div>
         <h3>Practical uses</h3>
         <ul>${listOrEmpty(useList, 'Use as a screening aid for housing, land, and access decisions.')}</ul>
-      </div>`}
+      </div>
       <div>
-        <h3>${brief ? 'What to do' : 'Operator advisory'}</h3>
+        <h3>Operator advisory</h3>
         <ul>${listOrEmpty(actionList, 'Monitor conditions and confirm with official guidance.')}</ul>
       </div>
-    </section>
+    </section>`}
 
     ${!brief && (zoneInside || zoneNear) ? `
     <section class="section two-col">
@@ -539,6 +560,7 @@ export function exportIntelligenceReportPdf({
       </div>
     </section>` : ''}
 
+    ${brief ? '' : `
     <section class="section">
       <h3>72-hour gauge outlook</h3>
       <table>
@@ -549,22 +571,6 @@ export function exportIntelligenceReportPdf({
       </table>
     </section>
 
-    ${brief ? `
-    <section class="section">
-      <h3>Nearby at a glance</h3>
-      ${roadRows || placeRows || gaugeRows
-        ? `<table>
-        <thead>
-          <tr><th>Item</th><th>Detail</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          ${roads.slice(0, 3).map((r) => `<tr><td>${esc(r.name || r.ref || 'Road')}</td><td>${esc(fmtKm(r.distance_km))}</td><td>${esc(r.susceptibility || '—')}</td></tr>`).join('')}
-          ${settlements.slice(0, 3).map((s) => `<tr><td>${esc(s.name)}</td><td>${esc(fmtKm(s.distance_km))}</td><td>${badgeHtml(s.risk_tier || '—', s.risk_tier || 'Normal')}</td></tr>`).join('')}
-          ${gauges.slice(0, 2).map((g) => `<tr><td>${esc(g.name)}</td><td>${esc(fmtKm(g.distance_km))}</td><td>${badgeHtml(g.overall_risk || 'Normal', g.overall_risk || 'Normal')}</td></tr>`).join('')}
-        </tbody>
-      </table>`
-        : `<p class="muted">Limited nearby exposure listed for this brief.</p>`}
-    </section>` : `
     <section class="section">
       <h3>Roads at risk</h3>
       ${roadRows ? `<table>
