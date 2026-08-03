@@ -378,21 +378,6 @@ function addAtRiskPlaceLayers(map, sourceId, onPlaceClick) {
       const coords = feature?.geometry?.coordinates
       const tier = props.station_risk_tier || 'Warning'
       const tierColor = RISK_COLOR[tier] || RISK_COLOR.Warning
-      new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
-        .setLngLat(e.lngLat)
-        .setHTML(`
-          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
-            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Unnamed place'}</div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
-              <span style="color:#6b7280">Risk</span>
-              <span style="font-weight:600;color:${tierColor}">${tier}</span>
-            </div>
-            ${props.class ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Class</span><span>${props.class}</span></div>` : ''}
-            ${props.state ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
-            ${props.nearest_station ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Nearest gauge</span><span>${props.nearest_station}</span></div>` : ''}
-          </div>
-        `)
-        .addTo(map)
       if (onPlaceClick && Array.isArray(coords) && coords.length >= 2) {
         onPlaceClick({
           name: props.name || 'Place',
@@ -408,7 +393,23 @@ function addAtRiskPlaceLayers(map, sourceId, onPlaceClick) {
           station_risk_tier: props.station_risk_tier || null,
           distance_km: props.distance_km ?? null,
         })
+        return
       }
+      new maplibregl.Popup({ closeButton: false, maxWidth: '240px' })
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
+            <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${props.name || 'Unnamed place'}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="color:#6b7280">Risk</span>
+              <span style="font-weight:600;color:${tierColor}">${tier}</span>
+            </div>
+            ${props.class ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">Class</span><span>${props.class}</span></div>` : ''}
+            ${props.state ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:#6b7280">State</span><span>${props.state}</span></div>` : ''}
+            ${props.nearest_station ? `<div style="display:flex;justify-content:space-between"><span style="color:#6b7280">Nearest gauge</span><span>${props.nearest_station}</span></div>` : ''}
+          </div>
+        `)
+        .addTo(map)
     })
     registerPointerCursor(map, AT_RISK_PLACE_LAYER_ID)
   }
@@ -444,7 +445,7 @@ function focusMapOnPlace(map, place, { publicMode = false, zoom = 13 } = {}) {
       ],
       {
         padding: publicMode
-          ? { top: 80, right: 40, bottom: 280, left: 40 }
+          ? { top: 72, right: 56, bottom: 260, left: 56 }
           : { top: 60, right: 60, bottom: 60, left: 60 },
         duration: 1200,
         maxZoom: 14,
@@ -457,6 +458,9 @@ function focusMapOnPlace(map, place, { publicMode = false, zoom = 13 } = {}) {
     center: [lon, lat],
     zoom,
     duration: 1200,
+    ...(publicMode
+      ? { padding: { top: 72, right: 56, bottom: 240, left: 56 } }
+      : {}),
   })
 }
 
@@ -747,6 +751,18 @@ function addPlaceLayers(map, sourceId, onPlaceClick) {
         const feature = e.features?.[0]
         const props = feature?.properties || {}
         const coords = feature?.geometry?.coordinates
+        if (onPlaceClick && Array.isArray(coords) && coords.length >= 2) {
+          onPlaceClick({
+            name: props.name || 'Place',
+            display_name: props.display_name || `${props.name || 'Place'}, Nigeria`,
+            lat: Number(coords[1]),
+            lon: Number(coords[0]),
+            bbox_lnglat: null,
+            class: props.class || style.className,
+            population: props.population ?? null,
+          })
+          return
+        }
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
@@ -760,17 +776,6 @@ function addPlaceLayers(map, sourceId, onPlaceClick) {
             </div>
           `)
           .addTo(map)
-        if (onPlaceClick && Array.isArray(coords) && coords.length >= 2) {
-          onPlaceClick({
-            name: props.name || 'Place',
-            display_name: props.display_name || `${props.name || 'Place'}, Nigeria`,
-            lat: Number(coords[1]),
-            lon: Number(coords[0]),
-            bbox_lnglat: null,
-            class: props.class || style.className,
-            population: props.population ?? null,
-          })
-        }
       })
       registerPointerCursor(map, circleId)
     }
@@ -959,6 +964,82 @@ export default function MapPanel({
   useEffect(() => {
     onUrbanFlashSelectRef.current = onUrbanFlashSelect
   }, [onUrbanFlashSelect])
+
+  // Public: bare map click → reverse geocode → place brief (Windy-style picker)
+  useEffect(() => {
+    if (!mapReady || !publicMode) return undefined
+    const map = mapObj.current
+    if (!map) return undefined
+
+    let abort = null
+    const onMapClick = async (e) => {
+      const styleLayers = map.getStyle()?.layers || []
+      const interactiveIds = styleLayers
+        .map((layer) => layer.id)
+        .filter(
+          (id) =>
+            id === AT_RISK_PLACE_LAYER_ID ||
+            id === 'urban-flash-fill' ||
+            id === 'flood-risk-fill' ||
+            id === 'exposure-buildings' ||
+            id === 'exposure-bridges' ||
+            id === 'flood-news-points' ||
+            id === 'community-flood-report-points' ||
+            id.startsWith('exposure-places-') ||
+            id.startsWith('exposure-roads-'),
+        )
+      if (interactiveIds.length) {
+        const hits = map.queryRenderedFeatures(e.point, { layers: interactiveIds })
+        if (hits.length) return
+      }
+
+      const lat = Number(e.lngLat.lat)
+      const lon = Number(e.lngLat.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return
+
+      const coordsLabel = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`
+      onPlaceSelectRef.current?.({
+        name: 'Selected location',
+        display_name: coordsLabel,
+        lat,
+        lon,
+        bbox_lnglat: null,
+        from_geolocation: false,
+        source: 'map_click',
+        focusAt: Date.now(),
+      })
+
+      abort?.abort()
+      abort = new AbortController()
+      try {
+        const response = await fetch(
+          `${API}/geocode/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`,
+          { signal: abort.signal },
+        )
+        if (!response.ok) return
+        const data = await response.json()
+        onPlaceSelectRef.current?.({
+          ...data,
+          lat,
+          lon,
+          name: data.name || data.city || 'Selected location',
+          display_name: data.display_name || data.street_address || coordsLabel,
+          bbox_lnglat: data.bbox_lnglat || null,
+          from_geolocation: false,
+          source: 'map_click',
+          focusAt: Date.now(),
+        })
+      } catch {
+        /* Abort or offline — coordinates place already shown */
+      }
+    }
+
+    map.on('click', onMapClick)
+    return () => {
+      map.off('click', onMapClick)
+      abort?.abort()
+    }
+  }, [mapReady, styleEpoch, publicMode])
 
   const atRiskPlacesGeoJSON = useMemo(
     () => placesToGeoJSON(atRiskPlaces),
@@ -1290,7 +1371,7 @@ export default function MapPanel({
     mapObj.current = map
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
-      'top-right',
+      'top-left',
     )
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
     map.addControl(new maplibregl.FullscreenControl(), 'bottom-right')
@@ -1748,6 +1829,22 @@ export default function MapPanel({
         const lon = Number(e.lngLat?.lng)
         const lat = Number(e.lngLat?.lat)
         const tierColor = URBAN_FLASH_COLOR[p.risk_tier] || URBAN_FLASH_COLOR.Likely
+
+        if (Number.isFinite(lon) && Number.isFinite(lat) && onUrbanFlashSelectRef.current) {
+          onUrbanFlashSelectRef.current({
+            name: p.name || 'Urban flash zone',
+            state: p.state || null,
+            risk_tier: p.risk_tier || null,
+            risk_score: p.risk_score != null ? Number(p.risk_score) : null,
+            admin_level: p.admin_level || null,
+            lon,
+            lat,
+            bbox_lnglat: null,
+            source: 'urban_flash_flood',
+          })
+          return
+        }
+
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
@@ -1769,20 +1866,6 @@ export default function MapPanel({
             </div>
           `)
           .addTo(map)
-
-        if (Number.isFinite(lon) && Number.isFinite(lat)) {
-          onUrbanFlashSelectRef.current?.({
-            name: p.name || 'Urban flash zone',
-            state: p.state || null,
-            risk_tier: p.risk_tier || null,
-            risk_score: p.risk_score != null ? Number(p.risk_score) : null,
-            admin_level: p.admin_level || null,
-            lon,
-            lat,
-            bbox_lnglat: null,
-            source: 'urban_flash_flood',
-          })
-        }
       })
       map.on('mouseenter', 'urban-flash-fill', () => {
         map.getCanvas().style.cursor = 'pointer'
@@ -2196,7 +2279,7 @@ export default function MapPanel({
         ],
         {
           padding: publicMode
-            ? { top: 80, right: 40, bottom: 280, left: 40 }
+            ? { top: 72, right: 56, bottom: 260, left: 56 }
             : 80,
           duration: 1200,
           maxZoom: 11,
@@ -2408,8 +2491,8 @@ export default function MapPanel({
         </div>
       )}
 
-      {/* Unified Layers panel — top left (nudge down on phones when search tip shows) */}
-      <div className="absolute left-3 top-3 z-10 max-w-[calc(100vw-5.5rem)] space-y-2 sm:max-w-none">
+      {/* Layers / home / basemap — top right icon stack; zoom (+/−) sits top-left */}
+      <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-2">
         <LayersPanel
           theme={theme}
           riskAreasVisible={riskAreasVisible}
@@ -2439,25 +2522,6 @@ export default function MapPanel({
           boundaryVisibility={boundaryVisible}
           onToggleBoundary={toggleBoundaryLayer}
         />
-        {exposureVisible.buildings && buildingsStatus && (
-          <div
-            className={clsx(
-              'max-w-[14rem] rounded-lg border px-2.5 py-1.5 text-[10px] shadow',
-              theme === 'dark'
-                ? 'border-gray-700 bg-gray-900/90 text-gray-300'
-                : 'border-slate-200 bg-white text-slate-600',
-            )}
-          >
-            {buildingsStatus === 'loading' && 'Loading buildings for this view…'}
-            {buildingsStatus === 'zoom' && 'Zoom in closer to load buildings.'}
-            {buildingsStatus === 'error' && 'Could not load buildings (OSM).'}
-            {buildingsStatus === 'ready' &&
-              `${(exposureData.buildings?.features || []).length.toLocaleString()} buildings in view`}
-          </div>
-        )}
-      </div>
-      {/* Home + basemap — below zoom (+/−); basemap menu opens left to clear controls */}
-      <div className="absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2">
         <button
           type="button"
           onClick={resetToHomeView}
@@ -2483,15 +2547,31 @@ export default function MapPanel({
           options={BASEMAPS}
           theme={theme}
         />
+        {exposureVisible.buildings && buildingsStatus && (
+          <div
+            className={clsx(
+              'max-w-[14rem] rounded-lg border px-2.5 py-1.5 text-[10px] shadow',
+              theme === 'dark'
+                ? 'border-gray-700 bg-gray-900/90 text-gray-300'
+                : 'border-slate-200 bg-white text-slate-600',
+            )}
+          >
+            {buildingsStatus === 'loading' && 'Loading buildings for this view…'}
+            {buildingsStatus === 'zoom' && 'Zoom in closer to load buildings.'}
+            {buildingsStatus === 'error' && 'Could not load buildings (OSM).'}
+            {buildingsStatus === 'ready' &&
+              `${(exposureData.buildings?.features || []).length.toLocaleString()} buildings in view`}
+          </div>
+        )}
       </div>
 
-      {/* Legend — desktop always; compact on mobile when no overlay sheet */}
+      {/* Legend — collapses when place forecast sheet is open */}
       <div
         className={clsx(
-          'absolute left-3 z-10',
+          'absolute z-10',
           bottomSheetOverlay
-            ? 'bottom-[calc(min(55vh,28rem)+0.75rem)] hidden sm:block md:bottom-10'
-            : 'bottom-10 hidden sm:block',
+            ? 'bottom-[calc(min(34vh,20rem)+0.75rem)] left-3 hidden sm:block md:bottom-[calc(min(32vh,19rem)+1rem)]'
+            : 'bottom-10 left-3 hidden sm:block',
         )}
       >
         <FloodRiskLegend
@@ -2513,7 +2593,7 @@ export default function MapPanel({
           visibleBoundaryIds={Object.keys(boundaryVisible).filter((id) => boundaryVisible[id])}
           showGauges={gaugesVisible}
           theme={theme}
-          collapsedByDefault={!publicMode}
+          collapsedByDefault={!publicMode || Boolean(placeFocus)}
         />
       </div>
     </div>

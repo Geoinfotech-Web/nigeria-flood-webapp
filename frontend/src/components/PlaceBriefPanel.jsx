@@ -10,7 +10,7 @@ import {
   placeRiskMessage,
 } from '../lib/riskCopy'
 import { exportIntelligenceReportPdf } from '../lib/exportIntelligenceReportPdf'
-import { IconActivity, IconLocate, IconX } from './Icons'
+import { IconActivity, IconChevronRight, IconChevronUp, IconLocate, IconX } from './Icons'
 import GenerateReportButton from './GenerateReportButton'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
@@ -55,10 +55,17 @@ export default function PlaceBriefPanel({
   onSelectPlace,
   onPanelTabChange,
   captureMapSnapshot = null,
+  /** 'overlay' = Windy-style map card; 'dock' = full-height aside (legacy). */
+  layout = 'overlay',
+  /** compact | expanded | side — controlled by parent for map chrome sizing */
+  detailMode = 'compact',
+  onDetailModeChange = null,
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [panelTab, setPanelTab] = useState('places') // places | roads | buildings
   const [exporting, setExporting] = useState(false)
+  const overlay = layout === 'overlay'
+  const showNearbyDetail = !overlay || detailMode === 'expanded' || detailMode === 'side'
   const tier = overallRisk || 'Normal'
   const badge = (theme === 'dark' ? DARK_BADGE : LIGHT_BADGE)[tier]
   const horizons = primaryStation?.prediction?.horizons || {}
@@ -191,72 +198,153 @@ export default function PlaceBriefPanel({
   return (
     <section
       className={clsx(
-        'flex h-full min-h-0 flex-col overflow-hidden border shadow-xl',
+        'flex min-h-0 flex-col overflow-hidden border shadow-2xl backdrop-blur-xl',
+        overlay ? 'h-full max-h-[inherit]' : 'h-full',
         theme === 'dark'
           ? 'border-gray-700/80 bg-gray-900/95 text-gray-100'
           : 'border-slate-200/90 bg-white/95 text-slate-900',
-        'rounded-t-2xl md:rounded-2xl',
+        overlay
+          ? 'place-brief-enter rounded-t-2xl md:rounded-2xl'
+          : 'rounded-t-2xl md:rounded-2xl',
       )}
+      role="dialog"
+      aria-label={`Flood conditions for ${place.name}`}
     >
       <header
         className={clsx(
-          'flex items-start justify-between gap-3 border-b px-4 py-3.5 shrink-0',
+          'flex items-center justify-between gap-3 border-b px-4 py-2.5 shrink-0',
           theme === 'dark' ? 'border-gray-800' : 'border-slate-100',
         )}
       >
-        <div className="min-w-0">
-          <p
-            className={clsx(
-              'inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]',
-              theme === 'dark' ? 'text-sky-400/80' : 'text-sky-700',
-            )}
-          >
-            {place.from_geolocation && <IconLocate size={11} />}
-            {place.from_geolocation
-              ? 'Near you'
-              : place.source === 'urban_flash_flood'
-                ? 'Urban flash flood'
-                : 'Flood conditions'}
-          </p>
-          <h2 className="mt-1 truncate font-display text-xl font-semibold tracking-tight">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p
+              className={clsx(
+                'inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]',
+                theme === 'dark' ? 'text-sky-400/80' : 'text-sky-700',
+              )}
+            >
+              {place.from_geolocation && <IconLocate size={11} />}
+              {place.from_geolocation
+                ? 'Near you'
+                : place.source === 'urban_flash_flood'
+                  ? 'Urban flash flood'
+                  : 'Flood conditions'}
+            </p>
+            {overallRisk ? (
+              <span
+                className={clsx(
+                  'rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                  badge,
+                )}
+              >
+                {RISK_LABEL[tier]}
+              </span>
+            ) : null}
+          </div>
+          <h2 className="mt-0.5 truncate font-display text-lg font-semibold tracking-tight sm:text-xl">
             {place.name}
           </h2>
           <p
             className={clsx(
-              'mt-0.5 truncate text-xs',
+              'truncate text-[11px] sm:text-xs',
               theme === 'dark' ? 'text-gray-400' : 'text-slate-500',
             )}
           >
             {place.display_name || 'Nigeria'}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={clsx(
-              'inline-flex h-8 w-8 items-center justify-center rounded-lg border transition',
-              theme === 'dark'
-                ? 'border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white'
-                : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900',
-            )}
-            aria-label="Close place conditions"
-          >
-            <IconX size={14} />
-          </button>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {overlay && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  onDetailModeChange?.(detailMode === 'expanded' ? 'compact' : 'expanded')
+                }
+                className={clsx(
+                  'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
+                  theme === 'dark'
+                    ? 'border-gray-700 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900',
+                )}
+                style={
+                  theme === 'dark'
+                    ? { backgroundColor: '#111827', borderColor: '#374151' }
+                    : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+                }
+                title={detailMode === 'expanded' ? 'Collapse report' : 'Expand report'}
+                aria-label={detailMode === 'expanded' ? 'Collapse report' : 'Expand report'}
+                aria-pressed={detailMode === 'expanded'}
+              >
+                <IconChevronUp
+                  size={14}
+                  className={clsx(detailMode === 'expanded' && 'rotate-180')}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onDetailModeChange?.(detailMode === 'side' ? 'compact' : 'side')
+                }
+                className={clsx(
+                  'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
+                  theme === 'dark'
+                    ? 'border-gray-700 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900',
+                )}
+                style={
+                  theme === 'dark'
+                    ? { backgroundColor: '#111827', borderColor: '#374151' }
+                    : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+                }
+                title={detailMode === 'side' ? 'Close side panel' : 'Open side detail'}
+                aria-label={detailMode === 'side' ? 'Close side panel' : 'Open side detail'}
+                aria-pressed={detailMode === 'side'}
+              >
+                <IconChevronRight
+                  size={14}
+                  className={clsx(detailMode === 'side' && 'rotate-180')}
+                />
+              </button>
+            </>
+          )}
           <GenerateReportButton
             theme={theme}
-            size="sm"
+            variant="icon"
             loading={exporting}
             disabled={loading}
             onClick={handleGenerateReport}
             label="Generate report"
             subtitle={reportSubtitle}
           />
+          <button
+            type="button"
+            onClick={onClose}
+            className={clsx(
+              'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
+              theme === 'dark'
+                ? 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+                : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900',
+            )}
+            style={
+              theme === 'dark'
+                ? { backgroundColor: '#111827', borderColor: '#374151' }
+                : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+            }
+            aria-label="Close place conditions"
+          >
+            <IconX size={14} />
+          </button>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div
+        className={clsx(
+          'min-h-0 flex-1 overflow-y-auto',
+          overlay ? 'px-3 py-3 sm:px-4' : 'space-y-4 px-4 py-4',
+        )}
+      >
         {loading && (
           <div
             className={clsx(
@@ -284,7 +372,15 @@ export default function PlaceBriefPanel({
         )}
 
         {overallRisk && (
-          <>
+          <div
+            className={clsx(
+              overlay && detailMode !== 'side'
+                ? 'grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:items-stretch'
+                : overlay
+                  ? 'space-y-3'
+                  : 'space-y-4',
+            )}
+          >
             <div className={clsx('rounded-xl border px-3.5 py-3', badge)}>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium opacity-80">72-hour outlook</span>
@@ -295,16 +391,29 @@ export default function PlaceBriefPanel({
                   {RISK_LABEL[tier]}
                 </span>
               </div>
-              <p className="mt-2 text-[13px] leading-relaxed opacity-90">
+              <p
+                className={clsx(
+                  'mt-2 text-[13px] leading-relaxed opacity-90',
+                  detailMode === 'compact' && overlay && 'line-clamp-2',
+                  detailMode !== 'compact' && overlay && 'line-clamp-4',
+                )}
+              >
                 {placeRiskMessage(tier, place.name)}
               </p>
-              <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                {actionHint(tier)}
-              </p>
+              {detailMode !== 'compact' && (
+                <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                  {actionHint(tier)}
+                </p>
+              )}
             </div>
 
             {Object.keys(horizons).length > 0 && (
-              <div>
+              <div
+                className={clsx(
+                  overlay && 'rounded-xl border px-3 py-2.5',
+                  overlay && (theme === 'dark' ? 'border-gray-800 bg-gray-950/40' : 'border-slate-100 bg-slate-50'),
+                )}
+              >
                 <div className="mb-2 flex items-center gap-2">
                   <IconActivity
                     size={13}
@@ -319,12 +428,17 @@ export default function PlaceBriefPanel({
                     Forecast status
                   </h3>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                <div
+                  className={clsx(
+                    'flex gap-1.5 overflow-x-auto pb-0.5',
+                    !overlay && 'grid grid-cols-3 sm:grid-cols-5',
+                  )}
+                >
                   {Object.entries(horizons).map(([h, v]) => (
                     <div
                       key={h}
                       className={clsx(
-                        'rounded-lg border px-1.5 py-2 text-center',
+                        'min-w-[3.25rem] flex-1 rounded-lg border px-1.5 py-2 text-center',
                         theme === 'dark'
                           ? 'border-gray-800 bg-gray-950/50'
                           : 'border-slate-100 bg-slate-50',
@@ -350,9 +464,22 @@ export default function PlaceBriefPanel({
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
 
+        {overlay && detailMode === 'compact' && (
+          <p
+            className={clsx(
+              'mt-2 text-center text-[10px]',
+              theme === 'dark' ? 'text-gray-500' : 'text-slate-400',
+            )}
+          >
+            Expand to fill the map, or open the side panel for nearby detail
+          </p>
+        )}
+
+        {showNearbyDetail && (
+        <div className={clsx(overlay && 'mt-3 space-y-3 border-t pt-3', overlay && (theme === 'dark' ? 'border-gray-800' : 'border-slate-100'), !overlay && 'mt-4 space-y-4')}>
         <div>
           <div
             role="tablist"
@@ -956,6 +1083,8 @@ export default function PlaceBriefPanel({
               </div>
             )}
           </>
+        )}
+        </div>
         )}
       </div>
     </section>

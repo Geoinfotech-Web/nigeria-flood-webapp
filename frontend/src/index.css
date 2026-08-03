@@ -103,12 +103,27 @@ body {
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { scrollbar-width: none; }
 
-/* Lift MapLibre bottom controls above Expert mobile bottom sheet */
+/* Lift MapLibre bottom controls above Expert / public place bottom sheet */
 @media (max-width: 767px) {
   .map-sheet-overlay .maplibregl-ctrl-bottom-left,
   .map-sheet-overlay .maplibregl-ctrl-bottom-right {
-    bottom: calc(min(55vh, 28rem) + 10px) !important;
+    bottom: calc(min(58vh, 34rem) + 10px) !important;
   }
+}
+
+@keyframes place-brief-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.place-brief-enter {
+  animation: place-brief-enter 280ms ease-out;
 }
 
 /* ── MapLibre control overrides (theme via .map-ui-light / .map-ui-dark) ── */

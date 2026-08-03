@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconChevronDown, IconChevronUp, IconLayers } from './Icons'
+import { IconLayers } from './Icons'
 
 function Toggle({ on, onToggle, theme }) {
   return (
@@ -59,7 +59,7 @@ function Section({ title, theme, children }) {
   return (
     <div
       className={clsx(
-        'space-y-3 border-t pt-3',
+        'space-y-3 border-t pt-3 first:border-t-0 first:pt-0',
         theme === 'dark' ? 'border-gray-800' : 'border-slate-200',
       )}
     >
@@ -78,12 +78,10 @@ function Section({ title, theme, children }) {
 
 export default function LayersPanel({
   theme = 'light',
-  // Flood risk areas (vector inundation probability)
   riskAreasVisible,
   onToggleRiskAreas,
   riskOpacity,
   onRiskOpacity,
-  // Urban flash flood (separate short-range vector layer)
   urbanFlashVisible = false,
   onToggleUrbanFlash,
   urbanFlashOpacity = 0.6,
@@ -92,203 +90,223 @@ export default function LayersPanel({
   onToggleHistoricalHotspots,
   atRiskPlacesVisible = false,
   onToggleAtRiskPlaces,
-  // Independent raster overlays (history, susceptibility, …)
   tileLayers = [],
   tileVisibility = {},
   onToggleTile,
-  // Gauges
   gaugesVisible,
   onToggleGauges,
   newsVisible = false,
   onToggleNews,
   showNewsControl = true,
-  // Exposure
   exposureLayers = [],
   exposureVisibility = {},
   onToggleExposure,
-  // Boundaries
   boundaryLayers = [],
   boundaryVisibility = {},
   onToggleBoundary,
 }) {
-  const [open, setOpen] = useState(() => {
-    if (typeof window === 'undefined') return true
-    return window.matchMedia('(min-width: 768px)').matches
-  })
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
   const dark = theme === 'dark'
 
-  return (
-    <div
-      className={clsx(
-        'w-[min(15.5rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border shadow-xl',
-        dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white',
-      )}
-      style={
-        dark
-          ? { backgroundColor: '#111827', borderColor: '#374151' }
-          : { backgroundColor: '#ffffff', borderColor: '#e2e8f0' }
+  useEffect(() => {
+    if (!open) return undefined
+    const onPointerDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setOpen(false)
       }
-    >
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative z-20">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        title="Map layers"
         className={clsx(
-          'flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left transition',
-          dark ? 'border-gray-800 hover:bg-gray-800/50' : 'border-slate-100 hover:bg-slate-50',
+          'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition',
+          dark
+            ? 'border-gray-700 bg-gray-900 text-gray-200 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900',
         )}
+        style={
+          dark
+            ? { backgroundColor: '#111827', borderColor: '#374151' }
+            : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+        }
+        aria-label="Map layers"
         aria-expanded={open}
       >
-        <span className="inline-flex items-center gap-2">
-          <IconLayers size={14} className={dark ? 'text-sky-400' : 'text-sky-700'} />
-          <span
-            className={clsx(
-              'text-xs font-semibold uppercase tracking-wide',
-              dark ? 'text-gray-200' : 'text-slate-800',
-            )}
-          >
-            Layers
-          </span>
-        </span>
-        <span className={dark ? 'text-gray-500' : 'text-slate-400'}>
-          {open ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
-        </span>
+        <IconLayers size={16} className={dark ? 'text-gray-300' : 'text-slate-600'} />
       </button>
 
       {open && (
-        <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto p-3">
-          <Section title="Flood risk" theme={theme}>
-            <Row
-              label="Inundation probability"
-              on={riskAreasVisible}
-              onToggle={onToggleRiskAreas}
-              theme={theme}
-            >
-              <div className="space-y-1 pl-0.5">
-                <div
-                  className={clsx(
-                    'flex justify-between text-[10px]',
-                    dark ? 'text-gray-400' : 'text-slate-500',
-                  )}
-                >
-                  <span>Opacity</span>
-                  <span>{Math.round(riskOpacity * 100)}%</span>
+        <div
+          className={clsx(
+            'absolute right-full top-0 mr-2 z-30 w-[min(15.5rem,calc(100vw-4.5rem))] overflow-hidden rounded-xl border shadow-2xl',
+            dark ? 'border-gray-700 bg-gray-900' : 'border-slate-200 bg-white',
+          )}
+          style={
+            dark
+              ? { backgroundColor: '#111827', borderColor: '#374151' }
+              : { backgroundColor: '#ffffff', borderColor: '#e2e8f0' }
+          }
+          role="dialog"
+          aria-label="Map layers"
+        >
+          <div
+            className={clsx(
+              'border-b px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.18em]',
+              dark ? 'border-gray-800 text-gray-400' : 'border-slate-100 text-slate-500',
+            )}
+          >
+            Layers
+          </div>
+          <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto p-3">
+            <Section title="Flood risk" theme={theme}>
+              <Row
+                label="Inundation probability"
+                on={riskAreasVisible}
+                onToggle={onToggleRiskAreas}
+                theme={theme}
+              >
+                <div className="space-y-1 pl-0.5">
+                  <div
+                    className={clsx(
+                      'flex justify-between text-[10px]',
+                      dark ? 'text-gray-400' : 'text-slate-500',
+                    )}
+                  >
+                    <span>Opacity</span>
+                    <span>{Math.round(riskOpacity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={riskOpacity}
+                    onChange={(e) => onRiskOpacity(parseFloat(e.target.value))}
+                    className="h-1.5 w-full cursor-pointer accent-sky-600"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={riskOpacity}
-                  onChange={(e) => onRiskOpacity(parseFloat(e.target.value))}
-                  className="h-1.5 w-full cursor-pointer accent-sky-600"
-                />
-              </div>
-            </Row>
+              </Row>
 
-            <Row
-              label="Urban flash flood"
-              on={urbanFlashVisible}
-              onToggle={onToggleUrbanFlash}
-              theme={theme}
-            >
-              <div className="space-y-1 pl-0.5">
-                <div
-                  className={clsx(
-                    'flex justify-between text-[10px]',
-                    dark ? 'text-gray-400' : 'text-slate-500',
-                  )}
-                >
-                  <span>Opacity</span>
-                  <span>{Math.round(urbanFlashOpacity * 100)}%</span>
+              <Row
+                label="Urban flash flood"
+                on={urbanFlashVisible}
+                onToggle={onToggleUrbanFlash}
+                theme={theme}
+              >
+                <div className="space-y-1 pl-0.5">
+                  <div
+                    className={clsx(
+                      'flex justify-between text-[10px]',
+                      dark ? 'text-gray-400' : 'text-slate-500',
+                    )}
+                  >
+                    <span>Opacity</span>
+                    <span>{Math.round(urbanFlashOpacity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={urbanFlashOpacity}
+                    onChange={(e) => onUrbanFlashOpacity?.(parseFloat(e.target.value))}
+                    className="h-1.5 w-full cursor-pointer accent-fuchsia-600"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={urbanFlashOpacity}
-                  onChange={(e) => onUrbanFlashOpacity?.(parseFloat(e.target.value))}
-                  className="h-1.5 w-full cursor-pointer accent-fuchsia-600"
+              </Row>
+
+              <Row
+                label="Flood Hotspot"
+                on={historicalHotspotsVisible}
+                onToggle={onToggleHistoricalHotspots}
+                theme={theme}
+                hint="Past events + live community reports"
+              />
+
+              <Row
+                label="Places at risk"
+                on={atRiskPlacesVisible}
+                onToggle={onToggleAtRiskPlaces}
+                theme={theme}
+              />
+
+              {tileLayers.map((layer) => (
+                <Row
+                  key={layer.id}
+                  label={layer.label}
+                  on={Boolean(tileVisibility[layer.source])}
+                  onToggle={() => onToggleTile?.(layer.source)}
+                  theme={theme}
                 />
-              </div>
-            </Row>
+              ))}
+            </Section>
 
-            <Row
-              label="Flood Hotspot"
-              on={historicalHotspotsVisible}
-              onToggle={onToggleHistoricalHotspots}
-              theme={theme}
-              hint="Past events + live community reports"
-            />
-
-            <Row
-              label="Places at risk"
-              on={atRiskPlacesVisible}
-              onToggle={onToggleAtRiskPlaces}
-              theme={theme}
-            />
-
-            {tileLayers.map((layer) => (
+            <Section title="Monitoring" theme={theme}>
               <Row
-                key={layer.id}
-                label={layer.label}
-                on={Boolean(tileVisibility[layer.source])}
-                onToggle={() => onToggleTile?.(layer.source)}
+                label="Gauge stations"
+                on={gaugesVisible}
+                onToggle={onToggleGauges}
                 theme={theme}
               />
-            ))}
-          </Section>
+              {showNewsControl && (
+                <Row
+                  label="Flood news reports"
+                  on={newsVisible}
+                  onToggle={onToggleNews}
+                  theme={theme}
+                />
+              )}
+            </Section>
 
-          <Section title="Monitoring" theme={theme}>
-            <Row
-              label="Gauge stations"
-              on={gaugesVisible}
-              onToggle={onToggleGauges}
-              theme={theme}
-            />
-            {showNewsControl && (
-              <Row
-                label="Flood news reports"
-                on={newsVisible}
-                onToggle={onToggleNews}
-                theme={theme}
-              />
-            )}
-          </Section>
+            <Section title="Boundaries" theme={theme}>
+              {boundaryLayers.length === 0 && (
+                <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  No boundary layers available.
+                </p>
+              )}
+              {boundaryLayers.map((layer) => (
+                <Row
+                  key={layer.id}
+                  label={layer.label}
+                  on={Boolean(boundaryVisibility[layer.id])}
+                  onToggle={() => onToggleBoundary?.(layer.id)}
+                  theme={theme}
+                />
+              ))}
+            </Section>
 
-          <Section title="Boundaries" theme={theme}>
-            {boundaryLayers.length === 0 && (
-              <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                No boundary layers available.
-              </p>
-            )}
-            {boundaryLayers.map((layer) => (
-              <Row
-                key={layer.id}
-                label={layer.label}
-                on={Boolean(boundaryVisibility[layer.id])}
-                onToggle={() => onToggleBoundary?.(layer.id)}
-                theme={theme}
-              />
-            ))}
-          </Section>
-
-          <Section title="Exposure" theme={theme}>
-            {exposureLayers.length === 0 && (
-              <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
-                No exposure layers available.
-              </p>
-            )}
-            {exposureLayers.map((layer) => (
-              <Row
-                key={layer.id}
-                label={layer.label}
-                on={Boolean(exposureVisibility[layer.id])}
-                onToggle={() => onToggleExposure?.(layer.id)}
-                theme={theme}
-              />
-            ))}
-          </Section>
+            <Section title="Exposure" theme={theme}>
+              {exposureLayers.length === 0 && (
+                <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  No exposure layers available.
+                </p>
+              )}
+              {exposureLayers.map((layer) => (
+                <Row
+                  key={layer.id}
+                  label={layer.label}
+                  on={Boolean(exposureVisibility[layer.id])}
+                  onToggle={() => onToggleExposure?.(layer.id)}
+                  theme={theme}
+                />
+              ))}
+            </Section>
+          </div>
         </div>
       )}
     </div>

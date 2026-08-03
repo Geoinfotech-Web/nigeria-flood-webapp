@@ -8,7 +8,7 @@ import StationConsole from './components/StationConsole'
 import AtRiskPlacesPanel from './components/AtRiskPlacesPanel'
 import DevelopersPage from './components/DevelopersPage'
 import PublicHeader from './components/PublicHeader'
-import PlaceBriefPanel from './components/PlaceBriefPanel'
+import PlaceForecastSheet from './components/PlaceForecastSheet'
 import ExpertIntelligenceReport from './components/ExpertIntelligenceReport'
 import PublicGaugePanel from './components/PublicGaugePanel'
 import NationalAlertsStrip from './components/NationalAlertsStrip'
@@ -480,135 +480,142 @@ export default function App() {
       {mode === 'developers' && apiPreview ? (
         <DevelopersPage theme={theme} preview />
       ) : mode === 'public' ? (
-        <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
-          {/* Browse lists / place brief — bottom sheet on mobile, side panel on desktop */}
-          <aside
-            className={clsx(
-              'z-20 order-2 flex w-full shrink-0 flex-col overflow-hidden md:order-1',
-              navigation || place || selectedStation
-                ? 'h-[min(48vh,26rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:rounded-none md:border-t-0'
-                : 'h-[min(46vh,28rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:rounded-none md:border-t-0',
-              !navigation && !place && !selectedStation
-                ? publicListCount >= 3
-                  ? 'md:w-[min(48rem,52vw)] lg:w-[48rem]'
-                  : publicListCount === 2
-                    ? 'md:w-[min(36rem,46vw)] lg:w-[36rem]'
-                    : 'md:w-[22rem] lg:w-[24rem]'
-                : 'md:w-[22rem] lg:w-[24rem]',
-              theme === 'dark'
-                ? 'border-gray-800 bg-gray-950/95'
-                : 'border-slate-200 bg-white',
-            )}
-          >
-            {navigation ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
-                <RouteConditionsPanel
-                  navigation={navigation}
-                  stations={sortedStations}
-                  liveReadings={liveReadings}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+            <aside
+              className={clsx(
+                'z-20 order-2 flex w-full shrink-0 flex-col overflow-hidden md:order-1',
+                place
+                  ? 'hidden md:flex md:h-full md:w-[22rem] lg:w-[24rem]'
+                  : navigation || selectedStation
+                    ? 'h-[min(48vh,26rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:w-[22rem] md:rounded-none md:border-t-0 lg:w-[24rem]'
+                    : clsx(
+                        'h-[min(46vh,28rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:rounded-none md:border-t-0',
+                        publicListCount >= 3
+                          ? 'md:w-[min(48rem,52vw)] lg:w-[48rem]'
+                          : publicListCount === 2
+                            ? 'md:w-[min(36rem,46vw)] lg:w-[36rem]'
+                            : 'md:w-[22rem] lg:w-[24rem]',
+                      ),
+                theme === 'dark'
+                  ? 'border-gray-800 bg-gray-950/95'
+                  : 'border-slate-200 bg-white',
+              )}
+            >
+              {navigation ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
+                  <RouteConditionsPanel
+                    navigation={navigation}
+                    stations={sortedStations}
+                    liveReadings={liveReadings}
+                    theme={theme}
+                    onClose={() => setNavigation(null)}
+                  />
+                </div>
+              ) : selectedStation ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
+                  <PublicGaugePanel
+                    station={selectedStation}
+                    stationId={selected}
+                    liveReading={liveReadings[selected]}
+                    theme={theme}
+                    basinVisible={showSelectedBasin}
+                    onToggleBasin={setShowSelectedBasin}
+                    onClose={clearSelectedStation}
+                  />
+                </div>
+              ) : (
+                <PublicListsDock
                   theme={theme}
-                  onClose={() => setNavigation(null)}
-                />
-              </div>
-            ) : selectedStation ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
-                <PublicGaugePanel
-                  station={selectedStation}
-                  stationId={selected}
-                  liveReading={liveReadings[selected]}
-                  theme={theme}
-                  basinVisible={showSelectedBasin}
-                  onToggleBasin={setShowSelectedBasin}
-                  onClose={clearSelectedStation}
-                />
-              </div>
-            ) : place ? (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-0 md:p-3 md:pr-0">
-                <PlaceBriefPanel
-                  place={place}
-                  overallRisk={placeConditions.overallRisk}
-                  primaryStation={placeConditions.primaryStation}
-                  siteAssessment={siteAssessment}
-                  nearby={placeConditions.nearby}
-                  nearbySettlements={settlements}
-                  localSettlementSummary={localSummary}
-                  settlementsLoading={settlementsLoading}
-                  nearbyRoads={nearbyRoads}
-                  roadSummary={roadSummary}
-                  roadsLoading={roadsLoading}
-                  selectedRoad={highlightedRoad}
-                  onSelectRoad={setHighlightedRoad}
-                  nearbyBuildings={nearbyBuildings}
-                  buildingSummary={buildingSummary}
-                  buildingsLoading={buildingsLoading}
-                  buildingsError={buildingsError}
-                  loading={placeConditions.loading}
-                  liveReadings={liveReadings}
-                  theme={theme}
-                  onClose={clearPlace}
-                  onSelectStation={handleSelectStation}
+                  placesSummary={nationalAffectedSummary}
+                  placesLoading={affectedLoading}
+                  active={publicLists}
+                  onActiveChange={setPublicLists}
                   onSelectPlace={handlePlaceSelect}
-                  onPanelTabChange={(tab) => setBuildingsTabActive(tab === 'buildings')}
-                  captureMapSnapshot={() => mapCaptureRef.current?.() ?? Promise.resolve(null)}
+                  onNewsArticles={setDockNewsArticles}
+                  onFocusNews={(article) => setNewsFocus({ ...article, focusKey: Date.now() })}
+                  onFocusCommunityReport={focusCommunityReport}
                 />
-              </div>
-            ) : (
-              <PublicListsDock
-                theme={theme}
-                placesSummary={nationalAffectedSummary}
-                placesLoading={affectedLoading}
-                active={publicLists}
-                onActiveChange={setPublicLists}
-                onSelectPlace={handlePlaceSelect}
-                onNewsArticles={setDockNewsArticles}
-                onFocusNews={(article) => setNewsFocus({ ...article, focusKey: Date.now() })}
-                onFocusCommunityReport={focusCommunityReport}
-              />
-            )}
-          </aside>
+              )}
+            </aside>
 
-          <main className="relative order-1 min-h-0 flex-1 md:order-2">
-            {!place && (
-              <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4 md:hidden">
-                <p
-                  className={clsx(
-                    'rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-lg backdrop-blur',
-                    theme === 'dark'
-                      ? 'border-gray-700 bg-gray-900/85 text-gray-200'
-                      : 'border-white/80 bg-white/90 text-slate-700',
-                  )}
-                >
-                  Search above or use the location button
-                </p>
-              </div>
-            )}
-            <MapPanel
-              stations={sortedStations}
-              liveReadings={liveReadings}
-              selected={selected}
-              onSelect={handleSelectStation}
-              basemap={basemap}
-              onBasemapChange={setBasemap}
-              theme={theme}
-              variant="public"
-              placeFocus={place}
-              zoneFocus={zoneFocus}
-              communityReportFocus={communityReportFocus}
-              roadHighlight={highlightedRoad}
-              forceBuildingsLayer={buildingsTabActive}
-              onBuildingsViewportChange={handleBuildingsViewportChange}
-              onPlaceSelect={handlePlaceSelect}
-              onUrbanFlashSelect={handleSelectUrbanFlash}
-              atRiskPlaces={nationalAffectedSummary?.places}
-              externalNewsVisible={publicLists.news}
-              externalNewsArticles={dockNewsArticles}
-              newsFocus={newsFocus}
-              showSearch={false}
-              navigation={navigation}
-              highlightSelectedBasin={showSelectedBasin}
-              mapCaptureRef={mapCaptureRef}
-            />
-          </main>
+            <main className="relative order-1 min-h-0 min-w-0 flex-1 md:order-2">
+              {!place && (
+                <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4 md:hidden">
+                  <p
+                    className={clsx(
+                      'rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-lg backdrop-blur',
+                      theme === 'dark'
+                        ? 'border-gray-700 bg-gray-900/85 text-gray-200'
+                        : 'border-white/80 bg-white/90 text-slate-700',
+                    )}
+                  >
+                    Tap the map, search, or use the location button
+                  </p>
+                </div>
+              )}
+              <MapPanel
+                stations={sortedStations}
+                liveReadings={liveReadings}
+                selected={selected}
+                onSelect={handleSelectStation}
+                basemap={basemap}
+                onBasemapChange={setBasemap}
+                theme={theme}
+                variant="public"
+                placeFocus={place}
+                zoneFocus={zoneFocus}
+                communityReportFocus={communityReportFocus}
+                roadHighlight={highlightedRoad}
+                forceBuildingsLayer={buildingsTabActive}
+                onBuildingsViewportChange={handleBuildingsViewportChange}
+                onPlaceSelect={handlePlaceSelect}
+                onUrbanFlashSelect={handleSelectUrbanFlash}
+                atRiskPlaces={nationalAffectedSummary?.places}
+                externalNewsVisible={publicLists.news}
+                externalNewsArticles={dockNewsArticles}
+                newsFocus={newsFocus}
+                showSearch={false}
+                navigation={navigation}
+                highlightSelectedBasin={showSelectedBasin}
+                mapCaptureRef={mapCaptureRef}
+                bottomSheetOverlay={Boolean(place)}
+              />
+              {place && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center p-0 sm:px-3 sm:pb-3">
+                  <div className="pointer-events-auto flex h-[min(34vh,20rem)] w-full flex-col overflow-hidden md:h-[min(32vh,19rem)]">
+                    <PlaceForecastSheet
+                      place={place}
+                      overallRisk={placeConditions.overallRisk}
+                      primaryStation={placeConditions.primaryStation}
+                      siteAssessment={siteAssessment}
+                      nearby={placeConditions.nearby}
+                      nearbySettlements={settlements}
+                      localSettlementSummary={localSummary}
+                      settlementsLoading={settlementsLoading}
+                      nearbyRoads={nearbyRoads}
+                      roadSummary={roadSummary}
+                      roadsLoading={roadsLoading}
+                      selectedRoad={highlightedRoad}
+                      onSelectRoad={setHighlightedRoad}
+                      nearbyBuildings={nearbyBuildings}
+                      buildingSummary={buildingSummary}
+                      buildingsLoading={buildingsLoading}
+                      buildingsError={buildingsError}
+                      loading={placeConditions.loading}
+                      liveReadings={liveReadings}
+                      theme={theme}
+                      onClose={clearPlace}
+                      onSelectStation={handleSelectStation}
+                      onSelectPlace={handlePlaceSelect}
+                      onPanelTabChange={(tab) => setBuildingsTabActive(tab === 'buildings')}
+                      captureMapSnapshot={() => mapCaptureRef.current?.() ?? Promise.resolve(null)}
+                    />
+                  </div>
+                </div>
+              )}
+            </main>
+          </div>
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -4,6 +4,7 @@ import { IconDownload } from './Icons'
 
 /**
  * Prominent report CTA for the active place / urban-flash / user location context.
+ * variant="icon" matches Home / Layers map chrome (h-10 w-10).
  */
 export default function GenerateReportButton({
   theme = 'light',
@@ -14,9 +15,47 @@ export default function GenerateReportButton({
   onClick,
   className = '',
   size = 'md',
+  variant = 'button',
 }) {
   const dark = theme === 'dark'
   const compact = size === 'sm'
+  const iconOnly = variant === 'icon'
+  const tip = [label, subtitle].filter(Boolean).join(' — ')
+
+  if (iconOnly) {
+    return (
+      <button
+        type="button"
+        disabled={disabled || loading}
+        onClick={onClick}
+        className={clsx(
+          'inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50',
+          dark
+            ? 'border-gray-700 bg-gray-900 text-gray-200 hover:border-gray-500 hover:bg-gray-800 hover:text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900',
+          className,
+        )}
+        style={
+          dark
+            ? { backgroundColor: '#111827', borderColor: '#374151' }
+            : { backgroundColor: '#ffffff', borderColor: '#cbd5e1' }
+        }
+        title={loading ? 'Preparing…' : tip || label}
+        aria-label={loading ? 'Preparing report' : label}
+      >
+        {loading ? (
+          <span
+            className={clsx(
+              'h-3.5 w-3.5 rounded-full border-2 animate-spin',
+              dark ? 'border-gray-600 border-t-sky-400' : 'border-slate-300 border-t-sky-600',
+            )}
+          />
+        ) : (
+          <IconDownload size={16} className={dark ? 'text-gray-300' : 'text-slate-600'} />
+        )}
+      </button>
+    )
+  }
 
   return (
     <button
