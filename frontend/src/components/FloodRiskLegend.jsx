@@ -142,6 +142,8 @@ export default function FloodRiskLegend({
   showNews = false,
   showHistory = false,
   showHistoricalHotspots = false,
+  probabilityDescription = 'Flood probability for riverine inundation. Darker = higher.',
+  historicalHotspotDescription = 'Heat intensity from past Global Flood Database events (2000–2018) plus live community reports.',
   historyLegend = null,
   susceptibilityLegend = null,
   visibleExposureIds = [],
@@ -205,7 +207,7 @@ export default function FloodRiskLegend({
       </button>
 
       {!collapsed && (
-        <div className="space-y-3.5 p-3">
+        <div className="max-h-[min(60vh,30rem)] space-y-3.5 overflow-y-auto overscroll-contain p-3 pr-2">
           {showProbability && (
             <div>
               <SectionTitle theme={theme}>Inundation probability</SectionTitle>
@@ -215,7 +217,7 @@ export default function FloodRiskLegend({
                   theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                 )}
               >
-                Flood probability for riverine inundation. Darker = higher.
+                {probabilityDescription}
               </p>
               <CategoryItems items={PROBABILITY_ITEMS} theme={theme} />
             </div>
@@ -312,7 +314,7 @@ export default function FloodRiskLegend({
                   theme === 'dark' ? 'text-gray-500' : 'text-slate-500',
                 )}
               >
-                Heat intensity from past Global Flood Database events (2000–2018) plus live community reports.
+                {historicalHotspotDescription}
               </p>
               <HeatRamp
                 theme={theme}

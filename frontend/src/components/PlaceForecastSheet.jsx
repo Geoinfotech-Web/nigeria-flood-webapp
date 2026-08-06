@@ -82,6 +82,10 @@ export default function PlaceForecastSheet({
   const buildingsExposed = buildingSummary?.exposed_in_flood_zones ?? 0
   const highlyLikely = localSettlementSummary?.highly_likely ?? 0
   const highlySusceptible = localSettlementSummary?.highly_susceptible ?? 0
+  const urbanFlashZone = useMemo(
+    () => (siteAssessment?.zones_inside || []).find((zone) => zone?.source === 'urban_flash_flood') || null,
+    [siteAssessment?.zones_inside],
+  )
 
   useEffect(() => {
     setSheetTab('basic')
@@ -248,6 +252,22 @@ export default function PlaceForecastSheet({
 
         {!loading && (
           <div className="overflow-x-auto">
+            {urbanFlashZone ? (
+              <div
+                className={clsx(
+                  'mx-3 mt-3 rounded-lg border px-3 py-2 text-left text-xs sm:mx-4',
+                  dark
+                    ? 'border-fuchsia-800/70 bg-fuchsia-950/45 text-fuchsia-100'
+                    : 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-950',
+                )}
+                role="status"
+              >
+                <span className="font-semibold">Urban flash flood alert · {urbanFlashZone.risk_tier}</span>
+                <span className="ml-1 opacity-80">
+                  This point is inside {urbanFlashZone.name || 'an active rainfall-driven zone'}.
+                </span>
+              </div>
+            ) : null}
             <table className="w-full min-w-[36rem] border-collapse text-center text-[11px] sm:text-xs">
               <thead>
                 <tr className={dark ? 'bg-gray-900/80' : 'bg-slate-50'}>
@@ -280,7 +300,7 @@ export default function PlaceForecastSheet({
                       dark ? 'border-gray-800 bg-gray-950 text-gray-400' : 'border-slate-100 bg-white text-slate-500',
                     )}
                   >
-                    Flood probability
+                    {urbanFlashZone ? 'River gauge probability' : 'Flood probability'}
                   </td>
                   {horizonCols.map((h) => {
                     const v = horizons[h] || {}

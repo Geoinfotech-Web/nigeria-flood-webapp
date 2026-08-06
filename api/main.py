@@ -61,6 +61,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "floodpass")
 DB_NAME = os.getenv("DB_NAME", "flooddb")
 DB_HOST = os.getenv("DB_HOST", "timescaledb")
 DB_PORT = os.getenv("DB_PORT", "5432")
+TITILER_URL = os.getenv("TITILER_URL", "http://titiler").rstrip("/")
 # Cloud Run + Cloud SQL Auth Connector uses unix socket:
 # INSTANCE_CONNECTION_NAME=project:region:instance
 INSTANCE_CONNECTION_NAME = (
@@ -203,6 +204,18 @@ async def startup():
         app.state.redis_enabled = False
         log.warning("REDIS_URL unset/disabled — running without cache")
     app.state.http = httpx.AsyncClient(base_url=BENTOML_URL, timeout=10.0)
+    # Raster requests arrive in bursts as MapLibre fills the viewport. Reuse a
+    # pooled client (with connect retries) instead of opening a TCP connection
+    # for every bounds lookup and tile request.
+    app.state.titiler_http = httpx.AsyncClient(
+        base_url=TITILER_URL,
+        timeout=httpx.Timeout(60.0, connect=20.0, pool=30.0),
+        limits=httpx.Limits(max_connections=12, max_keepalive_connections=8),
+        transport=httpx.AsyncHTTPTransport(retries=2),
+    )
+    app.state.titiler_slots = asyncio.Semaphore(
+        max(1, int(os.getenv("TITILER_PROXY_CONCURRENCY", "4")))
+    )
     async with app.state.db.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS flood_incident_reports (
@@ -293,6 +306,7 @@ async def shutdown():
     await app.state.db.close()
     await app.state.redis.aclose()
     await app.state.http.aclose()
+    await app.state.titiler_http.aclose()
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

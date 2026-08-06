@@ -28,11 +28,10 @@ from shapely.validation import make_valid
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-TITILER_BASE = os.getenv("TITILER_URL", "http://titiler")
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 TRANSPARENT_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlH0i8AAAAASUVORK5CYII="
 )
+NIGERIA_RASTER_BOUNDS = [2.67, 4.26, 14.68, 13.89]
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 EXPOSURE_FILES = {
     "roads": DATA_DIR / "exposure_roads.geojson",
@@ -288,9 +287,12 @@ async def flood_risk_geojson(
 ):
     """
     Returns GeoJSON FeatureCollection of flood risk / inundation areas.
-    Returns SAR/DEM inundation (Very High / High / Moderate) by default.
+    Returns current SAR/DEM inundation (Very High / High / Moderate) by default.
+    When no current observation exists, returns a historical-baseline
+    probability prediction derived from persisted flood recurrence hotspots.
     Inundation history and urban flash flood are served only via explicit ?source=.
     """
+    historical_baseline = False
     async with request.app.state.db.acquire() as conn:
         if source is None:
             rows = await conn.fetch(
@@ -306,6 +308,31 @@ async def flood_risk_geojson(
                 """,
                 min_risk,
             )
+            if not rows:
+                historical_baseline = True
+                rows = await conn.fetch(
+                    """
+                    SELECT hotspot_name AS name,
+                           'historical_prediction'::text AS admin_level,
+                           NULL::text AS state,
+                           risk_score,
+                           CASE risk_tier
+                               WHEN 'Persistent' THEN 'Very High'
+                               WHEN 'Frequent' THEN 'High'
+                               ELSE 'Moderate'
+                           END AS risk_tier,
+                           'historical_inundation_probability'::text AS source,
+                           NULL::date AS valid_from,
+                           NULL::date AS valid_to,
+                           source AS history_source,
+                           metadata,
+                           ST_AsGeoJSON(geom)::json AS geometry
+                    FROM historical_flood_hotspots
+                    WHERE risk_score >= $1
+                    ORDER BY risk_score DESC, area_km2 DESC, hotspot_name
+                    """,
+                    min_risk,
+                )
         else:
             rows = await conn.fetch(
                 """
@@ -350,6 +377,19 @@ async def flood_risk_geojson(
             "valid_from":  str(r["valid_from"]) if r["valid_from"] else None,
             "valid_to":    str(r["valid_to"]) if r["valid_to"] else None,
         }
+        if historical_baseline:
+            metadata = r["metadata"] or {}
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+            props.update({
+                "prediction_basis": "historical_baseline",
+                "history_source": r["history_source"],
+                "historical_period": metadata.get("period") or "2000–2018",
+                "observation_status": "baseline_not_live",
+            })
         if "lon" in r.keys() and r["lon"] is not None:
             props["lon"] = float(r["lon"])
             props["lat"] = float(r["lat"])
@@ -394,19 +434,7 @@ async def list_tile_layers(request: Request):
         encoded = up.urlencode(params, doseq=True, safe=":/")
         return f"{base}/flood-risk/tiles/{{z}}/{{x}}/{{y}}.png?{encoded}"
 
-    async def _fetch_bounds(cog_url: str) -> list[float] | None:
-        info_url = f"{TITILER_BASE}/cog/info?url={up.quote(cog_url, safe=':/')}"
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(info_url)
-                resp.raise_for_status()
-                payload = resp.json()
-                return payload.get("bounds")
-        except Exception:
-            log.warning("Could not fetch bounds for %s", cog_url)
-            return None
-
-    layers = []
+    candidates = []
     for r in rows:
         # Probability is served as vectors only — skip raster duplicate
         if r["source"] == "sar_dem_inundation":
@@ -417,6 +445,10 @@ async def list_tile_layers(request: Request):
         parsed = up.urlparse(r["tile_url"])
         qs = up.parse_qs(parsed.query)
         cog_url = qs.get("url", [r["tile_url"]])[0]
+        candidates.append((r, metadata, cog_url))
+
+    layers = []
+    for r, metadata, _cog_url in candidates:
         layers.append({
             "id":         r["id"],
             "source":     r["source"],
@@ -425,7 +457,11 @@ async def list_tile_layers(request: Request):
             "valid_from": str(r["valid_from"]) if r["valid_from"] else None,
             "valid_to":   str(r["valid_to"])   if r["valid_to"]   else None,
             "legend":     metadata["legend"],
-            "bounds":     await _fetch_bounds(cog_url),
+            # Every registered overlay is clipped to Nigeria. Using the known
+            # extent keeps manifest discovery independent of the raster server;
+            # actual tile failures are handled by the proxy endpoint.
+            "bounds":     NIGERIA_RASTER_BOUNDS,
+            "status":     "ready",
         })
 
     source_order = {
@@ -450,6 +486,7 @@ _SUSCEPTIBILITY_COLORMAP = json.dumps(
 
 @router.get("/tiles/{z}/{x}/{y}.png")
 async def proxy_tile(
+    request: Request,
     z: int, x: int, y: int,
     url: str = Query(...),
     bidx: str | None = Query(default=None),
@@ -490,19 +527,19 @@ async def proxy_tile(
         if rescale:
             params["rescale"] = rescale
 
-    tile_url = (
-        f"{TITILER_BASE}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png"
-        f"?{up.urlencode(params, doseq=True, safe=':/')}"
-    )
+    tile_path = f"/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png"
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(tile_url)
-            resp.raise_for_status()
-            return Response(
-                content=resp.content,
-                media_type="image/png",
-                headers={"Cache-Control": "public, max-age=60"},
-            )
+        # MapLibre requests tiles in bursts. Keep the four-worker TiTiler
+        # service below its TCP backlog limit; queued requests are preferable
+        # to transient 503 gaps in the raster.
+        async with request.app.state.titiler_slots:
+            resp = await request.app.state.titiler_http.get(tile_path, params=params)
+        resp.raise_for_status()
+        return Response(
+            content=resp.content,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=60"},
+        )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             return Response(
@@ -510,10 +547,10 @@ async def proxy_tile(
                 media_type="image/png",
                 headers={"Cache-Control": "public, max-age=3600"},
             )
-        log.exception("Tile proxy request failed for %s", tile_url)
+        log.exception("Tile proxy request failed for %s", tile_path)
         raise HTTPException(status_code=503, detail=f"Tile server error: {exc}")
     except Exception as exc:
-        log.exception("Tile proxy request failed for %s", tile_url)
+        log.exception("Tile proxy request failed for %s", tile_path)
         raise HTTPException(status_code=503, detail=f"Tile server error: {exc}")
 
 
@@ -778,6 +815,12 @@ async def historical_hotspots_summary(request: Request):
             """
         )
         total_events = await conn.fetchval("SELECT COUNT(*) FROM historical_flood_events")
+        hotspot_sources = set(
+            await conn.fetchval(
+                "SELECT ARRAY_AGG(DISTINCT source) FROM historical_flood_hotspots"
+            )
+            or []
+        )
 
     by_tier = {
         r["risk_tier"]: {
@@ -788,7 +831,11 @@ async def historical_hotspots_summary(request: Request):
     }
     payload = {
         "label": "Flood Hotspot",
-        "subtitle": "Past flood event recurrence · Global Flood Database (2000–2018)",
+        "subtitle": (
+            "Historical water occurrence · JRC Landsat (1984–2021)"
+            if hotspot_sources == {"jrc_occurrence_1984_2021"}
+            else "Past flood event recurrence · Global Flood Database (2000–2018)"
+        ),
         "total_events": int(total_events or 0),
         "occasional": by_tier.get("Occasional", {"zones": 0, "area_km2": 0.0}),
         "frequent": by_tier.get("Frequent", {"zones": 0, "area_km2": 0.0}),

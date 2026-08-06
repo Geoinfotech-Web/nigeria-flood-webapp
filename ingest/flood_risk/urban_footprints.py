@@ -33,6 +33,7 @@ if not logging.getLogger().handlers:
 
 GEE_KEY_FILE = os.getenv("GEE_SERVICE_ACCOUNT_KEY", "")
 GEE_SA_EMAIL = os.getenv("GEE_SERVICE_ACCOUNT_EMAIL", "")
+GEE_PROJECT = os.getenv("GEE_PROJECT", "")
 
 # Min area (km²) to keep; largest N clusters retained after filter
 MIN_AREA_KM2 = 2.0
@@ -209,10 +210,10 @@ def init_gee() -> bool:
     try:
         if GEE_KEY_FILE and Path(GEE_KEY_FILE).exists():
             creds = ee.ServiceAccountCredentials(GEE_SA_EMAIL, GEE_KEY_FILE)
-            ee.Initialize(creds)
+            ee.Initialize(creds, project=GEE_PROJECT or None)
             log.info("GEE initialised with service account")
         else:
-            ee.Initialize()
+            ee.Initialize(project=GEE_PROJECT or None)
             log.info("GEE initialised with default credentials")
         return True
     except Exception as exc:
@@ -357,6 +358,70 @@ def build_footprints():
             log.warning("Skipping cluster %d: %s", idx, exc)
 
     log.info("Prepared %d urban footprints", len(out))
+    return out
+
+
+def build_fallback_footprints() -> list[dict]:
+    """Build approximate urban extents from the bundled OSM place catalogue.
+
+    This keeps the rainfall-driven urban-flash layer operational when Earth
+    Engine is temporarily unavailable. The normal monthly WorldCover job
+    replaces these conservative settlement extents when GEE is healthy.
+    """
+    from shapely.geometry import MultiPolygon, Point, mapping
+
+    if not _PLACES_PATH.exists():
+        log.error("OSM places fallback missing: %s", _PLACES_PATH)
+        return []
+
+    with _PLACES_PATH.open(encoding="utf-8") as f:
+        features = json.load(f).get("features") or []
+
+    candidates = []
+    for feat in features:
+        props = feat.get("properties") or {}
+        cls = (props.get("class") or props.get("place") or "").title()
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if cls not in ("City", "Town") or geom.get("type") != "Point" or len(coords) < 2:
+            continue
+        try:
+            population = int(float(str(props.get("population") or "0").replace(",", "")))
+            lon, lat = float(coords[0]), float(coords[1])
+        except (TypeError, ValueError):
+            continue
+        candidates.append((cls == "City", population, str(props.get("name") or ""), lat, lon))
+
+    candidates.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    out = []
+    seen = set()
+    for is_city, population, raw_name, lat, lon in candidates:
+        place_name, state = resolve_place_name(lat, lon)
+        unique_key = (place_name.casefold(), round(lat, 3), round(lon, 3))
+        if unique_key in seen:
+            continue
+        seen.add(unique_key)
+
+        default_area = 12.0 if is_city else 4.0
+        area_km2 = max(2.0, min(250.0, population / 2500.0 if population else default_area))
+        radius_deg = math.sqrt(area_km2 / math.pi) / 111.0
+        geometry = MultiPolygon([Point(lon, lat).buffer(radius_deg, resolution=16)])
+        out.append(
+            {
+                "name": place_name or raw_name,
+                "state": state,
+                "geometry": mapping(geometry),
+                "centroid_lat": lat,
+                "centroid_lon": lon,
+                "area_km2": round(area_km2, 3),
+                "impervious_frac": 0.75,
+                "flat_frac": 0.0,
+            }
+        )
+        if len(out) >= MAX_CLUSTERS:
+            break
+
+    log.warning("Prepared %d OSM settlement fallback footprints", len(out))
     return out
 
 
@@ -530,12 +595,12 @@ def ensure_table():
 
 
 def run():
-    if not init_gee():
-        log.error("GEE not available — cannot build urban footprints")
-        sys.exit(1)
-
     ensure_table()
-    features = build_footprints()
+    if init_gee():
+        features = build_footprints()
+    else:
+        log.warning("GEE unavailable; using bundled OSM settlement footprints")
+        features = build_fallback_footprints()
     if not features:
         log.error("No urban footprints produced")
         sys.exit(1)

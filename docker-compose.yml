@@ -174,6 +174,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       GEE_SERVICE_ACCOUNT_EMAIL: ${GEE_SERVICE_ACCOUNT_EMAIL:-}
       GEE_SERVICE_ACCOUNT_KEY: /run/secrets/gee-service-account.json
+      GEE_PROJECT: ${GEE_PROJECT:-}
+      GFW_DATA_DIR: /api_data
+      ENABLE_SYNTHETIC_SIMULATORS: ${ENABLE_SYNTHETIC_SIMULATORS:-0}
       GAUGE_INTERVAL_SECONDS: 300      # every 5 min
       MET_INTERVAL_SECONDS: 900        # every 15 min
     depends_on:
@@ -262,6 +265,9 @@ services:
       - AWS_S3_ENDPOINT=http://minio:9000
       - AWS_VIRTUAL_HOSTING=FALSE
       - GDAL_HTTP_UNSAFESSL=YES
+      # MapLibre requests several viewport tiles in parallel. A single worker
+      # can leave the API proxy waiting long enough to return HTTP 503.
+      - WEB_CONCURRENCY=${TITILER_WEB_CONCURRENCY:-4}
     depends_on:
       minio:
         condition: service_healthy

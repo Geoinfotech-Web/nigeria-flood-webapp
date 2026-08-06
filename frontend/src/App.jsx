@@ -36,6 +36,15 @@ import { useAffectedSettlementsSummary } from './hooks/useAffectedSettlementsSum
 import PublicListsDock from './components/PublicListsDock'
 import RouteConditionsPanel from './components/RouteConditionsPanel'
 import AdminApp from './components/admin/AdminApp'
+import { worstRisk } from './lib/riskCopy'
+
+function operationalRiskFromMappedZone(zone) {
+  const tier = zone?.risk_tier
+  if (tier === 'Emergency' || tier === 'Very High') return 'Emergency'
+  if (tier === 'Warning' || tier === 'High' || tier === 'Highly Likely') return 'Warning'
+  if (tier === 'Watch' || tier === 'Moderate' || tier === 'Likely') return 'Watch'
+  return 'Normal'
+}
 
 function readPlaceFromUrl() {
   try {
@@ -251,6 +260,32 @@ export default function App() {
   } = useNearbyBuildings(place)
   const { terrain, loading: terrainLoading } = useTerrain(mode === 'expert' ? place : null)
   const { assessment: siteAssessment, loading: siteLoading } = useSiteAssessment(place)
+  const urbanFlashInside = useMemo(
+    () => (siteAssessment?.zones_inside || []).filter((zone) => zone?.source === 'urban_flash_flood'),
+    [siteAssessment?.zones_inside],
+  )
+  const mappedZoneRisk = useMemo(() => {
+    const tiers = urbanFlashInside.map(operationalRiskFromMappedZone)
+    if (place?.source === 'urban_flash_flood') {
+      tiers.push(operationalRiskFromMappedZone({ risk_tier: place.urban_flash_tier }))
+    }
+    return worstRisk(tiers)
+  }, [place?.source, place?.urban_flash_tier, urbanFlashInside])
+  const effectiveOverallRisk = useMemo(
+    () => worstRisk([placeConditions.overallRisk || 'Normal', mappedZoneRisk]),
+    [mappedZoneRisk, placeConditions.overallRisk],
+  )
+  const effectiveLocalSummary = useMemo(() => {
+    const hasHighlyLikelyUrbanFlash = urbanFlashInside.some(
+      (zone) => zone?.risk_tier === 'Highly Likely',
+    ) || (place?.source === 'urban_flash_flood' && place?.urban_flash_tier === 'Highly Likely')
+    if (!hasHighlyLikelyUrbanFlash) return localSummary
+    return {
+      ...(localSummary || {}),
+      total: Math.max(Number(localSummary?.total || 0), 1),
+      highly_likely: Math.max(Number(localSummary?.highly_likely || 0), 1),
+    }
+  }, [localSummary, place?.source, place?.urban_flash_tier, urbanFlashInside])
 
   // Prefer map-viewport buildings (updates on pan/zoom); fall back to place-radius query
   const useViewport =
@@ -289,8 +324,8 @@ export default function App() {
     loading: affectedLoading,
   } = useAffectedSettlementsSummary({ minTier: 'Warning', radiusKm: 25 })
 
-  const stripSummary = place ? localSummary : nationalAffectedSummary
-  const stripLoading = place ? settlementsLoading : affectedLoading
+  const stripSummary = place ? effectiveLocalSummary : nationalAffectedSummary
+  const stripLoading = place ? settlementsLoading || siteLoading : affectedLoading
   const stripScope = place ? 'local' : 'nationwide'
 
   // Auto-detect location once on public mode if no place is set (URL/share)
@@ -586,12 +621,12 @@ export default function App() {
                   <div className="pointer-events-auto flex h-[min(34vh,20rem)] w-full flex-col overflow-hidden md:h-[min(32vh,19rem)]">
                     <PlaceForecastSheet
                       place={place}
-                      overallRisk={placeConditions.overallRisk}
+                      overallRisk={effectiveOverallRisk}
                       primaryStation={placeConditions.primaryStation}
                       siteAssessment={siteAssessment}
                       nearby={placeConditions.nearby}
                       nearbySettlements={settlements}
-                      localSettlementSummary={localSummary}
+                      localSettlementSummary={effectiveLocalSummary}
                       settlementsLoading={settlementsLoading}
                       nearbyRoads={nearbyRoads}
                       roadSummary={roadSummary}
@@ -622,7 +657,7 @@ export default function App() {
           <ExpertKpiStrip
             place={place}
             placeConditions={placeConditions}
-            localSettlementSummary={localSummary}
+            localSettlementSummary={effectiveLocalSummary}
             settlementsLoading={settlementsLoading}
             roadSummary={roadSummary}
             roadsLoading={roadsLoading}
@@ -827,11 +862,11 @@ export default function App() {
               ) : place ? (
                 <ExpertIntelligenceReport
                   place={place}
-                  overallRisk={placeConditions.overallRisk}
+                  overallRisk={effectiveOverallRisk}
                   primaryStation={placeConditions.primaryStation}
                   nearby={placeConditions.nearby}
                   nearbySettlements={settlements}
-                  localSettlementSummary={localSummary}
+                  localSettlementSummary={effectiveLocalSummary}
                   settlementsLoading={settlementsLoading}
                   nearbyRoads={nearbyRoads}
                   roadSummary={roadSummary}

@@ -45,6 +45,7 @@ log = logging.getLogger(__name__)
 
 GEE_KEY_FILE = os.getenv("GEE_SERVICE_ACCOUNT_KEY", "")
 GEE_SA_EMAIL = os.getenv("GEE_SERVICE_ACCOUNT_EMAIL", "")
+GEE_PROJECT = os.getenv("GEE_PROJECT", "")
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_KEY = os.getenv("MINIO_ROOT_USER", "minioadmin")
 MINIO_SECRET = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
@@ -77,10 +78,10 @@ def init_gee() -> bool:
     try:
         if GEE_KEY_FILE and Path(GEE_KEY_FILE).exists():
             creds = ee.ServiceAccountCredentials(GEE_SA_EMAIL, GEE_KEY_FILE)
-            ee.Initialize(creds)
+            ee.Initialize(creds, project=GEE_PROJECT or None)
             log.info("GEE initialised with service account")
         else:
-            ee.Initialize()
+            ee.Initialize(project=GEE_PROJECT or None)
             log.info("GEE initialised with default credentials")
         return True
     except Exception as exc:

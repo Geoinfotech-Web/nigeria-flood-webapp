@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,7 @@ log = logging.getLogger(__name__)
 
 GEE_KEY_FILE = os.getenv("GEE_SERVICE_ACCOUNT_KEY", "")
 GEE_SA_EMAIL = os.getenv("GEE_SERVICE_ACCOUNT_EMAIL", "")
+GEE_PROJECT = os.getenv("GEE_PROJECT", "")
 NIGERIA_BBOX = [2.7, 4.0, 14.7, 14.0]
 DB_DSN = (
     f"host={os.getenv('DB_HOST', 'localhost')} "
@@ -32,6 +34,7 @@ DB_DSN = (
 )
 
 SOURCE = "gfd_modis_events_v1"
+FALLBACK_SOURCE = "jrc_occurrence_1984_2021"
 EVENT_TABLE = "historical_flood_events"
 HOTSPOT_TABLE = "historical_flood_hotspots"
 GRID_STEP_DEG = 0.2
@@ -48,9 +51,12 @@ def init_gee() -> bool:
 
     try:
         if GEE_KEY_FILE and Path(GEE_KEY_FILE).exists():
-            ee.Initialize(ee.ServiceAccountCredentials(GEE_SA_EMAIL, GEE_KEY_FILE))
+            ee.Initialize(
+                ee.ServiceAccountCredentials(GEE_SA_EMAIL, GEE_KEY_FILE),
+                project=GEE_PROJECT or None,
+            )
         else:
-            ee.Initialize()
+            ee.Initialize(project=GEE_PROJECT or None)
         return True
     except Exception as exc:
         log.error("GEE init failed: %s", exc)
@@ -284,6 +290,113 @@ def derive_hotspots(events: list[dict], grid_step_deg: float = GRID_STEP_DEG) ->
     return hotspots
 
 
+def derive_jrc_fallback_hotspots() -> list[dict]:
+    """Vectorize the persisted JRC water-occurrence COG into hotspot zones."""
+    import boto3
+    import numpy as np
+    import psycopg2
+    import rasterio
+    from affine import Affine
+    from rasterio.enums import Resampling
+    from rasterio.features import shapes
+    from shapely.geometry import MultiPolygon, Polygon, shape
+
+    with psycopg2.connect(DB_DSN) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT minio_path
+            FROM flood_risk_tiles
+            WHERE source = 'jrc_occurrence'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    if not row or not row[0] or not str(row[0]).startswith("s3://"):
+        log.error("No persisted JRC occurrence COG is registered")
+        return []
+
+    bucket, key = str(row[0])[5:].split("/", 1)
+    client = boto3.client(
+        "s3",
+        endpoint_url=os.getenv("MINIO_ENDPOINT", "http://localhost:9000"),
+        aws_access_key_id=os.getenv("MINIO_ROOT_USER", "minioadmin"),
+        aws_secret_access_key=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin"),
+    )
+
+    with tempfile.TemporaryDirectory(prefix="jrc-hotspots-") as tmp:
+        path = Path(tmp) / "occurrence.tif"
+        client.download_file(bucket, key, str(path))
+        with rasterio.open(path) as dataset:
+            out_height = max(1, dataset.height // 4)
+            out_width = max(1, dataset.width // 4)
+            occurrence = dataset.read(
+                1,
+                out_shape=(out_height, out_width),
+                resampling=Resampling.average,
+            )
+            transform = dataset.transform * Affine.scale(
+                dataset.width / out_width,
+                dataset.height / out_height,
+            )
+
+    tiers = np.zeros(occurrence.shape, dtype="uint8")
+    tiers[(occurrence >= 5) & (occurrence < 25)] = 1
+    tiers[(occurrence >= 25) & (occurrence < 50)] = 2
+    tiers[occurrence >= 50] = 3
+    tier_meta = {
+        1: ("Occasional", 0.15, "5–24% historical water occurrence"),
+        2: ("Frequent", 0.375, "25–49% historical water occurrence"),
+        3: ("Persistent", 0.75, "50–100% historical water occurrence"),
+    }
+
+    hotspots = []
+    counters = {1: 0, 2: 0, 3: 0}
+    for geometry, value in shapes(tiers, mask=tiers > 0, transform=transform):
+        tier_value = int(value)
+        geom = shape(geometry)
+        if not geom.is_valid:
+            geom = geom.buffer(0)
+        geom = geom.simplify(0.01, preserve_topology=True)
+        if geom.is_empty or geom.area < 0.001:
+            continue
+        if isinstance(geom, Polygon):
+            geom = MultiPolygon([geom])
+        elif not isinstance(geom, MultiPolygon):
+            polygons = [part for part in getattr(geom, "geoms", []) if isinstance(part, Polygon)]
+            if not polygons:
+                continue
+            geom = MultiPolygon(polygons)
+
+        counters[tier_value] += 1
+        tier, score, threshold = tier_meta[tier_value]
+        centroid = geom.centroid
+        hotspots.append(
+            {
+                "hotspot_id": f"{FALLBACK_SOURCE}:{tier.lower()}:{counters[tier_value]}",
+                "hotspot_name": f"{tier} historical-water hotspot {counters[tier_value]}",
+                "risk_tier": tier,
+                "risk_score": score,
+                "event_count": 0,
+                "area_km2": round(_deg2_to_km2(geom.area, centroid.y), 1),
+                "geom": geom,
+                "centroid_lat": centroid.y,
+                "centroid_lon": centroid.x,
+                "bbox_lnglat": list(geom.bounds),
+                "metadata": {
+                    "method": "JRC Global Surface Water occurrence fallback",
+                    "period": "1984–2021",
+                    "threshold": threshold,
+                },
+            }
+        )
+
+    hotspots.sort(key=lambda item: (item["risk_score"], item["area_km2"]), reverse=True)
+    hotspots = hotspots[:500]
+    log.warning("Derived %d JRC occurrence fallback hotspots", len(hotspots))
+    return hotspots
+
+
 def ensure_tables(cur):
     cur.execute(
         f"""
@@ -337,7 +450,13 @@ def ensure_tables(cur):
     )
 
 
-def save_events_and_hotspots(events: list[dict], hotspots: list[dict]):
+def save_events_and_hotspots(
+    events: list[dict],
+    hotspots: list[dict],
+    *,
+    source: str = SOURCE,
+    replace_sources: tuple[str, ...] | None = None,
+):
     import psycopg2
     from psycopg2.extras import Json
 
@@ -345,8 +464,9 @@ def save_events_and_hotspots(events: list[dict], hotspots: list[dict]):
     try:
         with conn.cursor() as cur:
             ensure_tables(cur)
-            cur.execute(f"DELETE FROM {EVENT_TABLE} WHERE source = %s", (SOURCE,))
-            cur.execute(f"DELETE FROM {HOTSPOT_TABLE} WHERE source = %s", (SOURCE,))
+            sources = replace_sources or (source,)
+            cur.execute(f"DELETE FROM {EVENT_TABLE} WHERE source = ANY(%s)", (list(sources),))
+            cur.execute(f"DELETE FROM {HOTSPOT_TABLE} WHERE source = ANY(%s)", (list(sources),))
 
             for event in events:
                 cur.execute(
@@ -362,7 +482,7 @@ def save_events_and_hotspots(events: list[dict], hotspots: list[dict]):
                     """,
                     (
                         event["event_id"],
-                        SOURCE,
+                        source,
                         event["event_name"],
                         event.get("started_at"),
                         event.get("ended_at"),
@@ -391,7 +511,7 @@ def save_events_and_hotspots(events: list[dict], hotspots: list[dict]):
                     """,
                     (
                         hotspot["hotspot_id"],
-                        SOURCE,
+                        source,
                         hotspot["hotspot_name"],
                         hotspot["risk_tier"],
                         hotspot["risk_score"],
@@ -432,10 +552,19 @@ def _deg2_to_km2(area_deg2: float, latitude: float) -> float:
 
 def run(start_year: int = 2000, end_year: int = 2018, limit: int | None = None):
     if not init_gee():
-        raise RuntimeError("GEE unavailable")
+        hotspots = derive_jrc_fallback_hotspots()
+        if not hotspots:
+            raise RuntimeError("GEE unavailable and JRC hotspot fallback failed")
+        save_events_and_hotspots([], hotspots, source=FALLBACK_SOURCE)
+        return
     events = fetch_nigeria_events(start_year=start_year, end_year=end_year, limit=limit)
     hotspots = derive_hotspots(events)
-    save_events_and_hotspots(events, hotspots)
+    save_events_and_hotspots(
+        events,
+        hotspots,
+        source=SOURCE,
+        replace_sources=(SOURCE, FALLBACK_SOURCE),
+    )
 
 
 if __name__ == "__main__":

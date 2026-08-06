@@ -2,13 +2,15 @@ import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconLayers } from './Icons'
 
-function Toggle({ on, onToggle, theme }) {
+function Toggle({ on, onToggle, theme, disabled = false }) {
   return (
     <button
       type="button"
       onClick={onToggle}
+      disabled={disabled}
       className={clsx(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200',
+        'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
+        disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
         on ? 'bg-sky-600' : theme === 'dark' ? 'bg-gray-600' : 'bg-slate-300',
       )}
       role="switch"
@@ -24,7 +26,7 @@ function Toggle({ on, onToggle, theme }) {
   )
 }
 
-function Row({ label, on, onToggle, theme, children, hint = null }) {
+function Row({ label, on, onToggle, theme, children, hint = null, disabled = false }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -48,11 +50,18 @@ function Row({ label, on, onToggle, theme, children, hint = null }) {
             </p>
           ) : null}
         </div>
-        <Toggle on={on} onToggle={onToggle} theme={theme} />
+        <Toggle on={on} onToggle={onToggle} theme={theme} disabled={disabled} />
       </div>
-      {on && children}
+      {on && !disabled && children}
     </div>
   )
+}
+
+function statusHint(status, readyHint = null) {
+  if (status === 'loading') return 'Loading layer…'
+  if (status === 'empty') return 'No current data'
+  if (status === 'error') return 'Layer unavailable'
+  return readyHint
 }
 
 function Section({ title, theme, children }) {
@@ -82,15 +91,20 @@ export default function LayersPanel({
   onToggleRiskAreas,
   riskOpacity,
   onRiskOpacity,
+  riskAreasStatus = 'ready',
+  riskAreasHint = null,
   urbanFlashVisible = false,
   onToggleUrbanFlash,
   urbanFlashOpacity = 0.6,
   onUrbanFlashOpacity,
+  urbanFlashStatus = 'ready',
   historicalHotspotsVisible = false,
   onToggleHistoricalHotspots,
+  historicalHotspotsStatus = 'ready',
   atRiskPlacesVisible = false,
   onToggleAtRiskPlaces,
   tileLayers = [],
+  tileLayersStatus = 'ready',
   tileVisibility = {},
   onToggleTile,
   gaugesVisible,
@@ -179,6 +193,8 @@ export default function LayersPanel({
                 on={riskAreasVisible}
                 onToggle={onToggleRiskAreas}
                 theme={theme}
+                hint={riskAreasHint || statusHint(riskAreasStatus)}
+                disabled={riskAreasStatus !== 'ready'}
               >
                 <div className="space-y-1 pl-0.5">
                   <div
@@ -207,6 +223,8 @@ export default function LayersPanel({
                 on={urbanFlashVisible}
                 onToggle={onToggleUrbanFlash}
                 theme={theme}
+                hint={statusHint(urbanFlashStatus)}
+                disabled={urbanFlashStatus !== 'ready'}
               >
                 <div className="space-y-1 pl-0.5">
                   <div
@@ -235,7 +253,11 @@ export default function LayersPanel({
                 on={historicalHotspotsVisible}
                 onToggle={onToggleHistoricalHotspots}
                 theme={theme}
-                hint="Past events + live community reports"
+                hint={statusHint(
+                  historicalHotspotsStatus,
+                  'Past events + live community reports',
+                )}
+                disabled={historicalHotspotsStatus !== 'ready'}
               />
 
               <Row
@@ -252,8 +274,24 @@ export default function LayersPanel({
                   on={Boolean(tileVisibility[layer.source])}
                   onToggle={() => onToggleTile?.(layer.source)}
                   theme={theme}
+                  hint={layer.status === 'degraded' ? 'Metadata delayed; tiles load on demand' : null}
                 />
               ))}
+              {tileLayersStatus === 'loading' && (
+                <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  Loading raster layers…
+                </p>
+              )}
+              {tileLayersStatus === 'empty' && (
+                <p className={clsx('text-[10px]', dark ? 'text-gray-500' : 'text-slate-500')}>
+                  No raster layers registered.
+                </p>
+              )}
+              {tileLayersStatus === 'error' && (
+                <p className={clsx('text-[10px] text-rose-500')}>
+                  Raster layers unavailable.
+                </p>
+              )}
             </Section>
 
             <Section title="Monitoring" theme={theme}>

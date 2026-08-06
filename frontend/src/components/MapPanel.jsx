@@ -520,7 +520,9 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
   const isBasin = layerKey === 'basins'
   const lineColor = isBasin ? '#0369a1' : isState ? '#0f766e' : '#64748b'
   const fillColor = isBasin ? '#0ea5e9' : isState ? '#14b8a6' : '#94a3b8'
-  const minzoom = isBasin ? 4 : isState ? 4 : 7
+  // LGA boundaries are useful from the national view; keeping them at zoom 7
+  // made the enabled layer appear broken until users zoomed far in.
+  const minzoom = isBasin ? 4 : isState ? 4 : 5
   const labelMinzoom = isBasin ? 7 : isState ? 5 : 9
   const levelLabel = isBasin ? 'River basin' : isState ? 'State' : 'LGA'
 
@@ -548,7 +550,7 @@ function addAdminBoundaryLayers(map, sourceId, layerKey) {
           ? ['interpolate', ['linear'], ['zoom'], 4, 0.7, 8, 1.4, 12, 2]
           : isState
             ? ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.2, 12, 2.8]
-            : ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.2, 13, 1.8],
+            : ['interpolate', ['linear'], ['zoom'], 5, 0.45, 8, 0.8, 10, 1.2, 13, 1.8],
         'line-opacity': isBasin ? 0.75 : 0.85,
       },
     })
@@ -917,10 +919,10 @@ export default function MapPanel({
   const markersRef = useRef({})
   const newsArticlesRef = useRef([])
   const communityReportsRef = useRef([])
-  const [riskAreasVisible, setRiskAreasVisible] = useState(true)
-  const [urbanFlashVisible, setUrbanFlashVisible] = useState(true)
+  const [riskAreasVisible, setRiskAreasVisible] = useState(false)
+  const [urbanFlashVisible, setUrbanFlashVisible] = useState(false)
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
-  const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(true)
+  const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(false)
   const [atRiskPlacesVisible, setAtRiskPlacesVisible] = useState(true)
   const [gaugesVisible, setGaugesVisible] = useState(true)
   const [newsVisible, setNewsVisible] = useState(false)
@@ -928,12 +930,16 @@ export default function MapPanel({
   const [communityReports, setCommunityReports] = useState([])
   const [riskOpacity, setRiskOpacity] = useState(0.6)
   const [riskData,    setRiskData]    = useState(null)
+  const [riskDataStatus, setRiskDataStatus] = useState('loading')
   const [urbanFlashData, setUrbanFlashData] = useState(null)
+  const [urbanFlashStatus, setUrbanFlashStatus] = useState('loading')
   const [historicalHotspotsData, setHistoricalHotspotsData] = useState(null)
+  const [historicalHotspotsFetchStatus, setHistoricalHotspotsFetchStatus] = useState('loading')
   const [mapReady,    setMapReady]    = useState(false)
   /** Bumped after each basemap setStyle so overlays re-attach (setStyle wipes sources). */
   const [styleEpoch,  setStyleEpoch]  = useState(0)
   const [tileLayers,  setTileLayers]  = useState([])
+  const [tileLayersStatus, setTileLayersStatus] = useState('loading')
   /** Independent raster toggles keyed by layer source, e.g. jrc_occurrence */
   const [tileVisibility, setTileVisibility] = useState({})
 
@@ -952,7 +958,11 @@ export default function MapPanel({
   })
   const [boundaryMeta, setBoundaryMeta] = useState([])
   const [boundaryData, setBoundaryData] = useState({ states: null, lgas: null, basins: null })
-  const [boundaryVisible, setBoundaryVisible] = useState({ states: false, lgas: false, basins: false })
+  const [boundaryVisible, setBoundaryVisible] = useState({
+    states: false,
+    lgas: publicMode,
+    basins: false,
+  })
   const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
   const buildingsFetchRef = useRef(0)
   const appliedBasemapRef = useRef(null)
@@ -964,6 +974,16 @@ export default function MapPanel({
   useEffect(() => {
     onUrbanFlashSelectRef.current = onUrbanFlashSelect
   }, [onUrbanFlashSelect])
+
+  // Apply the useful national-view default after hot reloads and mode changes
+  // as well as on a clean mount. React Fast Refresh can otherwise preserve the
+  // previous false value even after the default above changes.
+  useEffect(() => {
+    if (!publicMode) return
+    setBoundaryVisible((current) =>
+      current.lgas ? current : { ...current, lgas: true },
+    )
+  }, [publicMode])
 
   // Public: bare map click → reverse geocode → place brief (Windy-style picker)
   useEffect(() => {
@@ -1097,6 +1117,15 @@ export default function MapPanel({
       features: [...historical, ...community],
     }
   }, [historicalHotspotsData, communityReports])
+  const historicalHotspotsStatus = useMemo(() => {
+    if ((historicalHotspotHeatmapData.features || []).length > 0) return 'ready'
+    if (historicalHotspotsFetchStatus === 'loading') return 'loading'
+    if (historicalHotspotsFetchStatus === 'error') return 'error'
+    return 'empty'
+  }, [historicalHotspotHeatmapData, historicalHotspotsFetchStatus])
+  const riskPredictionBasis = riskData?.features?.[0]?.properties?.prediction_basis || null
+  const riskHistoryPeriod = riskData?.features?.[0]?.properties?.historical_period || null
+  const riskIsHistoricalBaseline = riskPredictionBasis === 'historical_baseline'
   const urbanFlashGridData = useMemo(
     () => vectorGridFromFeatures(urbanFlashData),
     [urbanFlashData],
@@ -1469,45 +1498,96 @@ export default function MapPanel({
   // ── Load flood risk GeoJSON ────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/flood-risk/geojson`)
-      .then(r => r.json())
-      .then(setRiskData)
-      .catch(console.error)
+      .then((r) => {
+        if (!r.ok) throw new Error(`inundation probability ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        setRiskData(data)
+        const ready = (data.features || []).length > 0
+        setRiskDataStatus(ready ? 'ready' : 'empty')
+        setRiskAreasVisible(ready)
+      })
+      .catch((error) => {
+        console.error(error)
+        setRiskData({ type: 'FeatureCollection', features: [] })
+        setRiskDataStatus('error')
+        setRiskAreasVisible(false)
+      })
   }, [])
 
   // ── Load urban flash flood GeoJSON (separate source) ───────────────────────
   useEffect(() => {
     fetch(`${API}/flood-risk/geojson?source=urban_flash_flood`)
-      .then((r) => r.json())
-      .then(setUrbanFlashData)
-      .catch(console.error)
+      .then((r) => {
+        if (!r.ok) throw new Error(`urban flash flood ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        setUrbanFlashData(data)
+        const ready = (data.features || []).length > 0
+        setUrbanFlashStatus(ready ? 'ready' : 'empty')
+        setUrbanFlashVisible(ready)
+      })
+      .catch((error) => {
+        console.error(error)
+        setUrbanFlashData({ type: 'FeatureCollection', features: [] })
+        setUrbanFlashStatus('error')
+        setUrbanFlashVisible(false)
+      })
   }, [])
 
   useEffect(() => {
     fetch(`${API}/flood-risk/historical-hotspots/geojson`)
-      .then((r) => (r.ok ? r.json() : { type: 'FeatureCollection', features: [] }))
-      .then(setHistoricalHotspotsData)
-      .catch(console.error)
+      .then((r) => {
+        if (!r.ok) throw new Error(`historical hotspots ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        setHistoricalHotspotsData(data)
+        setHistoricalHotspotsFetchStatus((data.features || []).length ? 'ready' : 'empty')
+      })
+      .catch((error) => {
+        console.error(error)
+        setHistoricalHotspotsData({ type: 'FeatureCollection', features: [] })
+        setHistoricalHotspotsFetchStatus('error')
+      })
   }, [])
+
+  useEffect(() => {
+    setHistoricalHotspotsVisible(historicalHotspotsStatus === 'ready')
+  }, [historicalHotspotsStatus])
 
   // ── Load available raster tile layers ─────────────────────────────────────
   useEffect(() => {
+    setTileLayersStatus('loading')
     fetch(`${API}/flood-risk/layers`)
-      .then(r => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`raster layers ${r.status}`)
+        return r.json()
+      })
       .then(layers => {
         setTileLayers(layers)
+        setTileLayersStatus(layers.length ? 'ready' : 'empty')
         // Public keeps Inundation History on by default; Expert starts with only
         // gauges + urban flash visible to reduce map clutter.
         setTileVisibility((current) => {
           const next = { ...current }
           layers.forEach((layer) => {
-            if (next[layer.source] === undefined) {
-              next[layer.source] = publicMode ? layer.source === 'jrc_occurrence' : false
-            }
+            const publicDefault = ['jrc_occurrence', 'gee_susceptibility_classes'].includes(
+              layer.source,
+            )
+            if (publicMode && publicDefault) next[layer.source] = true
+            else if (next[layer.source] === undefined) next[layer.source] = false
           })
           return next
         })
       })
-      .catch(console.error)
+      .catch((error) => {
+        console.error(error)
+        setTileLayers([])
+        setTileLayersStatus('error')
+      })
   }, [publicMode])
 
   useEffect(() => {
@@ -1743,12 +1823,18 @@ export default function MapPanel({
         const p = e.features[0].properties
         onSelect(null)
         const tierColor = RISK_COLOR[p.risk_tier] || '#3b82f6'
+        const isHistoricalBaseline = p.prediction_basis === 'historical_baseline'
+        const areaType = isHistoricalBaseline
+          ? 'Historical baseline prediction'
+          : (p.admin_level === 'inundation' ? 'Inundation extent' : (p.admin_level || ''))
+        const periodLabel = isHistoricalBaseline ? 'History' : 'Valid to'
+        const periodValue = isHistoricalBaseline ? (p.historical_period || 'Past recurrence') : (p.valid_to ?? '—')
         new maplibregl.Popup({ closeButton: false, maxWidth: '220px' })
           .setLngLat(e.lngLat)
           .setHTML(`
             <div style="padding:10px 12px;font-size:12px;color:#e5e7eb;line-height:1.6">
               <div style="font-weight:600;font-size:13px;color:#f9fafb;margin-bottom:4px">${p.name}</div>
-              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px;text-transform:capitalize">${p.admin_level === 'inundation' ? 'Inundation extent' : (p.admin_level || '')}</div>
+              <div style="color:#9ca3af;font-size:11px;margin-bottom:6px;text-transform:capitalize">${areaType}</div>
               <div style="display:flex;justify-content:space-between;margin-bottom:2px">
                 <span style="color:#6b7280">Likelihood</span>
                 <span style="font-weight:600;color:${tierColor}">${p.risk_tier}</span>
@@ -1758,8 +1844,8 @@ export default function MapPanel({
                 <span style="font-weight:500">${(p.risk_score * 100).toFixed(0)}%</span>
               </div>
               <div style="display:flex;justify-content:space-between">
-                <span style="color:#6b7280">Valid to</span>
-                <span style="font-size:11px">${p.valid_to ?? '—'}</span>
+                <span style="color:#6b7280">${periodLabel}</span>
+                <span style="font-size:11px">${periodValue}</span>
               </div>
             </div>
           `)
@@ -2499,15 +2585,24 @@ export default function MapPanel({
           onToggleRiskAreas={() => setRiskAreasVisible((v) => !v)}
           riskOpacity={riskOpacity}
           onRiskOpacity={setRiskOpacity}
+          riskAreasStatus={riskDataStatus}
+          riskAreasHint={
+            riskIsHistoricalBaseline
+              ? `Historical baseline · ${riskHistoryPeriod || 'past recurrence'}`
+              : null
+          }
           urbanFlashVisible={urbanFlashVisible}
           onToggleUrbanFlash={() => setUrbanFlashVisible((v) => !v)}
           urbanFlashOpacity={urbanFlashOpacity}
           onUrbanFlashOpacity={setUrbanFlashOpacity}
+          urbanFlashStatus={urbanFlashStatus}
           historicalHotspotsVisible={historicalHotspotsVisible}
           onToggleHistoricalHotspots={() => setHistoricalHotspotsVisible((v) => !v)}
+          historicalHotspotsStatus={historicalHotspotsStatus}
           atRiskPlacesVisible={atRiskPlacesVisible}
           onToggleAtRiskPlaces={() => setAtRiskPlacesVisible((v) => !v)}
           tileLayers={tileLayers}
+          tileLayersStatus={tileLayersStatus}
           tileVisibility={tileVisibility}
           onToggleTile={toggleTileLayer}
           gaugesVisible={gaugesVisible}
@@ -2576,11 +2671,23 @@ export default function MapPanel({
       >
         <FloodRiskLegend
           showProbability={riskAreasVisible}
+          probabilityDescription={
+            riskIsHistoricalBaseline
+              ? `Baseline prediction from historical inundation recurrence (${riskHistoryPeriod || 'past data'}). Not a live SAR observation.`
+              : undefined
+          }
           showUrbanFlash={urbanFlashVisible}
           showAtRiskPlaces={atRiskPlacesVisible}
           showNews={newsLayerOn}
           showHistory={Boolean(tileVisibility.jrc_occurrence)}
           showHistoricalHotspots={historicalHotspotsVisible}
+          historicalHotspotDescription={
+            (historicalHotspotsData?.features || []).some(
+              (feature) => feature?.properties?.source === 'jrc_occurrence_1984_2021',
+            )
+              ? 'Heat intensity from JRC Landsat historical water occurrence (1984–2021) plus live community reports.'
+              : undefined
+          }
           historyLegend={
             tileLayers.find((l) => l.source === 'jrc_occurrence')?.legend ?? null
           }
