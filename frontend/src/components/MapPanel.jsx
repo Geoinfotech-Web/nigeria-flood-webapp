@@ -924,7 +924,7 @@ export default function MapPanel({
   const [urbanFlashOpacity, setUrbanFlashOpacity] = useState(0.6)
   const [historicalHotspotsVisible, setHistoricalHotspotsVisible] = useState(false)
   const [atRiskPlacesVisible, setAtRiskPlacesVisible] = useState(true)
-  const [gaugesVisible, setGaugesVisible] = useState(true)
+  const [gaugesVisible, setGaugesVisible] = useState(false)
   const [newsVisible, setNewsVisible] = useState(false)
   const [newsArticles, setNewsArticles] = useState([])
   const [communityReports, setCommunityReports] = useState([])
@@ -960,7 +960,7 @@ export default function MapPanel({
   const [boundaryData, setBoundaryData] = useState({ states: null, lgas: null, basins: null })
   const [boundaryVisible, setBoundaryVisible] = useState({
     states: false,
-    lgas: publicMode,
+    lgas: false,
     basins: false,
   })
   const [buildingsStatus, setBuildingsStatus] = useState(null) // loading | ready | zoom | error
@@ -974,16 +974,6 @@ export default function MapPanel({
   useEffect(() => {
     onUrbanFlashSelectRef.current = onUrbanFlashSelect
   }, [onUrbanFlashSelect])
-
-  // Apply the useful national-view default after hot reloads and mode changes
-  // as well as on a clean mount. React Fast Refresh can otherwise preserve the
-  // previous false value even after the default above changes.
-  useEffect(() => {
-    if (!publicMode) return
-    setBoundaryVisible((current) =>
-      current.lgas ? current : { ...current, lgas: true },
-    )
-  }, [publicMode])
 
   // Public: bare map click → reverse geocode → place brief (Windy-style picker)
   useEffect(() => {
@@ -1569,14 +1559,11 @@ export default function MapPanel({
       .then(layers => {
         setTileLayers(layers)
         setTileLayersStatus(layers.length ? 'ready' : 'empty')
-        // Public keeps Inundation History on by default; Expert starts with only
-        // gauges + urban flash visible to reduce map clutter.
+        // Public keeps Inundation History on by default; susceptibility stays off.
         setTileVisibility((current) => {
           const next = { ...current }
           layers.forEach((layer) => {
-            const publicDefault = ['jrc_occurrence', 'gee_susceptibility_classes'].includes(
-              layer.source,
-            )
+            const publicDefault = layer.source === 'jrc_occurrence'
             if (publicMode && publicDefault) next[layer.source] = true
             else if (next[layer.source] === undefined) next[layer.source] = false
           })

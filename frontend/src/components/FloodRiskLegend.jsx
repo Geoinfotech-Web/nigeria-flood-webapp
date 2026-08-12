@@ -148,7 +148,7 @@ export default function FloodRiskLegend({
   susceptibilityLegend = null,
   visibleExposureIds = [],
   visibleBoundaryIds = [],
-  showGauges = true,
+  showGauges = false,
   theme = 'dark',
   collapsedByDefault = false,
 }) {
