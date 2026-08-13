@@ -151,6 +151,7 @@ export default function FloodRiskLegend({
   showGauges = false,
   theme = 'dark',
   collapsedByDefault = false,
+  compact = false,
 }) {
   const [collapsed, setCollapsed] = useState(collapsedByDefault)
 
@@ -207,7 +208,12 @@ export default function FloodRiskLegend({
       </button>
 
       {!collapsed && (
-        <div className="max-h-[min(60vh,30rem)] space-y-3.5 overflow-y-auto overscroll-contain p-3 pr-2">
+        <div
+          className={clsx(
+            'space-y-3.5 overflow-y-auto overscroll-contain p-3 pr-2',
+            compact ? 'max-h-[min(42vh,18rem)]' : 'max-h-[min(60vh,30rem)]',
+          )}
+        >
           {showProbability && (
             <div>
               <SectionTitle theme={theme}>Inundation probability</SectionTitle>

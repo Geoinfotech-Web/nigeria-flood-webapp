@@ -3,7 +3,7 @@ import axios from 'axios'
 import clsx from 'clsx'
 import ReactECharts from 'echarts-for-react'
 import { format } from 'date-fns'
-import { IconX } from './Icons'
+import { IconLocate, IconX } from './Icons'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 import PredictionPanel from './PredictionPanel'
@@ -164,6 +164,7 @@ export default function StationConsole({
   theme = 'light',
   basinVisible = false,
   onToggleBasin,
+  onShowLocation,
   onClose,
 }) {
   const dark = theme === 'dark'
@@ -390,6 +391,22 @@ export default function StationConsole({
                 </span>
               </div>
             </div>
+
+            {onShowLocation && (
+              <button
+                type="button"
+                onClick={() => onShowLocation(stationId)}
+                className={clsx(
+                  'inline-flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-semibold transition',
+                  dark
+                    ? 'border-sky-800 bg-sky-950/40 text-sky-200 hover:border-sky-600'
+                    : 'border-sky-200 bg-sky-50 text-sky-800 hover:border-sky-300',
+                )}
+              >
+                <IconLocate size={13} />
+                Show gauge location
+              </button>
+            )}
 
             {!hasRecentReadings && (
               <div

@@ -27,12 +27,12 @@ LAYERS = [
     {
         "source": "gee_susceptibility_classes",
         "label": "Flood Susceptibility",
-        "object": "nigeria_flood_susceptibility_classes_2026-07-01_monthly.tif",
+        "object": "nigeria_flood_susceptibility_classes_2026-08-01_monthly.tif",
     },
     {
         "source": "jrc_occurrence",
         "label": "Inundation History",
-        "object": "nigeria_inundation_history_classes_2026-07-01_monthly.tif",
+        "object": "nigeria_inundation_history_classes_2026-08-01_monthly.tif",
     },
 ]
 
