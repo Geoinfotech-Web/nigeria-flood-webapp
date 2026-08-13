@@ -110,6 +110,7 @@ export default function App() {
   const apiPreview = readApiPreviewFromUrl()
   const [selected, setSelected] = useState(null)
   const [showSelectedBasin, setShowSelectedBasin] = useState(false)
+  const [stationMapFocus, setStationMapFocus] = useState(null)
   const [place, setPlace] = useState(() => readPlaceFromUrl())
   const [zoneFocus, setZoneFocus] = useState(null)
   const [communityReportFocus, setCommunityReportFocus] = useState(null)
@@ -355,8 +356,9 @@ export default function App() {
     setShowSelectedBasin(false)
   }
   const handleSelectStation = (stationId) => {
+    // Keep the active place / user location on the map — only swap the side panel
+    // to gauge details. Use "Show gauge location" to fly the map.
     setZoneFocus(null)
-    setPlace(null)
     setExpertMobileConsoleOpen(true)
     setSelected((current) => {
       if (current === stationId) {
@@ -367,6 +369,10 @@ export default function App() {
       return stationId
     })
   }
+  const showStationOnMap = useCallback((stationId) => {
+    if (!stationId) return
+    setStationMapFocus({ id: stationId, nonce: Date.now() })
+  }, [])
 
   const clearPlace = () => {
     setPlace(null)
@@ -520,7 +526,10 @@ export default function App() {
             <aside
               className={clsx(
                 'z-20 order-2 flex w-full shrink-0 flex-col overflow-hidden md:order-1',
-                place
+                // While a place sheet is open and no gauge is selected, hide the
+                // left rail on phones (the place sheet owns the bottom). If a
+                // gauge is selected, show the gauge panel instead — keep place on map.
+                place && !selectedStation && !navigation
                   ? 'hidden md:flex md:h-full md:w-[22rem] lg:w-[24rem]'
                   : navigation || selectedStation
                     ? 'h-[min(48vh,26rem)] rounded-t-2xl border-t md:h-full md:max-h-none md:w-[22rem] md:rounded-none md:border-t-0 lg:w-[24rem]'
@@ -556,6 +565,7 @@ export default function App() {
                     theme={theme}
                     basinVisible={showSelectedBasin}
                     onToggleBasin={setShowSelectedBasin}
+                    onShowLocation={showStationOnMap}
                     onClose={clearSelectedStation}
                   />
                 </div>
@@ -615,6 +625,7 @@ export default function App() {
                 highlightSelectedBasin={showSelectedBasin}
                 mapCaptureRef={mapCaptureRef}
                 bottomSheetOverlay={Boolean(place)}
+                stationFocus={stationMapFocus}
               />
               {place && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center p-0 sm:px-3 sm:pb-3">
@@ -810,6 +821,7 @@ export default function App() {
                   selectedStation || place || expertMobileConsoleOpen,
                 )}
                 mapCaptureRef={mapCaptureRef}
+                stationFocus={stationMapFocus}
               />
             </main>
 
@@ -854,6 +866,7 @@ export default function App() {
                   theme={theme}
                   basinVisible={showSelectedBasin}
                   onToggleBasin={setShowSelectedBasin}
+                  onShowLocation={showStationOnMap}
                   onClose={() => {
                     clearSelectedStation()
                     setExpertMobileConsoleOpen(false)

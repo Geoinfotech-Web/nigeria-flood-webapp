@@ -21,9 +21,9 @@ body {
   font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Keep .font-display as a weight/tracking utility — same face as body */
 .font-display {
-  font-family: 'Fraunces', Georgia, serif;
-  font-optical-sizing: auto;
+  font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ── Map ── */

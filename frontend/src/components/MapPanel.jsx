@@ -912,6 +912,8 @@ export default function MapPanel({
   mapCaptureRef = null,
   /** Called when an urban flash cell is clicked (opens intelligence / brief). */
   onUrbanFlashSelect = null,
+  /** Explicit fly-to request from "Show gauge location" — not on every select. */
+  stationFocus = null,
 }) {
   const publicMode = variant === 'public'
   const mapRef     = useRef(null)
@@ -2322,12 +2324,17 @@ export default function MapPanel({
     })
   }, [mapReady, styleEpoch, stations, liveReadings, selected, gaugesVisible, onSelect])
 
-  // ── Fly-to on station select ───────────────────────────────────────────────
+  // ── Fly-to only when user asks to show gauge location ─────────────────────
   useEffect(() => {
-    if (!mapReady || !selected) return
-    const s = stations.find(st => st.id === selected)
-    if (s) mapObj.current.flyTo({ center: [s.lon, s.lat], zoom: 9, duration: 1000 })
-  }, [selected, mapReady, styleEpoch])
+    if (!mapReady || !stationFocus?.id || !mapObj.current) return
+    const s = stations.find((st) => st.id === stationFocus.id)
+    if (!s || !Number.isFinite(Number(s.lon)) || !Number.isFinite(Number(s.lat))) return
+    mapObj.current.flyTo({
+      center: [Number(s.lon), Number(s.lat)],
+      zoom: 9,
+      duration: 1000,
+    })
+  }, [stationFocus, mapReady, styleEpoch, stations])
 
   // ── Fly-to on search result ────────────────────────────────────────────────
   const handleSearchResult = useCallback((result) => {
@@ -2647,13 +2654,15 @@ export default function MapPanel({
         )}
       </div>
 
-      {/* Legend — collapses when place forecast sheet is open */}
+      {/* Legend — bottom-left (expert + public); lifts above place sheet when open */}
       <div
         className={clsx(
-          'absolute z-10',
+          'absolute left-3 top-auto z-10 hidden sm:block',
           bottomSheetOverlay
-            ? 'bottom-[calc(min(34vh,20rem)+0.75rem)] left-3 hidden sm:block md:bottom-[calc(min(32vh,19rem)+1rem)]'
-            : 'bottom-10 left-3 hidden sm:block',
+            ? 'bottom-[calc(min(34vh,20rem)+0.75rem)] md:bottom-[calc(min(32vh,19rem)+1rem)]'
+            : publicMode
+              ? 'bottom-10'
+              : 'bottom-3',
         )}
       >
         <FloodRiskLegend
@@ -2688,6 +2697,7 @@ export default function MapPanel({
           showGauges={gaugesVisible}
           theme={theme}
           collapsedByDefault={!publicMode || Boolean(placeFocus)}
+          compact={!publicMode}
         />
       </div>
     </div>

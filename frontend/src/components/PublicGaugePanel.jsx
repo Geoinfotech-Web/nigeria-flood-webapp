@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import clsx from 'clsx'
-import { IconX } from './Icons'
+import { IconLocate, IconX } from './Icons'
 import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 
@@ -29,6 +29,7 @@ export default function PublicGaugePanel({
   theme = 'light',
   basinVisible = false,
   onToggleBasin,
+  onShowLocation,
   onClose,
 }) {
   const dark = theme === 'dark'
@@ -143,6 +144,21 @@ export default function PublicGaugePanel({
             {level != null ? `${Number(level).toFixed(2)} m` : '—'}
             {pct != null ? ` · ${pct}% bankfull` : ''}
           </span>
+          {onShowLocation && (
+            <button
+              type="button"
+              onClick={() => onShowLocation(stationId)}
+              className={clsx(
+                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold transition',
+                dark
+                  ? 'border-sky-800 bg-sky-950/40 text-sky-200 hover:border-sky-600'
+                  : 'border-sky-200 bg-sky-50 text-sky-800 hover:border-sky-300',
+              )}
+            >
+              <IconLocate size={12} />
+              Show gauge location
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-2">

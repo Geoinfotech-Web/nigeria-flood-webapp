@@ -327,10 +327,9 @@ export default function PublicListsDock({
         </p>
         <h2
           className={clsx(
-            'mt-2 font-display text-xl font-semibold tracking-tight leading-snug',
+            'mt-2 text-xl font-semibold tracking-tight leading-snug',
             dark ? 'text-gray-50' : 'text-slate-900',
           )}
-          style={{ fontFamily: "'Fraunces', Georgia, serif", fontOpticalSizing: 'auto' }}
         >
           Check flood risk for any place in Nigeria
         </h2>
