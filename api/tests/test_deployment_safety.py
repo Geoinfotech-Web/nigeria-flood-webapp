@@ -4,7 +4,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from routers import auth, map_router
+from fastapi import HTTPException
+
+from routers import auth, map_router, predictions
+from forecast_config import forecasts_enabled
 from production_config import validate_production_config
 
 
@@ -91,6 +94,30 @@ class MapRiskTests(unittest.IsolatedAsyncioTestCase):
         }))
         self.assertEqual(result["risk_tier"], "Warning")
         self.assertEqual(result["prob_24h"], 0.75)
+
+    async def test_disabled_forecasts_do_not_expose_cached_values(self):
+        with patch.dict(os.environ, {"APP_ENV": "production"}, clear=True):
+            result = await self.check_risk(json.dumps({
+                "overall_risk": "Warning", "horizons": {"24h": {"flood_prob": 0.75}}
+            }))
+        self.assertIsNone(result["risk_tier"])
+        self.assertIsNone(result["prob_24h"])
+
+
+class ForecastAvailabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_production_forecasts_are_disabled_before_cache_or_database_access(self):
+        with patch.dict(os.environ, {"APP_ENV": "production"}, clear=True):
+            self.assertFalse(forecasts_enabled())
+            for operation in (predictions.get_predictions(1, None), predictions.get_all_predictions(None)):
+                with self.assertRaises(HTTPException) as error:
+                    await operation
+                self.assertEqual(error.exception.status_code, 503)
+
+    async def test_local_default_and_explicit_disable(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(forecasts_enabled())
+        with patch.dict(os.environ, {"FORECASTS_ENABLED": "0"}, clear=True):
+            self.assertFalse(forecasts_enabled())
 
 
 if __name__ == "__main__":

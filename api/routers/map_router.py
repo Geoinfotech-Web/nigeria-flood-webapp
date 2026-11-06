@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
+from forecast_config import forecasts_enabled
 from services import google_places
 
 router = APIRouter()
@@ -104,7 +105,7 @@ async def risk_map(request: Request):
     for s in stations:
         # Latest prediction (from Redis cache if available)
         cache_key = f"pred:{s['id']}"
-        cached = await request.app.state.redis.get(cache_key)
+        cached = await request.app.state.redis.get(cache_key) if forecasts_enabled() else None
         if cached:
             pred = json.loads(cached)
             risk = pred.get("overall_risk")

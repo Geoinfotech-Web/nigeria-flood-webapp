@@ -1,11 +1,11 @@
 # ── Credentials & secrets ─────────────────────
-.env
 .tools/
 *.json
 !package.json
 !package-lock.json
 !tsconfig.json
 !jsconfig.json
+/Cloud_SQL_Export_*.sql
 
 # ── Python ────────────────────────────────────
 .venv/
@@ -59,6 +59,6 @@ minio/data/
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/settings.json
 *.swp
 *.swo
+config.bat
