@@ -48,12 +48,15 @@ from fastapi.responses import JSONResponse
 from developer.keys import API_FREE_DAILY_QUOTA, API_FREE_RPM, ensure_developer_tables
 from developer.middleware import DeveloperApiMiddleware
 from routers import gauges, predictions, alerts, map_router, rainfall, auth, geocoding, flood_risk, exposure, boundaries, incidents, news, routing
+from production_config import validate_production_config
 from routers.admin import router as admin_router
 from routers.v1 import router as v1_router
 from routers.webhooks import router as webhooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 log = logging.getLogger(__name__)
+
+validate_production_config(os.environ, auth._USERS)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DB_USER = os.getenv("DB_USER", "flood")

@@ -13,7 +13,7 @@ export function classifySettlementsByRisk(settlements, gauges = []) {
     if (!usable.length) {
       return {
         ...s,
-        risk_tier: 'Normal',
+        risk_tier: 'Unknown',
         nearest_gauge: null,
         distance_to_gauge_km: null,
       }
@@ -32,7 +32,7 @@ export function classifySettlementsByRisk(settlements, gauges = []) {
 
     return {
       ...s,
-      risk_tier: nearest.overall_risk || nearest.risk_tier || 'Normal',
+      risk_tier: nearest.overall_risk || nearest.risk_tier || 'Unknown',
       nearest_gauge: nearest.name || null,
       distance_to_gauge_km: Math.round(bestD * 10) / 10,
     }
@@ -40,7 +40,7 @@ export function classifySettlementsByRisk(settlements, gauges = []) {
 }
 
 export function summarizeSettlementsByRisk(classified = []) {
-  const by_tier = { Emergency: 0, Warning: 0, Watch: 0, Normal: 0 }
+  const by_tier = { Emergency: 0, Warning: 0, Watch: 0, Normal: 0, Unknown: 0 }
   const by_class = { City: 0, Town: 0, Village: 0 }
   const by_susceptibility = {
     'Highly Susceptible': 0,
@@ -50,7 +50,7 @@ export function summarizeSettlementsByRisk(classified = []) {
   }
 
   classified.forEach((s) => {
-    const tier = by_tier[s.risk_tier] != null ? s.risk_tier : 'Normal'
+    const tier = by_tier[s.risk_tier] != null ? s.risk_tier : 'Unknown'
     by_tier[tier] += 1
     if (by_class[s.class] != null) by_class[s.class] += 1
     const sus = s.susceptibility

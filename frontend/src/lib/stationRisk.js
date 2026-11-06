@@ -10,7 +10,7 @@ export function bankPct(station, reading) {
 }
 
 export function riskFromBank(pct) {
-  if (pct == null) return 'Normal'
+  if (pct == null || !Number.isFinite(pct)) return 'Unknown'
   if (pct >= 100) return 'Emergency'
   if (pct >= 85) return 'Warning'
   if (pct >= 70) return 'Watch'
@@ -25,16 +25,18 @@ export function stationRisk(reading, pred, pct) {
 
 export function worstNetworkRisk(stations, liveReadings, predictionsByStation) {
   let worst = 'Normal'
+  let unknown = stations.length === 0
   const elevatedStates = new Set()
   for (const s of stations) {
     const reading = liveReadings[s.id]
     const pct = bankPct(s, reading)
     const pred = predictionsByStation[s.id]
     const risk = stationRisk(reading, pred, pct)
+    if (risk === 'Unknown') unknown = true
     if (RISK_ORDER[risk] > RISK_ORDER[worst]) worst = risk
     if (RISK_ORDER[risk] >= RISK_ORDER.Watch && s.state) elevatedStates.add(s.state)
   }
-  return { worst, elevatedStates: [...elevatedStates].sort() }
+  return { worst: worst === 'Normal' && unknown ? 'Unknown' : worst, elevatedStates: [...elevatedStates].sort() }
 }
 
 export function formatPopulation(n) {

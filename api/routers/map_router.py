@@ -107,12 +107,12 @@ async def risk_map(request: Request):
         cached = await request.app.state.redis.get(cache_key)
         if cached:
             pred = json.loads(cached)
-            risk = pred.get("overall_risk", "Normal")
+            risk = pred.get("overall_risk")
             h24 = (pred.get("horizons") or {}).get("24h") or (pred.get("horizons") or {}).get("24") or {}
-            prob_24h = h24.get("flood_prob", 0)
+            prob_24h = h24.get("flood_prob")
         else:
-            risk = "Normal"
-            prob_24h = 0.0
+            risk = None
+            prob_24h = None
 
         features.append({
             "type": "Feature",
@@ -126,7 +126,7 @@ async def risk_map(request: Request):
                 "bank_full":  s["bank_full_m"],
                 "risk_tier":  risk,
                 "prob_24h":   prob_24h,
-                "color":      RISK_COLOR.get(risk, "#22c55e"),
+                "color":      RISK_COLOR.get(risk, "#64748b"),
             },
         })
 

@@ -1,40 +1,17 @@
 import React, { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { IconGauge, IconSearch, IconX } from './Icons'
+import { bankPct, stationRisk, RISK_ORDER } from '../lib/stationRisk'
 
 const RISK_COLOR = {
+  Unknown: { dot: 'bg-slate-400', bar: 'bg-slate-500', text: 'text-slate-400' },
   Normal: { dot: 'bg-green-400', bar: 'bg-green-500', text: 'text-green-400' },
   Watch: { dot: 'bg-yellow-400', bar: 'bg-yellow-500', text: 'text-yellow-400' },
   Warning: { dot: 'bg-orange-400', bar: 'bg-orange-500', text: 'text-orange-400' },
   Emergency: { dot: 'bg-red-400 animate-pulse', bar: 'bg-red-500', text: 'text-red-400' },
 }
 
-const RISK_ORDER = { Normal: 0, Watch: 1, Warning: 2, Emergency: 3 }
-const RISK_FILTERS = ['All', 'Emergency', 'Warning', 'Watch', 'Normal']
-
-function bankPct(station, reading) {
-  if (!reading) return null
-  if (reading.pct_bank != null) return Number(reading.pct_bank)
-  if (station?.bank_full_m && reading.water_level_m != null) {
-    return Math.round((reading.water_level_m / station.bank_full_m) * 100)
-  }
-  return null
-}
-
-/** Derive ops tier from % bankfull when WS payload has no risk_tier. */
-function riskFromBank(pct) {
-  if (pct == null) return 'Normal'
-  if (pct >= 100) return 'Emergency'
-  if (pct >= 85) return 'Warning'
-  if (pct >= 70) return 'Watch'
-  return 'Normal'
-}
-
-function stationRisk(reading, pred, pct) {
-  if (reading?.risk_tier && RISK_ORDER[reading.risk_tier] != null) return reading.risk_tier
-  if (pred?.overall_risk && RISK_ORDER[pred.overall_risk] != null) return pred.overall_risk
-  return riskFromBank(pct)
-}
+const RISK_FILTERS = ['All', 'Emergency', 'Warning', 'Watch', 'Normal', 'Unknown']
 
 function maxHorizonProb(pred) {
   if (!pred?.horizons) return null
@@ -229,7 +206,7 @@ export default function StationList({
 
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {filtered.map(({ station: s, risk, pct, peekProb }) => {
-          const c = RISK_COLOR[risk] || RISK_COLOR.Normal
+          const c = RISK_COLOR[risk] || RISK_COLOR.Unknown
           const isSelected = selected === s.id
 
           return (

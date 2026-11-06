@@ -77,7 +77,7 @@ export function usePlaceConditions(place, stations) {
       nearby.map((s) => ({
         ...s,
         prediction: predictions[s.id] || null,
-        overall_risk: predictions[s.id]?.overall_risk || 'Normal',
+        overall_risk: predictions[s.id]?.overall_risk || 'Unknown',
       })),
     [nearby, predictions],
   )
@@ -90,7 +90,7 @@ export function usePlaceConditions(place, stations) {
     if (!nearbyWithRisk.length) return null
     return [...nearbyWithRisk].sort(
       (a, b) =>
-        (RISK_ORDER[b.overall_risk] - RISK_ORDER[a.overall_risk]) ||
+        ((RISK_ORDER[b.overall_risk] ?? -1) - (RISK_ORDER[a.overall_risk] ?? -1)) ||
         (a.distance_km - b.distance_km),
     )[0]
   }, [nearbyWithRisk])

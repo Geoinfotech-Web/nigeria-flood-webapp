@@ -3,9 +3,13 @@ import clsx from 'clsx'
 import { IconActivity, IconChevronDown, IconGauge } from './Icons'
 import { bankPct, RISK_ORDER, stationRisk } from '../lib/stationRisk'
 
-const TIERS = ['Emergency', 'Warning', 'Watch', 'Normal']
+const TIERS = ['Emergency', 'Warning', 'Watch', 'Normal', 'Unknown']
 
 const TIER_STYLE = {
+  Unknown: {
+    dark: 'bg-gray-900 border-gray-700 text-gray-300',
+    light: 'bg-slate-100 border-slate-300 text-slate-700',
+  },
   Emergency: {
     dark: 'bg-red-950/50 border-red-800 text-red-300',
     light: 'bg-red-50 border-red-200 text-red-800',
@@ -49,7 +53,7 @@ export default function ExpertOverviewPanel({
   }, [dropdownOpen])
 
   const tierCounts = useMemo(() => {
-    const counts = { Normal: 0, Watch: 0, Warning: 0, Emergency: 0 }
+    const counts = { Normal: 0, Watch: 0, Warning: 0, Emergency: 0, Unknown: 0 }
     for (const s of stations) {
       const r = liveReadings[s.id]
       const pct = bankPct(s, r)
@@ -100,9 +104,7 @@ export default function ExpertOverviewPanel({
   }, [stations, liveReadings, predictionsByStation])
 
   const statusLine =
-    elevatedCount === 0
-      ? 'All gauges at Normal — no Watch+ alerts'
-      : `${elevatedCount} of ${stations.length} gauges at Watch or higher`
+    `${elevatedCount} of ${stations.length} gauges at Watch or higher · ${tierCounts.Unknown} unknown; freshness unverified`
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">

@@ -16,6 +16,13 @@ const ZONE_SEVERITY = {
 }
 
 const TIER_ACCENT = {
+  Unknown: {
+    dark: 'border-gray-700 bg-gray-900',
+    light: 'border-slate-300 bg-slate-100',
+    valueDark: 'text-gray-300',
+    valueLight: 'text-slate-700',
+    bar: 'bg-slate-500',
+  },
   'Highly Likely': {
     dark: 'border-fuchsia-800/50 bg-fuchsia-950/40',
     light: 'border-fuchsia-200 bg-fuchsia-50',
@@ -255,8 +262,9 @@ export default function ExpertKpiStrip({
   const worstTier = useMemo(() => {
     if (scoped) {
       const candidates = []
-      const gaugeLabel = mapGaugeToZoneLabel(placeConditions?.overallRisk || 'Normal')
-      candidates.push(gaugeLabel)
+      if (placeConditions?.overallRisk && placeConditions.overallRisk !== 'Unknown') {
+        candidates.push(mapGaugeToZoneLabel(placeConditions.overallRisk))
+      }
 
       if (highly > 0) candidates.push('Highly Likely')
       else if (likely > 0) candidates.push('Likely')
@@ -271,7 +279,7 @@ export default function ExpertKpiStrip({
       if (fromImpact && fromImpact !== 'Normal') candidates.push(fromImpact)
 
       // Prefer zone-style labels when present; otherwise gauge tier.
-      let best = 'Normal'
+      let best = 'Unknown'
       let bestRank = -1
       for (const tier of candidates) {
         const rank = ZONE_SEVERITY[tier] ?? RISK_ORDER[tier] ?? 0
@@ -288,7 +296,7 @@ export default function ExpertKpiStrip({
       return 'Highly Likely'
     }
     if (likely > 0 && fromZones === 'Normal') return 'Likely'
-    return fromZones
+    return fromZones === 'Normal' ? 'Unknown' : fromZones
   }, [
     scoped,
     placeConditions?.overallRisk,
@@ -370,7 +378,7 @@ export default function ExpertKpiStrip({
           label="Current Risk Level"
           value={String(worstTier).toUpperCase()}
           detail={riskDetail}
-          accent={TIER_ACCENT[worstTier] || TIER_ACCENT.Normal}
+          accent={TIER_ACCENT[worstTier] || TIER_ACCENT.Unknown}
         />
         <KpiCard
           theme={theme}

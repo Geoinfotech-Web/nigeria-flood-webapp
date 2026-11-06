@@ -67,7 +67,7 @@ export default function PlaceForecastSheet({
   const dark = theme === 'dark'
   const [sheetTab, setSheetTab] = useState('basic')
   const [exporting, setExporting] = useState(false)
-  const tier = overallRisk || 'Normal'
+  const tier = overallRisk || 'Unknown'
   const horizons = useMemo(
     () => normalizeHorizons(primaryStation?.prediction?.horizons || {}),
     [primaryStation?.prediction?.horizons],

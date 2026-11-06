@@ -1,8 +1,7 @@
 """JWT auth for staff admin / super_admin / viewer roles.
 
 Credentials come from ADMIN_USERS_JSON (preferred) or legacy ADMIN_USERNAME /
-ADMIN_PASSWORD env vars. Default hardcoded passwords are only allowed when
-ALLOW_DEV_ADMIN_USERS=1 (local development) or when not on Cloud SQL.
+ADMIN_PASSWORD env vars. Development users require ALLOW_DEV_ADMIN_USERS=1.
 """
 from __future__ import annotations
 
@@ -64,8 +63,7 @@ def _load_users() -> dict[str, dict]:
         users[single_user] = {"hashed": pwd_ctx.hash(single_pass), "role": single_role}
 
     allow_dev = os.getenv("ALLOW_DEV_ADMIN_USERS", "0").strip().lower() in {"1", "true", "yes"}
-    on_cloud_sql = bool(os.getenv("INSTANCE_CONNECTION_NAME") or os.getenv("CLOUD_SQL_CONNECTION_NAME"))
-    if allow_dev or (not users and not on_cloud_sql):
+    if allow_dev:
         users.setdefault("admin", {"hashed": pwd_ctx.hash("admin123"), "role": "admin"})
         users.setdefault("superadmin", {"hashed": pwd_ctx.hash("superadmin123"), "role": "super_admin"})
         users.setdefault("viewer", {"hashed": pwd_ctx.hash("viewer123"), "role": "viewer"})

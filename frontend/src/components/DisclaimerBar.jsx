@@ -12,8 +12,8 @@ export default function DisclaimerBar({ theme = 'light' }) {
           : 'border-slate-200 bg-white text-slate-500',
       )}
     >
-      Flood forecasts are approximate and for early awareness only. Always confirm with NIHSA, NEMA,
-      and local emergency authorities before acting.
+      Data availability and forecast accuracy are not verified. Zero counts or missing alerts do not
+      mean conditions are safe. Consult NIHSA, NEMA, and local emergency authorities.
     </p>
   )
 }

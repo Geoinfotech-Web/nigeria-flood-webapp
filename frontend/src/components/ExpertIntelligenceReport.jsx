@@ -14,6 +14,7 @@ import GaugeChart from './GaugeChart'
 import RainfallChart from './RainfallChart'
 
 const LIGHT_BADGE = {
+  Unknown: 'bg-slate-100 text-slate-700 border-slate-300',
   Normal: 'bg-teal-50 text-teal-800 border-teal-200',
   Watch: 'bg-amber-50 text-amber-900 border-amber-200',
   Warning: 'bg-orange-50 text-orange-900 border-orange-200',
@@ -21,6 +22,7 @@ const LIGHT_BADGE = {
 }
 
 const DARK_BADGE = {
+  Unknown: 'bg-gray-900 text-gray-300 border-gray-700',
   Normal: 'bg-teal-950/70 text-teal-200 border-teal-800',
   Watch: 'bg-amber-950/70 text-amber-200 border-amber-800',
   Warning: 'bg-orange-950/70 text-orange-200 border-orange-800',
@@ -129,8 +131,8 @@ export default function ExpertIntelligenceReport({
 }) {
   const [exporting, setExporting] = useState(false)
   const dark = theme === 'dark'
-  const tier = overallRisk || 'Normal'
-  const badge = (dark ? DARK_BADGE : LIGHT_BADGE)[tier] || LIGHT_BADGE.Normal
+  const tier = overallRisk || 'Unknown'
+  const badge = (dark ? DARK_BADGE : LIGHT_BADGE)[tier] || LIGHT_BADGE.Unknown
   const horizons = normalizeHorizons(primaryStation?.prediction?.horizons)
   const actions = useMemo(() => expertActionItems(tier), [tier])
   const assessment = useMemo(

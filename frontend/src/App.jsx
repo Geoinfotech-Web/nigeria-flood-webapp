@@ -43,7 +43,7 @@ function operationalRiskFromMappedZone(zone) {
   if (tier === 'Emergency' || tier === 'Very High') return 'Emergency'
   if (tier === 'Warning' || tier === 'High' || tier === 'Highly Likely') return 'Warning'
   if (tier === 'Watch' || tier === 'Moderate' || tier === 'Likely') return 'Watch'
-  return 'Normal'
+  return 'Unknown'
 }
 
 function readPlaceFromUrl() {
@@ -273,7 +273,7 @@ export default function App() {
     return worstRisk(tiers)
   }, [place?.source, place?.urban_flash_tier, urbanFlashInside])
   const effectiveOverallRisk = useMemo(
-    () => worstRisk([placeConditions.overallRisk || 'Normal', mappedZoneRisk]),
+    () => worstRisk([placeConditions.overallRisk, mappedZoneRisk === 'Unknown' ? null : mappedZoneRisk]),
     [mappedZoneRisk, placeConditions.overallRisk],
   )
   const effectiveLocalSummary = useMemo(() => {

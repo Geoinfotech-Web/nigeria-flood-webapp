@@ -26,6 +26,11 @@ cp .env.example .env
 
 ## Quick Start (local)
 
+> **Do not use the training and feature commands below for production.** The
+> legacy feature pipeline and model serving paths have known time-horizon and
+> preprocessing mismatches. Model accuracy and warning coverage are unverified;
+> missing data must not be interpreted as safety.
+
 ```bash
 # 1. Start all services
 #    On first run, TimescaleDB auto-seeds the full station network via
@@ -212,6 +217,23 @@ On **GCP**, step 1 is replaced by real OpenMeteo/GloFAS seeding (`scripts/seed_c
 
 ## Dev credentials
 
+The local Compose stack explicitly enables development users via
+`ALLOW_DEV_ADMIN_USERS=1`. Outside local development, leave this setting unset
+or set it to `0`, configure `ADMIN_USERS_JSON` or `ADMIN_USERNAME` and
+`ADMIN_PASSWORD`, and set unique `JWT_SECRET` and `API_KEY_PEPPER` values.
+Never expose the development credentials on a public service.
+
+For hosted staging or production, explicitly set `APP_ENV=production`. In this
+mode the API refuses to start if development users are enabled, no staff user
+is configured, either `JWT_SECRET` or `API_KEY_PEPPER` is missing or shorter
+than 32 characters, the two secrets match, or `CORS_ORIGINS` is not a
+comma-separated list of explicit HTTPS origins. Generate both secrets
+independently using a cryptographically secure generator and keep them in the
+hosting provider's secret settings. The length check cannot prove randomness.
+This validation is only active when `APP_ENV=production`; ensure it is set
+for every hosted API instance. These checks alone do not make the application
+ready for public warnings or protect other services.
+
 | Service | Username | Password  |
 |---------|----------|-----------|
 | API JWT | admin    | admin123  |
@@ -220,6 +242,32 @@ On **GCP**, step 1 is replaced by real OpenMeteo/GloFAS seeding (`scripts/seed_c
 | MinIO   | minioadmin | minioadmin |
 
 ## Re-training
+
+### Daily research models (not production)
+
+The original `ml/train.py` and BentoML service use incompatible preprocessing
+and LSTM sequence lengths and are not validated for operational forecasting.
+The daily GloFAS-derived research data does not support 6- or 12-hour horizons.
+`ml/research_daily.py` is a separate offline experiment for 24-, 48-, and
+72-hour proxy targets. It uses daily feature names, complete 12-day station
+sequences, training-only scaling, chronological splits with a horizon embargo,
+matching artifact loading and inference, and a current-level persistence
+baseline. It is not connected to the API or compatible with the legacy
+BentoML artifacts.
+
+The labels are based on estimated water levels exceeding 80% of the seeded
+bank-full threshold, not independently verified flood events. Results must
+not be treated as flood probabilities or used to issue public warnings.
+The modelled discharge and its estimated levels are not measured gauge data.
+Source availability, retrospective data revisions, provenance, independent
+event labels, calibration and operational validation still require review.
+
+For a local research CSV with columns `station_id,time,water_level_m,
+flow_rate_m3s,bank_full_m`, run `python ml/research_daily.py --input <csv>
+--output <new-directory> --horizon 24`. Repeat with separate output
+directories for 48 and 72 hours. Artifacts must remain isolated from the
+production BentoML store. Execute tests with
+`python -m unittest discover -s ml -p test_research_daily.py`.
 
 ```bash
 # Retrain all horizons

@@ -6,6 +6,7 @@ export const RISK_ORDER = {
 }
 
 export const RISK_COLOR = {
+  Unknown: '#64748b',
   Normal: '#0d9488',
   Watch: '#ca8a04',
   Warning: '#ea580c',
@@ -14,6 +15,7 @@ export const RISK_COLOR = {
 
 /** Public-facing labels (avoid ops jargon where possible). */
 export const RISK_LABEL = {
+  Unknown: 'Flood outlook unavailable',
   Normal: 'No flood alert',
   Watch: 'Flood watch',
   Warning: 'Flood warning',
@@ -44,10 +46,13 @@ export const SUSCEPTIBILITY_TEXT_COLOR = {
 }
 
 export function worstRisk(tiers) {
-  return tiers.reduce(
-    (worst, tier) => (RISK_ORDER[tier] > RISK_ORDER[worst] ? tier : worst),
+  const known = tiers.filter((tier) => RISK_ORDER[tier] != null)
+  const worst = known.reduce(
+    (result, tier) => (RISK_ORDER[tier] > RISK_ORDER[result] ? tier : result),
     'Normal',
   )
+  if (RISK_ORDER[worst] > 0) return worst
+  return known.length === tiers.length && known.length ? worst : 'Unknown'
 }
 
 /**
@@ -65,8 +70,10 @@ export function placeRiskMessage(tier, placeName) {
       return `Flooding is likely around ${where} in the coming hours to days. Prepare to protect people, homes, and travel routes.`
     case 'Watch':
       return `Flood risk is elevated around ${where} over the next 72 hours. Stay alert and avoid flood-prone roads during heavy rain.`
-    default:
+    case 'Normal':
       return `No flood alert is active for ${where} right now. Conditions can still change during heavy rain, so check again if weather worsens.`
+    default:
+      return `Flood outlook data is unavailable for ${where}. This does not mean the area is safe.`
   }
 }
 
@@ -78,8 +85,10 @@ export function actionHint(tier) {
       return 'Prepare — secure belongings and plan alternate routes.'
     case 'Watch':
       return 'Monitor — keep watching forecasts and local advisories.'
-    default:
+    case 'Normal':
       return 'Stay aware — forecasts cover the next 72 hours.'
+    default:
+      return 'Check official flood warnings and local authorities for current conditions.'
   }
 }
 
@@ -98,8 +107,10 @@ export function expertPlaceAssessment(tier, placeName, stationName) {
       return `Flooding is likely near ${where} in the coming hours to days.${gauge} Raise readiness for people and critical roads.`
     case 'Watch':
       return `Elevated flood risk near ${where} over 72 hours.${gauge} Increase monitoring and pre-position local messaging.`
-    default:
+    case 'Normal':
       return `No significant gauge-based flood alert near ${where} right now.${gauge} Keep routine surveillance during heavy rain.`
+    default:
+      return `Gauge-based flood outlook data is unavailable near ${where}.${gauge} Consult official sources.`
   }
 }
 
@@ -124,12 +135,14 @@ export function expertActionItems(tier) {
         'Watchlist highly susceptible places and roads',
         'Escalate if flood probabilities rise',
       ]
-    default:
+    case 'Normal':
       return [
         'Maintain routine gauge and rainfall checks',
         'Note flat / low-lying terrain near the place',
         'Re-run this report if conditions worsen',
       ]
+    default:
+      return ['Check official warnings and verify current data availability']
   }
 }
 
@@ -151,7 +164,7 @@ export function expertSiteSuitability({
   let score = 0 // higher = more flood concern
 
   const susOrder = SUSCEPTIBILITY_ORDER[susceptibility] || 0
-  if (susceptibility) {
+  if (susOrder) {
     score += Math.max(0, susOrder - 1)
     if (susOrder >= 4) {
       reasons.push(
@@ -223,7 +236,7 @@ export function expertSiteSuitability({
       `A ${kind} zone (${z.risk_tier}) is about ${z.distance_km} km from this point.`,
     )
   } else {
-    reasons.push('No mapped inundation or urban flash zone currently intersects this exact point.')
+    reasons.push('No intersecting mapped zone was returned; coverage may be incomplete.')
   }
 
   const gaugeScore = RISK_ORDER[gaugeTier] || 0
@@ -247,6 +260,9 @@ export function expertSiteSuitability({
   } else if (score >= 2) {
     verdict = 'Proceed with caution — review drainage and seasonal flood history'
     verdictTier = 'Watch'
+  } else if (!susOrder || RISK_ORDER[gaugeTier] == null) {
+    verdict = 'Insufficient data to assess suitability'
+    verdictTier = 'Unknown'
   }
 
   if (verdictTier === 'Normal' || verdictTier === 'Watch') {

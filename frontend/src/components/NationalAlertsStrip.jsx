@@ -57,7 +57,7 @@ export default function NationalAlertsStrip({
           ) : null}
           {showAffectedPlaces && !alerts.length && !affectedLoading && highlyLikely === 0 && (
             <span className={clsx('text-xs', dark ? 'text-teal-200/90' : 'text-teal-900')}>
-              No active flood alerts nationwide from monitored gauges.
+              No alerts returned. Data coverage and freshness are not verified; consult official sources.
             </span>
           )}
           {!showAffectedPlaces && !alerts.length && (

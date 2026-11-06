@@ -21,12 +21,14 @@ const TABS = [
 
 const RISK_BANNER = {
   dark: {
+    Unknown: 'border-gray-700 bg-gray-900 text-gray-300',
     Normal: 'border-emerald-800 bg-emerald-950/50 text-emerald-300',
     Watch: 'border-amber-800 bg-amber-950/50 text-amber-300',
     Warning: 'border-orange-800 bg-orange-950/50 text-orange-300',
     Emergency: 'border-red-800 bg-red-950/50 text-red-300',
   },
   light: {
+    Unknown: 'border-slate-300 bg-slate-100 text-slate-700',
     Normal: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     Watch: 'border-amber-200 bg-amber-50 text-amber-800',
     Warning: 'border-orange-200 bg-orange-50 text-orange-800',
@@ -233,7 +235,7 @@ export default function StationConsole({
     : latestReading
   const pct = bankPct(station, effectiveReading)
   const overall = stationRisk(effectiveReading, prediction, pct)
-  const banner = (dark ? RISK_BANNER.dark : RISK_BANNER.light)[overall] || RISK_BANNER.light.Normal
+  const banner = (dark ? RISK_BANNER.dark : RISK_BANNER.light)[overall] || RISK_BANNER.light.Unknown
 
   const level = effectiveReading?.water_level_m
   const bankFull = station?.bank_full_m ?? liveReading?.bank_full_m

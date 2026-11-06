@@ -3,6 +3,7 @@
 import { HORIZON_KEYS, normalizeHorizons } from './horizons'
 
 const TIER_STYLE = {
+  Unknown: { bg: '#f1f5f9', border: '#cbd5e1', text: '#475569' },
   Normal: { bg: '#f0fdfa', border: '#99f6e4', text: '#0f766e' },
   Watch: { bg: '#fffbeb', border: '#fcd34d', text: '#b45309' },
   Warning: { bg: '#fff7ed', border: '#fdba74', text: '#c2410c' },
@@ -35,8 +36,8 @@ function fmtProb(prob) {
   return `${Math.round(pct)}%`
 }
 
-function badgeHtml(label, tier = 'Normal') {
-  const s = TIER_STYLE[tier] || TIER_STYLE.Normal
+function badgeHtml(label, tier = 'Unknown') {
+  const s = TIER_STYLE[tier] || TIER_STYLE.Unknown
   return `<span class="badge" style="background:${s.bg};border-color:${s.border};color:${s.text}">${esc(label)}</span>`
 }
 
@@ -44,9 +45,9 @@ function listOrEmpty(itemsHtml, empty = 'None listed.') {
   return itemsHtml || `<li class="muted">${esc(empty)}</li>`
 }
 
-function briefRiskLevel({ tier = 'Normal', site = null, place = null } = {}) {
+function briefRiskLevel({ tier = 'Unknown', site = null, place = null } = {}) {
   const rank = { Low: 1, Moderate: 2, High: 3 }
-  let level = 'Low'
+  let level = tier === 'Normal' ? 'Low' : 'Unknown'
   if (tier === 'Emergency' || tier === 'Warning') level = 'High'
   else if (tier === 'Watch') level = 'Moderate'
 
@@ -56,6 +57,7 @@ function briefRiskLevel({ tier = 'Normal', site = null, place = null } = {}) {
   else if (sus === 'Moderate') susLevel = 'Moderate'
   else if (sus === 'Low') susLevel = 'Low'
 
+  if (level === 'Unknown' && susLevel === 'Low') return level
   if (susLevel && (rank[susLevel] || 0) > (rank[level] || 0)) return susLevel
   return level
 }
@@ -82,7 +84,7 @@ export function exportIntelligenceReportPdf({
     timeStyle: 'short',
   })
   const brief = detailLevel === 'brief'
-  const tier = overallRisk || 'Normal'
+  const tier = overallRisk || 'Unknown'
   const verdictTier = suitability?.verdictTier || tier
   const publicRiskLevel = briefRiskLevel({ tier, site, place })
   const placeTitle = place?.name || 'Selected location'
@@ -98,7 +100,7 @@ export function exportIntelligenceReportPdf({
   const horizonRows = HORIZON_KEYS
     .map((k) => {
       const h = normalizedHorizons[k] || {}
-      const hTier = h.risk_tier || 'Normal'
+      const hTier = h.risk_tier || 'Unknown'
       return `<tr>
         <td><strong>${k}</strong></td>
         ${brief ? '' : `<td class="num">${fmtProb(h.flood_prob)}</td>`}
@@ -140,7 +142,7 @@ export function exportIntelligenceReportPdf({
         <td>${esc(s.name)}</td>
         <td>${esc(s.class || '—')}</td>
         <td>${esc(s.susceptibility || '—')}</td>
-        <td>${badgeHtml(s.risk_tier || '—', s.risk_tier || 'Normal')}</td>
+        <td>${badgeHtml(s.risk_tier || 'Unknown', s.risk_tier || 'Unknown')}</td>
         <td class="num">${esc(fmtKm(s.distance_km))}</td>
       </tr>`,
     )
@@ -152,7 +154,7 @@ export function exportIntelligenceReportPdf({
       (g) => `<tr>
         <td>${esc(g.name)}</td>
         <td>${esc(g.river || '—')}</td>
-        <td>${badgeHtml(g.overall_risk || 'Normal', g.overall_risk || 'Normal')}</td>
+        <td>${badgeHtml(g.overall_risk || 'Unknown', g.overall_risk || 'Unknown')}</td>
         <td class="num">${esc(fmtKm(g.distance_km))}</td>
       </tr>`,
     )
@@ -471,7 +473,7 @@ export function exportIntelligenceReportPdf({
     ${brief ? `
     <section class="section">
       <div class="verdict">
-        <div>${badgeHtml(`Status · ${tier}`, tier)} ${badgeHtml(`Risk level · ${publicRiskLevel}`, publicRiskLevel === 'High' ? 'Warning' : publicRiskLevel === 'Moderate' ? 'Watch' : 'Normal')}</div>
+        <div>${badgeHtml(`Status · ${tier}`, tier)} ${badgeHtml(`Risk level · ${publicRiskLevel}`, publicRiskLevel === 'High' ? 'Warning' : publicRiskLevel === 'Moderate' ? 'Watch' : publicRiskLevel === 'Low' ? 'Normal' : 'Unknown')}</div>
         <p class="verdict-title">${esc(briefSummary)}</p>
         <ul>${listOrEmpty(reasonList, 'No details available.')}</ul>
       </div>
