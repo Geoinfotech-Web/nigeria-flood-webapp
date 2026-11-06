@@ -234,6 +234,14 @@ This validation is only active when `APP_ENV=production`; ensure it is set
 for every hosted API instance. These checks alone do not make the application
 ready for public warnings or protect other services.
 
+The legacy forecast pipeline is disabled by default when `APP_ENV=production`;
+its endpoints return HTTP 503 and cached predictions are hidden from the risk
+map. For hosted staging, set `FORECASTS_ENABLED=0` explicitly as well. Local
+development retains the old behavior unless disabled. Do not enable forecasts
+in production until the model, feature pipeline, input freshness, and fallback
+behavior have been corrected and independently validated. This switch does not
+validate other risk displays, observations, or map layers.
+
 | Service | Username | Password  |
 |---------|----------|-----------|
 | API JWT | admin    | admin123  |
