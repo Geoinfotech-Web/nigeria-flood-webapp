@@ -3,6 +3,8 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 
+from forecast_config import forecasts_enabled
+
 router = APIRouter()
 
 RISK_ORDER = {"Normal": 0, "Watch": 1, "Warning": 2, "Emergency": 3}
@@ -33,6 +35,8 @@ async def get_all_predictions(request: Request):
 
     Must be declared before /{station_id}/predictions so "all" is not parsed as an id.
     """
+    if not forecasts_enabled():
+        raise HTTPException(status_code=503, detail="Forecasts are not available")
     async with request.app.state.db.acquire() as conn:
         stations = await conn.fetch("SELECT id FROM gauge_stations")
 
@@ -48,6 +52,8 @@ async def get_all_predictions(request: Request):
 
 @router.get("/{station_id}/predictions")
 async def get_predictions(station_id: int, request: Request):
+    if not forecasts_enabled():
+        raise HTTPException(status_code=503, detail="Forecasts are not available")
     # 1) Try Redis cache (30 s TTL)
     cache_key = f"pred:{station_id}"
     cached = await request.app.state.redis.get(cache_key)
